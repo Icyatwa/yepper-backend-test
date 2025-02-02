@@ -191,7 +191,7 @@ function sendNoAdsResponse(res, callback) {
       <div class="yepper-ad-empty">
         <div class="yepper-ad-empty-title">Available Advertising Space</div>
         <div class="yepper-ad-empty-text">Premium spot for your business advertisement</div>
-        <a href="http://localhost:3000/select" class="yepper-ad-empty-link">Advertise Here</a>
+        <a href="https://payment-test-page.vercel.app/select" class="yepper-ad-empty-link">Advertise Here</a>
       </div>
     </div>
   `;

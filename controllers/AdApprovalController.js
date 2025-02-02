@@ -581,13 +581,13 @@ exports.adPaymentCallback = async (req, res) => {
   try {
     const { tx_ref, transaction_id } = req.query;
     if (!tx_ref || !transaction_id) {
-      return res.redirect('http://localhost:3000/approved-ads?status=invalid-params');
+      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=invalid-params');
     }
 
     // Parse adId and websiteId from tx_ref
     const [prefix, timestamp, adId, websiteId] = tx_ref.split('-');
     if (!adId || !websiteId) {
-      return res.redirect('http://localhost:3000/approved-ads?status=invalid-txref');
+      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=invalid-txref');
     }
 
     // Verify the transaction with Flutterwave
@@ -608,7 +608,7 @@ exports.adPaymentCallback = async (req, res) => {
 
     if (!payment) {
       console.error('Payment record not found for tx_ref:', tx_ref);
-      return res.redirect('http://localhost:3000/approved-ads?status=payment-not-found');
+      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=payment-not-found');
     }
 
     // Verify payment amount and currency
@@ -616,7 +616,7 @@ exports.adPaymentCallback = async (req, res) => {
       console.error('Payment amount or currency mismatch');
       payment.status = 'failed';
       await payment.save();
-      return res.redirect('http://localhost:3000/approved-ads?status=amount-mismatch');
+      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=amount-mismatch');
     }
 
     if (status === 'successful') {
@@ -719,18 +719,18 @@ exports.adPaymentCallback = async (req, res) => {
       await session.commitTransaction();
       transactionStarted = false;
 
-      return res.redirect('http://localhost:3000/approved-ads?status=success');
+      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=success');
     } else {
       payment.status = 'failed';
       await payment.save();
-      return res.redirect('http://localhost:3000/approved-ads?status=failed');
+      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=failed');
     }
   } catch (error) {
     console.error('Error handling payment callback:', error);
     if (transactionStarted) {
       await session.abortTransaction();
     }
-    return res.redirect('http://localhost:3000/approved-ads?status=error');
+    return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=error');
   } finally {
     await session.endSession();
   }

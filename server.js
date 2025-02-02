@@ -166,6 +166,7 @@ const corsOptions = {
       'https://www.payment-test-page.vercel.app',
       'http://localhost:3000',
       'http://localhost:5000',
+      'https://yepper-backend-test.onrender.com',
       undefined // Allow requests with no origin (like mobile apps or curl requests)
     ];
     
@@ -215,7 +216,7 @@ app.use('/api/payout', payoutRoutes);
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://payment-test-page.vercel.app',
+    origin: process.env.CLIENT_URL || 'https://payment-test-page.vercel.app',
     methods: ['GET', 'POST'],
     credentials: true
   }

@@ -91,11 +91,11 @@ exports.paymentCallback = async (req, res) => {
         });
       }
 
-      return res.redirect('http://localhost:3000/list'); 
+      return res.redirect('https://payment-test-page.vercel.app/list'); 
     } else {
       // Update the payment record as failed
       await Payment.findOneAndUpdate({ tx_ref }, { status: 'failed' });
-      return res.redirect('http://localhost:3000/failed');
+      return res.redirect('https://payment-test-page.vercel.app/failed');
     }
   } catch (error) {
     console.error('Error processing payment callback:', error);
