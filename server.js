@@ -215,7 +215,7 @@ app.use('/api/payout', payoutRoutes);
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://yepper.cc',
+    origin: process.env.CLIENT_URL || 'http://payment-test-page.vercel.app',
     methods: ['GET', 'POST'],
     credentials: true
   }
