@@ -27,9 +27,9 @@ const corsOptions = {
   origin: function(origin, callback) {
     // Allow requests from all your deployment URLs and development environments
     const allowedOrigins = [
-      'http://payment-test-page.vercel.app/',
-      'https://payment-test-page.vercel.app',
-      'https://www.payment-test-page.vercel.app/',
+      'http://yepper.cc',
+      'https://yepper.cc',
+      'https://www.yepper.cc',
       'http://localhost:3000',
       'http://localhost:5000',
       undefined // Allow requests with no origin (like mobile apps or curl requests)
