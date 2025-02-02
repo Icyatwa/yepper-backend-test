@@ -11,7 +11,7 @@ exports.generateApi = async (req, res) => {
     const baseCode = `
       (function(){
         const _s="${spaceId}",_w="${websiteId}",_c="${categoryId}";
-        const _b="http://localhost:5000";
+        const _b="https://yepper-backend-test.onrender.com";
         const _l=()=>{
           const s=document.createElement("script");
           const c="y"+Math.random().toString(36).substr(2,9);

@@ -39,7 +39,7 @@ class WithdrawalService {
       currency: 'RWF',
       beneficiary_name: 'MoMo Transfer',
       reference,
-      callback_url: "http://localhost:5000/api/accept/withdrawal-callback",
+      callback_url: "https://yepper-backend-test.onrender.com/api/accept/withdrawal-callback",
       debit_currency: 'RWF'
     };
   }
@@ -514,7 +514,7 @@ exports.initiateAdPayment = async (req, res) => {
       tx_ref,
       amount: Number(amount),
       currency: 'RWF',
-      redirect_url: "http://localhost:5000/api/accept/callback",
+      redirect_url: "https://yepper-backend-test.onrender.com/api/accept/callback",
       meta: {
         adId,
         websiteId,

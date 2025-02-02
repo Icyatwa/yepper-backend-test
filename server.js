@@ -27,11 +27,11 @@ const corsOptions = {
   origin: function(origin, callback) {
     // Allow requests from all your deployment URLs and development environments
     const allowedOrigins = [
-      'http://yepper.cc',
-      'https://yepper.cc',
-      'https://www.yepper.cc',
+      'http://payment-test-page.vercel.app/',
+      'https://payment-test-page.vercel.app',
+      'https://www.payment-test-page.vercel.app/',
       'http://localhost:3000',
-      'http://localhost:5000',
+      'https://yepper-backend-test.onrender.com',
       undefined // Allow requests with no origin (like mobile apps or curl requests)
     ];
     

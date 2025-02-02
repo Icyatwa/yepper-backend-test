@@ -35,7 +35,7 @@ exports.initiateCardPayment = async (req, res) => {
       tx_ref,
       amount,
       currency,
-      redirect_url: 'http://localhost:5000/api/payment/callback',
+      redirect_url: 'https://yepper-backend-test.onrender.com/api/payment/callback',
       customer: {
         email: email || 'no-email@example.com',
         phonenumber: phoneNumber,
