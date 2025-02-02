@@ -80,7 +80,7 @@ app.use('/api/payout', payoutRoutes);
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: process.env.CLIENT_URL || 'https://payment-test-page.vercel.app',
     methods: ['GET', 'POST'],
     credentials: true
   }
