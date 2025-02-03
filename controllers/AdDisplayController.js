@@ -77,37 +77,68 @@ exports.displayAd = async (req, res) => {
       }
 
       .yepper-ad-empty {
-        padding: 20px;
+        padding: 2rem;
         text-align: center;
+        background: linear-gradient(145deg, #ffffff, #f8f9fa);
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 1rem;
       }
 
       .yepper-ad-empty-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: #333;
-        margin-bottom: 8px;
+        font-size: clamp(1.125rem, 4vw, 1.25rem);
+        font-weight: 700;
+        color: #2d3748;
+        margin: 0;
+        line-height: 1.2;
       }
 
       .yepper-ad-empty-text {
-        font-size: 14px;
-        color: #666;
-        margin-bottom: 15px;
+        font-size: clamp(0.875rem, 3vw, 1rem);
+        color: #718096;
+        margin: 0;
+        line-height: 1.5;
+        max-width: 24ch;
       }
 
       .yepper-ad-empty-link {
         display: inline-block;
-        padding: 8px 16px;
-        background: #007bff;
+        padding: 0.75rem 1.5rem;
+        background: orangered;
         color: #fff;
-        border-radius: 4px;
+        border-radius: 8px;
         text-decoration: none;
-        font-size: 14px;
-        transition: background 0.3s ease;
+        font-size: 0.875rem;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        border: none;
+        cursor: pointer;
+        margin-top: 0.5rem;
       }
 
       .yepper-ad-empty-link:hover {
-        background: #0056b3;
-        text-decoration: none;
+        background: #e63e00;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(255, 69, 0, 0.2);
+      }
+
+      .yepper-ad-empty-link:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 8px rgba(255, 69, 0, 0.2);
+      }
+
+      @media (max-width: 320px) {
+        .yepper-ad-empty {
+          padding: 1.5rem;
+          min-height: 180px;
+        }
+        
+        .yepper-ad-empty-link {
+          padding: 0.625rem 1.25rem;
+        }
       }
     `;
 
