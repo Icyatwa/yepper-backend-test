@@ -3,7 +3,6 @@ const axios = require('axios');
 const mongoose = require('mongoose');
 const Flutterwave = require('flutterwave-node-v3');
 const ImportAd = require('../models/ImportAdModel');
-const AdSpace = require('../models/AdSpaceModel');
 const AdCategory = require('../models/AdCategoryModel');
 const Website = require('../models/WebsiteModel');
 const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
@@ -39,7 +38,7 @@ class WithdrawalService {
       currency: 'RWF',
       beneficiary_name: 'MoMo Transfer',
       reference,
-      callback_url: "https://yepper-backend-test.onrender.com/api/accept/withdrawal-callback",
+      callback_url: "http://localhost:5000/api/accept/withdrawal-callback",
       debit_currency: 'RWF'
     };
   }
@@ -514,7 +513,7 @@ exports.initiateAdPayment = async (req, res) => {
       tx_ref,
       amount: Number(amount),
       currency: 'RWF',
-      redirect_url: "https://yepper-backend-test.onrender.com/api/accept/callback",
+      redirect_url: "http://localhost:5000/api/accept/callback",
       meta: {
         adId,
         websiteId,
@@ -581,13 +580,13 @@ exports.adPaymentCallback = async (req, res) => {
   try {
     const { tx_ref, transaction_id } = req.query;
     if (!tx_ref || !transaction_id) {
-      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=invalid-params');
+      return res.redirect('http://localhost:3000/approved-ads?status=invalid-params');
     }
 
     // Parse adId and websiteId from tx_ref
     const [prefix, timestamp, adId, websiteId] = tx_ref.split('-');
     if (!adId || !websiteId) {
-      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=invalid-txref');
+      return res.redirect('http://localhost:3000/approved-ads?status=invalid-txref');
     }
 
     // Verify the transaction with Flutterwave
@@ -608,7 +607,7 @@ exports.adPaymentCallback = async (req, res) => {
 
     if (!payment) {
       console.error('Payment record not found for tx_ref:', tx_ref);
-      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=payment-not-found');
+      return res.redirect('http://localhost:3000/approved-ads?status=payment-not-found');
     }
 
     // Verify payment amount and currency
@@ -616,7 +615,7 @@ exports.adPaymentCallback = async (req, res) => {
       console.error('Payment amount or currency mismatch');
       payment.status = 'failed';
       await payment.save();
-      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=amount-mismatch');
+      return res.redirect('http://localhost:3000/approved-ads?status=amount-mismatch');
     }
 
     if (status === 'successful') {
@@ -719,149 +718,20 @@ exports.adPaymentCallback = async (req, res) => {
       await session.commitTransaction();
       transactionStarted = false;
 
-      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=success');
+      return res.redirect('http://localhost:3000/approved-ads?status=success');
     } else {
       payment.status = 'failed';
       await payment.save();
-      return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=failed');
+      return res.redirect('http://localhost:3000/approved-ads?status=failed');
     }
   } catch (error) {
     console.error('Error handling payment callback:', error);
     if (transactionStarted) {
       await session.abortTransaction();
     }
-    return res.redirect('https://payment-test-page.vercel.app/approved-ads?status=error');
+    return res.redirect('http://localhost:3000/approved-ads?status=error');
   } finally {
     await session.endSession();
-  }
-};
-
-exports.checkWithdrawalEligibility = async (req, res) => {
-  try {
-    const { payment } = req.params;
-    console.log('Received payment parameter:', payment);
-    
-    // First try to find the PaymentTracker by the payment reference
-    let paymentTracker;
-    try {
-      paymentTracker = await PaymentTracker.findOne({
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
-          { paymentReference: payment }
-        ]
-      });
-      console.log('Existing payment tracker:', paymentTracker);
-    } catch (findError) {
-      console.error('Error finding payment tracker:', findError);
-      throw findError;
-    }
-
-    if (!paymentTracker) {
-      console.log('No existing payment tracker found, attempting to create new one');
-      // If no PaymentTracker exists, create one
-      const paymentParts = payment.split('-');
-      console.log('Payment reference parts:', paymentParts);
-
-      if (paymentParts.length < 3) {
-        return res.status(400).json({
-          eligible: false,
-          message: 'Invalid payment reference format',
-          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
-        });
-      }
-
-      const userId = paymentParts[1];
-      const adId = paymentParts[2];
-      const categoryId = paymentParts[3];
-
-      try {
-        const newPaymentTracker = new PaymentTracker({
-          userId,
-          adId: adId,
-          categoryId: categoryId,
-          paymentDate: new Date(),
-          amount: 0, // You'll need to set this from your payment data
-          viewsRequired: 1000, // Set your default required views
-          currentViews: 0,
-          status: 'pending',
-          paymentReference: payment
-        });
-
-        console.log('Attempting to save new payment tracker:', newPaymentTracker);
-        await newPaymentTracker.save();
-        paymentTracker = newPaymentTracker;
-        console.log('Successfully saved new payment tracker');
-      } catch (createError) {
-        console.error('Error creating payment tracker:', createError);
-        return res.status(500).json({
-          eligible: false,
-          message: 'Error creating payment tracker',
-          error: createError.message
-        });
-      }
-    }
-
-    console.log('Attempting to populate payment data');
-    // If found, then populate the references
-    let populatedPayment;
-    try {
-      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
-        .populate({
-          path: 'adId',
-          select: 'businessName businessLocation businessLink'
-        })
-        .populate({
-          path: 'categoryId',
-          select: 'categoryName visitorRange'
-        });
-
-      console.log('Populated payment data:', populatedPayment);
-    } catch (populateError) {
-      console.error('Error populating payment data:', populateError);
-      throw populateError;
-    }
-
-    const paymentData = populatedPayment.toObject();
-
-    const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
-    const daysSinceLastWithdrawal = Math.floor(
-      (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
-    );
-
-    if (daysSinceLastWithdrawal < 30) {
-      const nextEligibleDate = new Date(lastRelevantDate);
-      nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
-      
-      return res.status(200).json({
-        eligible: false,
-        message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
-        nextEligibleDate,
-        payment: paymentData
-      });
-    }
-
-    if (paymentData.currentViews < paymentData.viewsRequired) {
-      return res.status(200).json({
-        eligible: false,
-        message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
-        payment: paymentData
-      });
-    }
-
-    return res.status(200).json({ 
-      eligible: true,
-      message: 'Eligible for withdrawal',
-      payment: paymentData
-    });
-
-  } catch (error) {
-    console.error('Withdrawal eligibility check error:', error);
-    return res.status(500).json({ 
-      eligible: false,
-      message: 'Error checking withdrawal eligibility',
-      error: error.message,
-      stack: error.stack
-    });
   }
 };
 
@@ -952,7 +822,31 @@ exports.checkWithdrawalEligibility = async (req, res) => {
 
 //     const paymentData = populatedPayment.toObject();
 
-//     // All eligibility checks removed for testing
+//     const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
+//     const daysSinceLastWithdrawal = Math.floor(
+//       (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
+//     );
+
+//     if (daysSinceLastWithdrawal < 30) {
+//       const nextEligibleDate = new Date(lastRelevantDate);
+//       nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
+      
+//       return res.status(200).json({
+//         eligible: false,
+//         message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
+//         nextEligibleDate,
+//         payment: paymentData
+//       });
+//     }
+
+//     if (paymentData.currentViews < paymentData.viewsRequired) {
+//       return res.status(200).json({
+//         eligible: false,
+//         message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
+//         payment: paymentData
+//       });
+//     }
+
 //     return res.status(200).json({ 
 //       eligible: true,
 //       message: 'Eligible for withdrawal',
@@ -969,6 +863,111 @@ exports.checkWithdrawalEligibility = async (req, res) => {
 //     });
 //   }
 // };
+
+exports.checkWithdrawalEligibility = async (req, res) => {
+  try {
+    const { payment } = req.params;
+    console.log('Received payment parameter:', payment);
+    
+    // First try to find the PaymentTracker by the payment reference
+    let paymentTracker;
+    try {
+      paymentTracker = await PaymentTracker.findOne({
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
+          { paymentReference: payment }
+        ]
+      });
+      console.log('Existing payment tracker:', paymentTracker);
+    } catch (findError) {
+      console.error('Error finding payment tracker:', findError);
+      throw findError;
+    }
+
+    if (!paymentTracker) {
+      console.log('No existing payment tracker found, attempting to create new one');
+      // If no PaymentTracker exists, create one
+      const paymentParts = payment.split('-');
+      console.log('Payment reference parts:', paymentParts);
+
+      if (paymentParts.length < 3) {
+        return res.status(400).json({
+          eligible: false,
+          message: 'Invalid payment reference format',
+          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
+        });
+      }
+
+      const userId = paymentParts[1];
+      const adId = paymentParts[2];
+      const categoryId = paymentParts[3];
+
+      try {
+        const newPaymentTracker = new PaymentTracker({
+          userId,
+          adId: adId,
+          categoryId: categoryId,
+          paymentDate: new Date(),
+          amount: 0, // You'll need to set this from your payment data
+          viewsRequired: 1000, // Set your default required views
+          currentViews: 0,
+          status: 'pending',
+          paymentReference: payment
+        });
+
+        console.log('Attempting to save new payment tracker:', newPaymentTracker);
+        await newPaymentTracker.save();
+        paymentTracker = newPaymentTracker;
+        console.log('Successfully saved new payment tracker');
+      } catch (createError) {
+        console.error('Error creating payment tracker:', createError);
+        return res.status(500).json({
+          eligible: false,
+          message: 'Error creating payment tracker',
+          error: createError.message
+        });
+      }
+    }
+
+    console.log('Attempting to populate payment data');
+    // If found, then populate the references
+    let populatedPayment;
+    try {
+      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
+        .populate({
+          path: 'adId',
+          select: 'businessName businessLocation businessLink'
+        })
+        .populate({
+          path: 'categoryId',
+          select: 'categoryName visitorRange'
+        });
+
+      console.log('Populated payment data:', populatedPayment);
+    } catch (populateError) {
+      console.error('Error populating payment data:', populateError);
+      throw populateError;
+    }
+
+    const paymentData = populatedPayment.toObject();
+
+    // All eligibility checks removed for testing
+    return res.status(200).json({ 
+      eligible: true,
+      message: 'Eligible for withdrawal',
+      payment: paymentData
+    });
+
+  } catch (error) {
+    console.error('Withdrawal eligibility check error:', error);
+    return res.status(500).json({ 
+      eligible: false,
+      message: 'Error checking withdrawal eligibility',
+      error: error.message,
+      stack: error.stack
+    });
+  }
+};
 
 exports.updateWebOwnerBalance = async (req, res) => {
   try {

@@ -146,7 +146,6 @@ const importAdRoutes = require('./routes/ImportAdRoutes');
 const requestAdRoutes = require('./routes/RequestAdRoutes');
 const websiteRoutes = require('./routes/WebsiteRoutes');
 const adCategoryRoutes = require('./routes/AdCategoryRoutes');
-// const adSpaceRoutes = require('./routes/AdSpaceRoutes');
 const apiGeneratorRoutes = require('./routes/ApiGeneratorRoutes');
 const adApprovalRoutes = require('./routes/AdApprovalRoutes');
 const adDisplayRoutes = require('./routes/AdDisplayRoutes');
@@ -157,44 +156,91 @@ const pictureRoutes = require('./routes/PictureRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Expanded allowedOrigins list
+const allowedOrigins = [
+  'http://payment-test-page.vercel.app',
+  'https://payment-test-page.vercel.app',
+  'https://www.payment-test-page.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5000',
+  'https://yepper-backend-test.onrender.com',
+  // Add your production domain when ready
+];
+
+// CORS configuration with better error handling
 const corsOptions = {
   origin: function(origin, callback) {
-    // Allow requests from all your deployment URLs and development environments
-    const allowedOrigins = [
-      'http://payment-test-page.vercel.app',
-      'https://payment-test-page.vercel.app',
-      'https://www.payment-test-page.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:5000',
-      'https://yepper-backend-test.onrender.com',
-      undefined // Allow requests with no origin (like mobile apps or curl requests)
-    ];
-    
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Check if the origin is allowed
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log('Blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.log(`Blocked origin: ${origin}`);
+      // Instead of throwing an error, send a more friendly response
+      callback(null, false);
     }
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Added OPTIONS
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With']
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'Origin', 
+    'Accept', 
+    'X-Requested-With',
+    'Access-Control-Allow-Origin',
+    'Access-Control-Allow-Headers',
+    'Access-Control-Allow-Methods'
+  ],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
-// Add CORS pre-flight handling
-app.options('*', cors(corsOptions));
+// Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Error handling middleware
+// Add a specific handler for OPTIONS requests
+app.options('*', cors(corsOptions));
+
+// Error handling middleware with more detailed responses
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    message: 'Internal Server Error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  console.error('Error:', {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    origin: req.headers.origin
+  });
+
+  // Handle CORS errors specifically
+  if (err.message.includes('CORS')) {
+    return res.status(403).json({
+      error: 'CORS Error',
+      message: 'This origin is not allowed to access the resource',
+      origin: req.headers.origin
+    });
+  }
+
+  // Handle other types of errors
+  res.status(err.status || 500).json({
+    error: 'Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred',
+    origin: req.headers.origin
   });
 });
 
+// Add security headers middleware
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  next();
+});
+
+// Rest of your existing code...
 app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -205,7 +251,6 @@ app.use('/api/importAds', importAdRoutes);
 app.use('/api/requestAd', requestAdRoutes);
 app.use('/api/websites', websiteRoutes);
 app.use('/api/ad-categories', adCategoryRoutes);
-// app.use('/api/ad-spaces', adSpaceRoutes);
 app.use('/api/generate-api', apiGeneratorRoutes);
 app.use('/api/accept', adApprovalRoutes);
 app.use('/api/ads', adDisplayRoutes);
@@ -216,22 +261,23 @@ app.use('/api/payout', payoutRoutes);
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'https://payment-test-page.vercel.app',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
   }
 });
 
-// Set up WebSocket server with existing socket.io instance
-setupWebSocketServer(server, io); // Add this line
+setupWebSocketServer(server, io);
 
 module.exports.io = io;
 connectDB()
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
+      console.log('Allowed origins:', allowedOrigins);
     });
   })
   .catch((error) => {
-    console.log(error);
+    console.error('Database connection error:', error);
   });

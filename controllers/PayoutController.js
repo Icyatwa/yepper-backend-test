@@ -88,7 +88,7 @@ exports.requestPayout = async (req, res) => {
       narration: `Creator payout - ${creatorId}`,
       currency: 'RWF',
       reference,
-      callback_url: "https://yepper-backend-test.onrender.com/api/payout/callback",
+      callback_url: "http://localhost:5000/api/payout/callback",
       debit_currency: 'RWF',
       beneficiary_name: beneficiaryName, // Add beneficiary name field
       meta: {

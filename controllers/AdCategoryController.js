@@ -18,7 +18,7 @@ const generateSecureScript = (categoryId) => {
   const coreScript = `
     const d=document,
           _i="${categoryId}",
-          _b="https://yepper-backend-test.onrender.com/api",
+          _b="http://localhost:5000/api",
           _t=5000;
 
     const _l=()=>{
@@ -49,7 +49,7 @@ const generateSecureScript = (categoryId) => {
           <div class="yepper-ad-empty">
             <div class="yepper-ad-empty-title">Available Space for Advertising</div>
             <div class="yepper-ad-empty-text">Premium spot for your business advertisement</div>
-            <a href="https://payment-test-page.vercel.app/select" class="yepper-ad-empty-link">Advertise Here</a>
+            <a href="http://localhost:3000/select" class="yepper-ad-empty-link">Advertise Here</a>
           </div>
         \`;
       };
