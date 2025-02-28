@@ -1,4 +1,3 @@
-// AdApprovalController.js
 const axios = require('axios');
 const mongoose = require('mongoose');
 const Flutterwave = require('flutterwave-node-v3');
@@ -43,8 +42,6 @@ class WithdrawalService {
     };
   }
 }
-
-
 
 exports.getPendingAds = async (req, res) => {
   try {
@@ -419,12 +416,6 @@ exports.confirmWebsiteAd = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
 exports.initiateAdPayment = async (req, res) => {
   try {
     const { adId, websiteId, amount, email, phoneNumber, userId } = req.body;
@@ -489,16 +480,12 @@ exports.initiateAdPayment = async (req, res) => {
 
     const tx_ref = `AD-${Date.now()}-${adId}-${websiteId}`;
 
-    // Format phone number to remove any spaces or special characters
-    const formattedPhone = phoneNumber ? phoneNumber.replace(/\D/g, '') : '';
-
     // Create payment record first
     const payment = new Payment({
       tx_ref,
       amount: Number(amount),
-      currency: 'RWF',
+      currency: 'USD',
       email,
-      phoneNumber: formattedPhone,
       userId,
       adId,
       websiteId,
@@ -512,8 +499,9 @@ exports.initiateAdPayment = async (req, res) => {
     const paymentPayload = {
       tx_ref,
       amount: Number(amount),
-      currency: 'RWF',
+      currency: 'USD',
       redirect_url: "http://localhost:5000/api/accept/callback",
+      payment_options: 'card', // Specify card payment only
       meta: {
         adId,
         websiteId,
@@ -521,13 +509,12 @@ exports.initiateAdPayment = async (req, res) => {
       },
       customer: {
         email,
-        phonenumber: formattedPhone,
-        name: ad.businessName || email // Use business name or email as customer name
+        name: ad.businessName || email
       },
       customizations: {
         title: 'Ad Space Payment',
         description: `Payment for ad space on website - ${ad.businessName}`,
-        logo: process.env.COMPANY_LOGO_URL || '' // Optional company logo
+        logo: process.env.COMPANY_LOGO_URL || ''
       }
     };
 
@@ -551,13 +538,11 @@ exports.initiateAdPayment = async (req, res) => {
         tx_ref
       });
     } else {
-      // If Flutterwave returns success but no payment link
       throw new Error('Invalid payment response from Flutterwave');
     }
   } catch (error) {
     console.error('Error initiating payment:', error.response?.data || error.message);
     
-    // Delete the payment record if Flutterwave request failed
     if (error.response?.status === 400) {
       try {
         await Payment.findOneAndDelete({ tx_ref });
@@ -735,135 +720,6 @@ exports.adPaymentCallback = async (req, res) => {
   }
 };
 
-// exports.checkWithdrawalEligibility = async (req, res) => {
-//   try {
-//     const { payment } = req.params;
-//     console.log('Received payment parameter:', payment);
-    
-//     // First try to find the PaymentTracker by the payment reference
-//     let paymentTracker;
-//     try {
-//       paymentTracker = await PaymentTracker.findOne({
-//         $or: [
-//           { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
-//           { paymentReference: payment }
-//         ]
-//       });
-//       console.log('Existing payment tracker:', paymentTracker);
-//     } catch (findError) {
-//       console.error('Error finding payment tracker:', findError);
-//       throw findError;
-//     }
-
-//     if (!paymentTracker) {
-//       console.log('No existing payment tracker found, attempting to create new one');
-//       // If no PaymentTracker exists, create one
-//       const paymentParts = payment.split('-');
-//       console.log('Payment reference parts:', paymentParts);
-
-//       if (paymentParts.length < 3) {
-//         return res.status(400).json({
-//           eligible: false,
-//           message: 'Invalid payment reference format',
-//           details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
-//         });
-//       }
-
-//       const userId = paymentParts[1];
-//       const adId = paymentParts[2];
-//       const categoryId = paymentParts[3];
-
-//       try {
-//         const newPaymentTracker = new PaymentTracker({
-//           userId,
-//           adId: adId,
-//           categoryId: categoryId,
-//           paymentDate: new Date(),
-//           amount: 0, // You'll need to set this from your payment data
-//           viewsRequired: 1000, // Set your default required views
-//           currentViews: 0,
-//           status: 'pending',
-//           paymentReference: payment
-//         });
-
-//         console.log('Attempting to save new payment tracker:', newPaymentTracker);
-//         await newPaymentTracker.save();
-//         paymentTracker = newPaymentTracker;
-//         console.log('Successfully saved new payment tracker');
-//       } catch (createError) {
-//         console.error('Error creating payment tracker:', createError);
-//         return res.status(500).json({
-//           eligible: false,
-//           message: 'Error creating payment tracker',
-//           error: createError.message
-//         });
-//       }
-//     }
-
-//     console.log('Attempting to populate payment data');
-//     // If found, then populate the references
-//     let populatedPayment;
-//     try {
-//       populatedPayment = await PaymentTracker.findById(paymentTracker._id)
-//         .populate({
-//           path: 'adId',
-//           select: 'businessName businessLocation businessLink'
-//         })
-//         .populate({
-//           path: 'categoryId',
-//           select: 'categoryName visitorRange'
-//         });
-
-//       console.log('Populated payment data:', populatedPayment);
-//     } catch (populateError) {
-//       console.error('Error populating payment data:', populateError);
-//       throw populateError;
-//     }
-
-//     const paymentData = populatedPayment.toObject();
-
-//     const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
-//     const daysSinceLastWithdrawal = Math.floor(
-//       (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
-//     );
-
-//     if (daysSinceLastWithdrawal < 30) {
-//       const nextEligibleDate = new Date(lastRelevantDate);
-//       nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
-      
-//       return res.status(200).json({
-//         eligible: false,
-//         message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
-//         nextEligibleDate,
-//         payment: paymentData
-//       });
-//     }
-
-//     if (paymentData.currentViews < paymentData.viewsRequired) {
-//       return res.status(200).json({
-//         eligible: false,
-//         message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
-//         payment: paymentData
-//       });
-//     }
-
-//     return res.status(200).json({ 
-//       eligible: true,
-//       message: 'Eligible for withdrawal',
-//       payment: paymentData
-//     });
-
-//   } catch (error) {
-//     console.error('Withdrawal eligibility check error:', error);
-//     return res.status(500).json({ 
-//       eligible: false,
-//       message: 'Error checking withdrawal eligibility',
-//       error: error.message,
-//       stack: error.stack
-//     });
-//   }
-// };
-
 exports.checkWithdrawalEligibility = async (req, res) => {
   try {
     const { payment } = req.params;
@@ -951,7 +807,31 @@ exports.checkWithdrawalEligibility = async (req, res) => {
 
     const paymentData = populatedPayment.toObject();
 
-    // All eligibility checks removed for testing
+    const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
+    const daysSinceLastWithdrawal = Math.floor(
+      (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
+    );
+
+    if (daysSinceLastWithdrawal < 30) {
+      const nextEligibleDate = new Date(lastRelevantDate);
+      nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
+      
+      return res.status(200).json({
+        eligible: false,
+        message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
+        nextEligibleDate,
+        payment: paymentData
+      });
+    }
+
+    if (paymentData.currentViews < paymentData.viewsRequired) {
+      return res.status(200).json({
+        eligible: false,
+        message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
+        payment: paymentData
+      });
+    }
+
     return res.status(200).json({ 
       eligible: true,
       message: 'Eligible for withdrawal',

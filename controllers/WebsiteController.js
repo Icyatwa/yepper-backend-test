@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const { Storage } = require('@google-cloud/storage');
 require('dotenv').config();
+const Referral = require('../models/Referral'); // Add this import
 
 // Create credentials object from environment variables
 const credentials = {
@@ -115,6 +116,25 @@ exports.createWebsite = [upload.single('file'), async (req, res) => {
     });
 
     const savedWebsite = await newWebsite.save();
+
+    const referral = await Referral.findOne({ 
+      referredUserId: ownerId,
+      status: { $in: ['pending', 'website_created'] }
+    });
+
+    if (referral) {
+      // Update referral with website info
+      referral.status = 'website_created';
+      referral.websiteDetails.push({
+        websiteId: savedWebsite._id,
+        websiteName: savedWebsite.websiteName,
+        websiteLink: savedWebsite.websiteLink,
+        createdAt: new Date()
+      });
+      referral.lastUpdated = new Date();
+      await referral.save();
+    }
+
     res.status(201).json(savedWebsite);
   } catch (error) {
     console.error('Error creating website:', error);
