@@ -64,41 +64,92 @@ exports.serveAdScript = async (req, res) => {
           transition: transform 0.3s ease;
         }
         .yepper-ad-text {
-          margin: 8px 0;
-          font-size: 14px;
-          color: #333;
-          text-align: center;
+          
         }
         .yepper-ad-empty {
           padding: 20px;
           text-align: center;
-          background-color: #f8f9fa;
-          border-radius: 8px;
-          border: 1px solid #e9ecef;
+          background-color: rgba(23, 23, 23, 0.4);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: currentColor;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          transition: all 0.5s;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+        .yepper-ad-empty:hover {
+          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
         }
         .yepper-ad-empty-title {
           font-size: 16px;
           font-weight: bold;
           margin-bottom: 8px;
-          color: #495057;
+          opacity: 0.9;
+          letter-spacing: 0.02em;
         }
         .yepper-ad-empty-text {
           font-size: 14px;
           margin-bottom: 16px;
-          color: #6c757d;
+          opacity: 0.7;
         }
         .yepper-ad-empty-link {
-          display: inline-block;
-          padding: 8px 16px;
-          background-color: #007bff;
-          color: white;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 10px 24px;
+          background: rgba(80, 80, 80, 0.25);
+          color: inherit;
           text-decoration: none;
-          border-radius: 4px;
+          border-radius: 12px;
           font-size: 14px;
-          transition: background-color 0.2s;
+          font-weight: 500;
+          letter-spacing: 0.05em;
+          transition: all 0.3s;
+          position: relative;
+          overflow: hidden;
+          text-transform: uppercase;
+          border: 1px solid rgba(255, 255, 255, 0.15);
         }
         .yepper-ad-empty-link:hover {
-          background-color: #0069d9;
+          background: rgba(100, 100, 100, 0.35);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Dark mode detection and adaptations */
+        @media (prefers-color-scheme: dark) {
+          .yepper-ad-empty {
+            background-color: rgba(30, 30, 30, 0.6);
+            border-color: rgba(255, 255, 255, 0.07);
+          }
+          .yepper-ad-empty-link {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.1);
+          }
+          .yepper-ad-empty-link:hover {
+            background: rgba(255, 255, 255, 0.15);
+          }
+        }
+        
+        /* Light mode detection and adaptations */
+        @media (prefers-color-scheme: light) {
+          .yepper-ad-empty {
+            background-color: rgba(250, 250, 250, 0.7);
+            border-color: rgba(0, 0, 0, 0.05);
+            color: #333;
+          }
+          .yepper-ad-empty-link {
+            background: rgba(0, 0, 0, 0.05);
+            border-color: rgba(0, 0, 0, 0.08);
+          }
+          .yepper-ad-empty-link:hover {
+            background: rgba(0, 0, 0, 0.08);
+          }
         }
       \`;
       
@@ -141,10 +192,12 @@ exports.serveAdScript = async (req, res) => {
       // Function to show empty state
       const showEmptyState = (container) => {
         container.innerHTML = \`
-          <div class="yepper-ad-empty">
-            <div class="yepper-ad-empty-title">Available Space for Advertising</div>
-            <div class="yepper-ad-empty-text">Premium spot for your business advertisement</div>
-            <a href="http://localhost:3000/select" class="yepper-ad-empty-link">Advertise Here</a>
+          <div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">
+            <div class="yepper-ad-empty-title font-bold tracking-wide">Available Space for Advertising</div>
+            <a href="http://localhost:3000/select" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">
+              <div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <span class="relative z-10 uppercase tracking-wider">Advertise Here</span>
+            </a>
           </div>
         \`;
       };

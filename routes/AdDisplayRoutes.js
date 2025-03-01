@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const adDisplayController = require('../controllers/AdDisplayController');
-const AdScriptController = require('../controllers/AdScriptController'); // New controller
+const AdScriptController = require('../controllers/AdScriptController');
 
 router.get('/display', adDisplayController.displayAd);
 router.get('/script/:scriptId', AdScriptController.serveAdScript);
