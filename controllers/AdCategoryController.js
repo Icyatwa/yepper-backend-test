@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const AdCategory = require('../models/AdCategoryModel');
 const crypto = require('crypto');
 const ImportAd = require('../models/ImportAdModel');
@@ -69,6 +70,8 @@ exports.createCategory = async (req, res) => {
 };
 
 exports.deleteCategory = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const { categoryId } = req.params;
     const { ownerId } = req.body;
@@ -86,35 +89,74 @@ exports.deleteCategory = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized to delete this category' });
     }
 
-    // Check if any ads have been confirmed for this category
-    const hasConfirmedAds = await ImportAd.exists({
-      websiteSelections: {
+    // Check for any ads with this category confirmed or approved
+    const existingAds = await ImportAd.find({
+      'websiteSelections': {
         $elemMatch: {
-          categories: categoryId,
-          confirmed: true
+          'categories': categoryId,
+          $or: [
+            { 'confirmed': true },
+            { 'approved': true }
+          ]
         }
       }
     });
 
-    if (hasConfirmedAds) {
+    // If any ads exist with this category confirmed or approved, prevent deletion
+    if (existingAds.length > 0) {
       return res.status(400).json({ 
-        message: 'Cannot delete category with confirmed ads' 
+        message: 'Cannot delete category with active or confirmed ads',
+        affectedAds: existingAds.map(ad => ad._id)
       });
     }
 
-    // Delete the category
-    await AdCategory.findByIdAndDelete(categoryId);
+    // Start transaction
+    session.startTransaction();
 
-    res.status(200).json({ 
-      message: 'Category deleted successfully' 
-    });
+    try {
+      // Delete the category
+      await AdCategory.findByIdAndDelete(categoryId).session(session);
+
+      // Remove references to this category from all ImportAd documents
+      await ImportAd.updateMany(
+        { 'websiteSelections.categories': categoryId },
+        { 
+          $pull: { 
+            'websiteSelections.$.categories': categoryId 
+          } 
+        }
+      ).session(session);
+
+      // Commit the transaction
+      await session.commitTransaction();
+
+      res.status(200).json({ 
+        message: 'Category deleted successfully' 
+      });
+
+    } catch (transactionError) {
+      // Abort the transaction on error
+      await session.abortTransaction();
+      throw transactionError;
+    }
 
   } catch (error) {
     console.error('Error deleting category:', error);
+    
+    // Ensure session is ended even if there's an error
+    if (session) {
+      await session.endSession();
+    }
+
     res.status(500).json({ 
       message: 'Failed to delete category', 
       error: error.message 
     });
+  } finally {
+    // Ensure session is always ended
+    if (session) {
+      await session.endSession();
+    }
   }
 };
 

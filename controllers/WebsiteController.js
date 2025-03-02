@@ -145,6 +145,38 @@ exports.createWebsite = [upload.single('file'), async (req, res) => {
   }
 }];
 
+exports.updateWebsiteName = async (req, res) => {
+  try {
+    const { websiteId } = req.params;
+    const { websiteName } = req.body;
+
+    // Validate input
+    if (!websiteId || !websiteName) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Find and update the website
+    const updatedWebsite = await Website.findByIdAndUpdate(
+      websiteId, 
+      { websiteName }, 
+      { new: true, runValidators: true }
+    );
+
+    // Check if website exists
+    if (!updatedWebsite) {
+      return res.status(404).json({ message: 'Website not found' });
+    }
+
+    res.status(200).json(updatedWebsite);
+  } catch (error) {
+    console.error('Error updating website name:', error);
+    res.status(500).json({ 
+      message: 'Failed to update website name',
+      error: error.message 
+    });
+  }
+};
+
 exports.getAllWebsites = async (req, res) => {
   const { page = 1, limit = 10 } = req.query;  // Pagination parameters
   try {
