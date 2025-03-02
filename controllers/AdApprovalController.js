@@ -4,7 +4,7 @@ const Flutterwave = require('flutterwave-node-v3');
 const ImportAd = require('../models/ImportAdModel');
 const AdCategory = require('../models/AdCategoryModel');
 const Website = require('../models/WebsiteModel');
-const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
+const WebOwnerBalance = require('../models/WebOwnerBalanceModel');
 const Payment = require('../models/PaymentModel');
 const PaymentTracker = require('../models/PaymentTracker');
 const Withdrawal = require('../models/WithdrawalModel');
@@ -233,8 +233,9 @@ exports.getPendingAdById = async (req, res) => {
     console.log('Fetching ad with ID:', adId); // Debugging log
 
     const ad = await ImportAd.findById(adId)
-      // .populate('selectedSpaces selectedCategories selectedWebsites');
-      .populate('selectedCategories selectedWebsites');
+      // Removing the incorrect population that's causing the error
+      // Instead, populate the websiteSelections which seems to be the correct field based on other code
+      .populate('websiteSelections.websiteId websiteSelections.categories');
 
     if (!ad) {
       console.log('Ad not found for ID:', adId); // Log when ad is missing

@@ -4,6 +4,7 @@ const router = express.Router();
 const adCategoryController = require('../controllers/AdCategoryController');
 
 router.post('/', adCategoryController.createCategory);
+router.delete('/:categoryId', adCategoryController.deleteCategory);
 router.get('/', adCategoryController.getCategories);
 router.get('/:websiteId', adCategoryController.getCategoriesByWebsite);
 router.get('/category/:categoryId', adCategoryController.getCategoryById);
