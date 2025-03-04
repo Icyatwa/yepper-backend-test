@@ -1,3 +1,4 @@
+// AdCategoryController.js
 const mongoose = require('mongoose');
 const AdCategory = require('../models/AdCategoryModel');
 const crypto = require('crypto');
@@ -65,6 +66,60 @@ exports.createCategory = async (req, res) => {
     res.status(500).json({ 
       message: 'Failed to create category', 
       error: error.message 
+    });
+  }
+};
+
+exports.resetUserCount = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { newUserCount } = req.body;
+
+    // Validate input
+    if (!newUserCount || newUserCount < 0) {
+      return res.status(400).json({ 
+        error: 'Invalid Input', 
+        message: 'User count must be a non-negative number' 
+      });
+    }
+
+    // Find the category
+    const category = await AdCategory.findById(categoryId);
+    
+    if (!category) {
+      return res.status(404).json({ 
+        error: 'Not Found', 
+        message: 'Category not found' 
+      });
+    }
+
+    // Count current users who have selected this category
+    const currentUserCount = await ImportAd.countDocuments({
+      'websiteSelections.categories': categoryId,
+      'websiteSelections.approved': true
+    });
+
+    // Ensure new user count is not less than current users
+    if (newUserCount < currentUserCount) {
+      return res.status(400).json({ 
+        error: 'Invalid Reset', 
+        message: 'New user count cannot be less than current approved users' 
+      });
+    }
+
+    // Update the category with new user count
+    category.userCount = newUserCount;
+    await category.save();
+
+    res.status(200).json({
+      message: 'User count reset successfully',
+      category
+    });
+  } catch (error) {
+    console.error('Error resetting user count:', error);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      message: error.message 
     });
   }
 };
@@ -179,6 +234,72 @@ exports.getCategories = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch categories', error });
+  }
+};
+
+exports.getCategoriesByWebsiteForAdvertisers = async (req, res) => {
+  const { websiteId } = req.params;
+  const { page = 1, limit = 10 } = req.query;
+
+  try {
+    // Validate websiteId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(websiteId)) {
+      return res.status(400).json({ message: 'Invalid website ID' });
+    }
+
+    const websiteObjectId = new mongoose.Types.ObjectId(websiteId);
+
+    const categories = await AdCategory.aggregate([
+      { $match: { websiteId: websiteObjectId } },
+      {
+        $lookup: {
+          from: 'importads', 
+          let: { categoryId: '$_id' },
+          pipeline: [
+            { $unwind: { path: '$websiteSelections', preserveNullAndEmptyArrays: true } },
+            { $match: { 
+              $expr: { 
+                $and: [
+                  { $eq: ['$websiteSelections.websiteId', websiteObjectId] },
+                  { $in: ['$$categoryId', '$websiteSelections.categories'] }
+                ]
+              }
+            }},
+            { $count: 'categoryCount' }
+          ],
+          as: 'currentUserCount'
+        }
+      },
+      {
+        $addFields: {
+          currentUserCount: { 
+            $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] 
+          },
+          isFullyBooked: { 
+            $gte: [
+              { $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] }, 
+              '$userCount' 
+            ] 
+          }
+        }
+      }
+    ])
+    .limit(limit * 1)
+    .skip((page - 1) * limit);
+
+    const count = await AdCategory.countDocuments({ websiteId: websiteObjectId });
+
+    res.status(200).json({
+      categories,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page
+    });
+  } catch (error) {
+    console.error('Error in getCategoriesByWebsiteForAdvertisers:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch categories', 
+      error: error.message 
+    });
   }
 };
 
