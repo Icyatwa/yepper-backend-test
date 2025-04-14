@@ -1,13 +1,14 @@
 // AdScriptController.js
 const AdCategory = require('../models/AdCategoryModel');
 
-// This endpoint serves the actual implementation of the ad script
 exports.serveAdScript = async (req, res) => {
   try {
     const { scriptId } = req.params;
-    
-    // Verify this is a valid category ID
     const adCategory = await AdCategory.findById(scriptId);
+    const categoryPrice = adCategory.price;
+    const defaultLanguage = adCategory.defaultLanguage || 'english'; // Use the saved default language
+
+    // Verify this is a valid category ID and get the price immediately
     if (!adCategory) {
       return res.status(404).send('// Script not found');
     }
@@ -20,12 +21,15 @@ exports.serveAdScript = async (req, res) => {
     
     // Generate the complete ad script with all functionality
     const adScript = `
+    
     (function() {
       const d = document,
-            _i = "${scriptId}",
-            _b = "http://localhost:5000/api",
-            _t = 5000;
-      
+        _i = "${scriptId}",
+        _b = "http://localhost:5000/api",
+        _t = 5000,
+        _p = ${categoryPrice}, // Include price directly in the script
+        _l = "${defaultLanguage}"; // Default language from the database
+    
       // Create and append styles
       const styles = \`
         .yepper-ad-wrapper {
@@ -87,14 +91,15 @@ exports.serveAdScript = async (req, res) => {
           box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
         }
         .yepper-ad-empty-title {
-          font-size: 16px;
+          font-size: 18px;
           font-weight: bold;
           margin-bottom: 8px;
           opacity: 0.9;
           letter-spacing: 0.02em;
         }
         .yepper-ad-empty-text {
-          font-size: 14px;
+          font-size: 16px;
+          font-weight: bold;
           margin-bottom: 16px;
           opacity: 0.7;
         }
@@ -119,6 +124,18 @@ exports.serveAdScript = async (req, res) => {
         .yepper-ad-empty-link:hover {
           background: rgba(100, 100, 100, 0.35);
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        .yepper-lang-btn {
+          cursor: pointer;
+          transition: all 0.2s;
+          opacity: 0.7;
+        }
+        .yepper-lang-btn:hover {
+          opacity: 1;
+        }
+        .yepper-lang-btn.yepper-active {
+          opacity: 1;
+          font-weight: bold;
         }
         
         /* Dark mode detection and adaptations */
@@ -189,17 +206,103 @@ exports.serveAdScript = async (req, res) => {
         return container;
       };
       
-      // Function to show empty state
+      // Function to show empty state with multiple languages
       const showEmptyState = (container) => {
-        container.innerHTML = \`
-          <div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">
-            <div class="yepper-ad-empty-title font-bold tracking-wide">Available Space for Advertising</div>
-            <a href="http://localhost:3000/select" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">
-              <div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <span class="relative z-10 uppercase tracking-wider">Advertise Here</span>
-            </a>
-          </div>
-        \`;
+        // Define translations
+        const translations = {
+          english: {
+            title: "Available Advertising Space",
+            price: "Price",
+            action: "Advertise Here"
+          },
+          french: {
+            title: "Espace Publicitaire Disponible",
+            price: "Prix",
+            action: "Annoncez Ici"
+          },
+          kinyarwanda: {
+            title: "Kwamamaza",
+            price: "Igiciro cy'ukwezi",
+            action: "Kanda Hano"
+          },
+          kiswahili: {
+            title: "Nafasi ya Matangazo Inapatikana",
+            price: "Bei",
+            action: "Tangaza Hapa"
+          },
+          chinese: {
+            title: "可用广告空间",
+            price: "价格",
+            action: "在此广告"
+          },
+          spanish: {
+            title: "Espacio Publicitario Disponible",
+            price: "Precio",
+            action: "Anuncie Aquí"
+          }
+        };
+        
+        // Use the default language from the database first
+        let currentLang = _l;
+        
+        // If browser detection is still desired as a fallback (when _l is not valid)
+        if (!translations[currentLang]) {
+          // Language detection (simplified version)
+          let userLang = navigator.language || navigator.userLanguage;
+          userLang = userLang.toLowerCase().split('-')[0];
+          
+          // Map browser language to our translations
+          currentLang = 'english'; // Default fallback
+          if (userLang === 'fr') currentLang = 'french';
+          if (userLang === 'rw') currentLang = 'kinyarwanda';
+          if (userLang === 'sw') currentLang = 'kiswahili';
+          if (userLang === 'zh') currentLang = 'chinese';
+          if (userLang === 'es') currentLang = 'spanish';
+        }
+        
+        // Create HTML for the empty state
+        container.innerHTML = 
+          '<div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">' +
+            '<div class="yepper-ad-empty-title font-bold tracking-wide"><h3>' + translations[currentLang].title + '</h3></div>' +
+            '<div class="yepper-ad-empty-text"><p>' + translations[currentLang].price + ' $' + _p + '</p></div>' +
+            '<a href="http://localhost:3000/websites" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">' +
+              '<div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>' +
+              '<span class="relative z-10 uppercase tracking-wider">' + translations[currentLang].action + '</span>' +
+            '</a>' +
+            
+            // // Language selector
+            // '<div class="yepper-ad-language-selector" style="margin-top: 12px; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;">' +
+            //   Object.keys(translations).map(lang => 
+            //     '<button class="yepper-lang-btn' + (lang === currentLang ? ' yepper-active' : '') + '" ' +
+            //     'data-lang="' + lang + '" ' +
+            //     'style="font-size: 10px; padding: 3px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); ' +
+            //     'background: ' + (lang === currentLang ? 'rgba(255,255,255,0.2)' : 'transparent') + ';">' +
+            //     lang.charAt(0).toUpperCase() + lang.slice(1) +
+            //     '</button>'
+            //   ).join('') +
+            // '</div>' +
+          '</div>';
+        
+        // Add event listeners to language buttons
+        const langButtons = container.querySelectorAll('.yepper-lang-btn');
+        langButtons.forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const selectedLang = e.target.dataset.lang;
+            
+            // Update title, price and action button
+            container.querySelector('.yepper-ad-empty-title h3').textContent = translations[selectedLang].title;
+            container.querySelector('.yepper-ad-empty-text p').textContent = translations[selectedLang].price + ' $' + _p;
+            container.querySelector('.yepper-ad-empty-link span').textContent = translations[selectedLang].action;
+            
+            // Update active button styling
+            langButtons.forEach(b => {
+              b.style.background = 'transparent';
+              b.classList.remove('yepper-active');
+            });
+            e.target.style.background = 'rgba(255,255,255,0.2)';
+            e.target.classList.add('yepper-active');
+          });
+        });
       };
       
       // Insert container for ads
@@ -282,6 +385,7 @@ exports.serveAdScript = async (req, res) => {
           showEmptyState(container);
         });
     })();
+    
     `;
     
     res.send(adScript);

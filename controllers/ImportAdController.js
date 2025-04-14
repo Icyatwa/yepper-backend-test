@@ -20,12 +20,12 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     const {
       userId,
       adOwnerEmail,
+      selectedWebsites,
+      selectedCategories,
       businessName,
       businessLink,
       businessLocation,
       adDescription,
-      selectedWebsites,
-      selectedCategories,
     } = req.body;
 
     const websitesArray = JSON.parse(selectedWebsites);
@@ -117,6 +117,7 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     const newRequestAd = new ImportAd({
       userId,
       adOwnerEmail,
+      websiteSelections,
       imageUrl,
       videoUrl,
       pdfUrl,
@@ -124,7 +125,6 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       businessLink,
       businessLocation,
       adDescription,
-      websiteSelections,
       confirmed: false,
       clicks: 0,
       views: 0

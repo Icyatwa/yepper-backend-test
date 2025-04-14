@@ -1,182 +1,331 @@
-// AdCategoryModel.js
-const mongoose = require('mongoose');
+// 1. First, let's modify the AdScriptController.js to update the "advertise here" link
 
-const adCategorySchema = new mongoose.Schema({
-  ownerId: { type: String, required: true },
-  websiteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Website', required: true },
-  categoryName: { type: String, required: true, minlength: 3 },
-  description: { type: String, maxlength: 500 },
-  price: { type: Number, required: true, min: 0 },
-  spaceType: { type: String, required: true },
-  userCount: { type: Number, default: 0 },
-  instructions: { type: String },
-  customAttributes: { type: Map, of: String },
-  apiCodes: {
-    HTML: { type: String },
-    JavaScript: { type: String },
-    PHP: { type: String },
-    Python: { type: String },
-  },
-  selectedAds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ImportAd' }],
-  webOwnerEmail: { type: String, required: true },
-  visitorRange: {
-    min: { type: Number, required: true },
-    max: { type: Number, required: true }
-  },
-  tier: {
-    type: String,
-    enum: ['bronze', 'silver', 'gold', 'platinum'],
-    required: true
-  },
-  createdAt: { type: Date, default: Date.now }
-});
-
-adCategorySchema.index({ ownerId: 1, websiteId: 1, categoryName: 1 });
-
-const AdCategory = mongoose.model('AdCategory', adCategorySchema);
-module.exports = AdCategory;
-
-// AdCategoryController.js
-const mongoose = require('mongoose');
-const AdCategory = require('../models/AdCategoryModel');
-
-exports.getCategoriesByWebsiteForAdvertisers = async (req, res) => {
-  const { websiteId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
+exports.serveAdScript = async (req, res) => {
   try {
-    // Validate websiteId is a valid ObjectId
-    if (!mongoose.Types.ObjectId.isValid(websiteId)) {
-      return res.status(400).json({ message: 'Invalid website ID' });
-    }
-
-    const websiteObjectId = new mongoose.Types.ObjectId(websiteId);
-
-    const categories = await AdCategory.aggregate([
-      { $match: { websiteId: websiteObjectId } },
-      {
-        $lookup: {
-          from: 'importads', 
-          let: { categoryId: '$_id' },
-          pipeline: [
-            { $unwind: { path: '$websiteSelections', preserveNullAndEmptyArrays: true } },
-            { $match: { 
-              $expr: { 
-                $and: [
-                  { $eq: ['$websiteSelections.websiteId', websiteObjectId] },
-                  { $in: ['$$categoryId', '$websiteSelections.categories'] }
-                ]
-              }
-            }},
-            { $count: 'categoryCount' }
-          ],
-          as: 'currentUserCount'
-        }
-      },
-      {
-        $addFields: {
-          currentUserCount: { 
-            $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] 
-          },
-          isFullyBooked: { 
-            $gte: [
-              { $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] }, 
-              '$userCount' 
-            ] 
+    const { scriptId } = req.params;
+    const adCategory = await AdCategory.findById(scriptId);
+    const categoryPrice = adCategory.price;
+    const defaultLanguage = adCategory.defaultLanguage || 'english';
+    const websiteId = adCategory.websiteId; // Get the website ID
+    
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // Generate the complete ad script with all functionality
+    const adScript = `
+    (function() {
+      const d = document,
+        _i = "${scriptId}",
+        _w = "${websiteId}", // Include websiteId for the direct link
+        _b = "http://localhost:5000/api",
+        _t = 5000,
+        _p = ${categoryPrice},
+        _l = "${defaultLanguage}";
+    
+      const styles = \`
+        // css
+      \`;
+      
+      const styleEl = d.createElement('style');
+      styleEl.textContent = styles;
+      d.head.appendChild(styleEl);
+      
+      // Function to insert container after the current script
+      const insertContainer = () => {
+        // Get the current script
+        let scriptEl = d.currentScript;
+        
+        // Fallback for browsers that don't support currentScript
+        if (!scriptEl) {
+          const scripts = d.getElementsByTagName('script');
+          for (let i = scripts.length - 1; i >= 0; i--) {
+            if (scripts[i].src && scripts[i].src.includes('/api/ads/script/' + _i)) {
+              scriptEl = scripts[i];
+              break;
+            }
           }
         }
-      }
-    ])
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
-
-    const count = await AdCategory.countDocuments({ websiteId: websiteObjectId });
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
-  } catch (error) {
-    console.error('Error in getCategoriesByWebsiteForAdvertisers:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch categories', 
-      error: error.message 
-    });
+        
+        // Create container
+        const container = d.createElement('div');
+        container.className = 'yepper-ad-wrapper';
+        container.setAttribute('data-script-id', _i);
+        
+        // Insert after script
+        if (scriptEl && scriptEl.parentNode) {
+          scriptEl.parentNode.insertBefore(container, scriptEl.nextSibling);
+          return container;
+        }
+        
+        // Fallback: Append to body
+        d.body.appendChild(container);
+        return container;
+      };
+      
+      // Function to show empty state with multiple languages
+      const showEmptyState = (container) => {
+        // Define translations
+        const translations = {
+          // languages
+        };
+        
+        // Use the default language from the database first
+        let currentLang = _l;
+        
+        // If browser detection is still desired as a fallback (when _l is not valid)
+        if (!translations[currentLang]) {
+          // Language detection (simplified version)
+          let userLang = navigator.language || navigator.userLanguage;
+          userLang = userLang.toLowerCase().split('-')[0];
+          
+          // Map browser language to our translations
+          currentLang = 'english'; // Default fallback
+          if (userLang === 'fr') currentLang = 'french';
+          if (userLang === 'rw') currentLang = 'kinyarwanda';
+          if (userLang === 'sw') currentLang = 'kiswahili';
+          if (userLang === 'zh') currentLang = 'chinese';
+          if (userLang === 'es') currentLang = 'spanish';
+        }
+        
+        // Create HTML for the empty state - Update the link to include website and category IDs
+        container.innerHTML = 
+          '<div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">' +
+            '<div class="yepper-ad-empty-title font-bold tracking-wide"><h3>' + translations[currentLang].title + '</h3></div>' +
+            '<div class="yepper-ad-empty-text"><p>' + translations[currentLang].price + ' $' + _p + '</p></div>' +
+            '<a href="http://localhost:3000/advertise?websiteId=' + _w + '&categoryId=' + _i + '" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">' +
+              '<div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>' +
+              '<span class="relative z-10 uppercase tracking-wider">' + translations[currentLang].action + '</span>' +
+            '</a>' +
+          '</div>';
+        
+        // Add event listeners to language buttons
+        const langButtons = container.querySelectorAll('.yepper-lang-btn');
+        langButtons.forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const selectedLang = e.target.dataset.lang;
+            
+            // Update title, price and action button
+            container.querySelector('.yepper-ad-empty-title h3').textContent = translations[selectedLang].title;
+            container.querySelector('.yepper-ad-empty-text p').textContent = translations[selectedLang].price + ' $' + _p;
+            container.querySelector('.yepper-ad-empty-link span').textContent = translations[selectedLang].action;
+            
+            // Update active button styling
+            langButtons.forEach(b => {
+              b.style.background = 'transparent';
+              b.classList.remove('yepper-active');
+            });
+            e.target.style.background = 'rgba(255,255,255,0.2)';
+            e.target.classList.add('yepper-active');
+          });
+        });
+      };
+      
+      // Insert container for ads
+      const container = insertContainer();
+      
+      // Fetch ads
+      fetch(_b + "/ads/display?categoryId=" + _i)
+        .then(response => response.json())
+        .then(data => {
+          if (!data || !data.html) {
+            showEmptyState(container);
+            return;
+          }
+          container.innerHTML = data.html;
+          const items = Array.from(container.getElementsByClassName("yepper-ad-item"));
+          
+          if (!items.length) {
+            showEmptyState(container);
+            return;
+          }
+          
+          // Hide all items except first
+          items.forEach((e, index) => {
+            if (index !== 0) e.style.display = "none";
+          });
+          
+          // Track views and handle clicks
+          items.forEach(e => {
+            const link = e.querySelector('.yepper-ad-link');
+            if (!link) return;
+            
+            const i = e.dataset.adId;
+            
+            // Track view for visible ad
+            if (e.style.display !== "none") {
+              fetch(_b + "/ads/view/" + i, {
+                method: 'POST',
+                mode: 'cors',
+                credentials: 'omit'
+              }).catch(console.error);
+            }
+            
+            // Handle click
+            link.onclick = ev => {
+              ev.preventDefault();
+              fetch(_b + "/ads/click/" + i, {
+                method: 'POST',
+                mode: 'cors',
+                credentials: 'omit'
+              })
+              .then(() => window.open(link.href, '_blank'))
+              .catch(() => window.open(link.href, '_blank'));
+              return false;
+            };
+          });
+          
+          // Rotate ads if multiple
+          if (items.length > 1) {
+            let x = 0;
+            setInterval(() => {
+              items[x].style.display = "none";
+              x = (x + 1) % items.length;
+              items[x].style.display = "block";
+              
+              // Track view for newly visible ad
+              const i = items[x].dataset.adId;
+              if (i) {
+                fetch(_b + "/ads/view/" + i, {
+                  method: 'POST',
+                  mode: 'cors',
+                  credentials: 'omit'
+                }).catch(console.error);
+              }
+            }, _t);
+          }
+        })
+        .catch(() => {
+          showEmptyState(container);
+        });
+    })();
+    
+    `;
+    
+    res.send(adScript);
   }
 };
 
-exports.getCategoriesByWebsite = async (req, res) => {
-  const { websiteId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
+// 2. Create a new route to handle direct advertising links
+// routes/advertiseRoutes.js
 
-  try {
-    const categories = await AdCategory.find({ websiteId })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const count = await AdCategory.countDocuments({ websiteId });
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch categories', error });
-  }
-};
-
-// AdCategoryRoutes.js
 const express = require('express');
 const router = express.Router();
-const adCategoryController = require('../controllers/AdCategoryController');
 
-router.get('/:websitesId/advertiser', adCategoryController.getCategoriesByWebsiteForAdvertisers);
-router.get('/:websiteId', adCategoryController.getCategoriesByWebsite);
+router.get('/', (req, res) => {
+  // This will render the advertise page
+  res.redirect(`/websites?preselect=true&websiteId=${req.query.websiteId}&categoryId=${req.query.categoryId}`);
+});
 
 module.exports = router;
 
-// Categories.js
-import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  LinkIcon,
-  Check,
-  Tag,
-  DollarSign,
-  Info,
-  X,
-  Loader2,
-} from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
-import Header from '../../components/backToPreviousHeader';
-import Loading from '../../components/LoadingSpinner';
-import axios from 'axios';
+// 3. Update the Websites.js component to handle preselection
+
+function Websites() {
+  const location = useLocation();
+  const { user } = useUser();
+  const navigate = useNavigate();
+  const userId = user?.id;
+  const [websites, setWebsites] = useState([]);
+  const [filteredWebsites, setFilteredWebsites] = useState([]);
+  const [selectedWebsites, setSelectedWebsites] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  
+  // Get query parameters
+  const queryParams = new URLSearchParams(location.search);
+  const preselect = queryParams.get('preselect') === 'true';
+  const preselectedWebsiteId = queryParams.get('websiteId');
+  const preselectedCategoryId = queryParams.get('categoryId');
+
+  useEffect(() => {
+    const fetchWebsites = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/websites');
+        const data = await response.json();
+        
+        setWebsites(data);
+        setFilteredWebsites(data);
+        const uniqueCategories = ['All', ...new Set(data.map(site => site.category))];
+        setCategories(uniqueCategories);
+        
+        // If preselection is requested, automatically select the website
+        if (preselect && preselectedWebsiteId) {
+          setSelectedWebsites([preselectedWebsiteId]);
+          
+          // If there's preselection, automatically go to the next step
+          if (user && user.id) {
+            // Short delay to ensure state is updated
+            setTimeout(() => {
+              navigate('/categories', {
+                state: {
+                  userId: user.id,
+                  selectedWebsites: [preselectedWebsiteId],
+                  preselectedCategoryId: preselectedCategoryId
+                }
+              });
+            }, 500);
+          }
+        }
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching websites:', error);
+        setError('Failed to load websites');
+        setLoading(false);
+      }
+    };
+
+    fetchWebsites();
+  }, [preselect, preselectedWebsiteId, preselectedCategoryId, user, navigate]);
+
+  useEffect(() => {
+    let result = websites;
+    
+    if (searchTerm) {
+      result = result.filter(site => 
+        site.websiteName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        site.websiteLink.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    if (selectedCategory !== 'All') {
+      result = result.filter(site => site.category === selectedCategory);
+    }
+    
+    setFilteredWebsites(result);
+  }, [searchTerm, selectedCategory, websites]);
+
+  const handleNext = (e) => {
+    e.preventDefault();
+    navigate('/categories', {
+      state: {
+        userId,
+        selectedWebsites,
+        preselectedCategoryId: preselectedCategoryId
+      }
+    });
+  };
+
+  return (
+    // Rest of the component remains the same
+  );
+}
+
+// 4. Update the Categories.js component to handle preselection
 
 const Categories = () => {
   const { user } = useUser();
-  
   const location = useLocation();
   const navigate = useNavigate();
-  const { 
-    file,
-    userId,
-    businessName,
-    businessLink,
-    businessLocation,
-    adDescription,
-    selectedWebsites
-  } = location.state || {};
-
+  const { userId, selectedWebsites, preselectedCategoryId } = location.state || {};
   const [categoriesByWebsite, setCategoriesByWebsite] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
-  const [error, setError] = useState(false);
   const [selectedDescription, setSelectedDescription] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  
-  const adOwnerEmail = user.primaryEmailAddress.emailAddress;
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -196,206 +345,81 @@ const Categories = () => {
         });
         const result = await Promise.all(promises);
         setCategoriesByWebsite(result);
+        
+        // If there's a preselected category, select it automatically
+        if (preselectedCategoryId) {
+          setSelectedCategories([preselectedCategoryId]);
+          
+          // Get category description for display
+          for (const websiteData of result) {
+            const foundCategory = websiteData.categories.find(
+              cat => cat._id === preselectedCategoryId
+            );
+            
+            if (foundCategory) {
+              setSelectedDescription(foundCategory.description);
+              
+              // If preselection is complete, automatically navigate to the next step
+              setTimeout(() => {
+                navigate('/select', {
+                  state: {
+                    userId,
+                    selectedWebsites,
+                    selectedCategories: [preselectedCategoryId]
+                  }
+                });
+              }, 500);
+              
+              break;
+            }
+          }
+        }
+        
+        setIsLoading(false);
       } catch (error) {
-        console.error('Failed to fetch categories or websites:', error);
-      } finally {
+        console.error('Error fetching categories:', error);
         setIsLoading(false);
       }
     };
 
-    if (selectedWebsites) fetchCategories();
-  }, [selectedWebsites]);
-
-  const handleCategorySelection = (categoryId) => {
-    setSelectedCategories((prevSelected) =>
-      prevSelected.includes(categoryId) 
-        ? prevSelected.filter((id) => id !== categoryId) 
-        : [...prevSelected, categoryId]
-    );
-    setError(false);
-  };
-
-  const handleNext = async(e) => {
-    e.preventDefault();
-    if (selectedCategories.length === 0) {
-      setError(true);
-      return;
-    }
-    
-    try {
-      const formData = new FormData();
-      formData.append('adOwnerEmail', adOwnerEmail);
-      formData.append('file', file);
-      formData.append('userId', userId);
-      formData.append('businessName', businessName);
-      formData.append('businessLink', businessLink);
-      formData.append('businessLocation', businessLocation);
-      formData.append('adDescription', adDescription);
-      formData.append('selectedWebsites', JSON.stringify(selectedWebsites));
-      formData.append('selectedCategories', JSON.stringify(selectedCategories));
-      // formData.append('selectedSpaces', JSON.stringify(selectedSpaces));
-
-      await axios.post('http://localhost:5000/api/importAds', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      navigate('/dashboard');
-    } catch (error) {
-      console.error('Error during ad upload:', error);
-      setError('An error occurred while uploading the ad');
-    } finally {
+    if (selectedWebsites && selectedWebsites.length > 0) {
+      fetchCategories();
+    } else {
       setIsLoading(false);
     }
+  }, [selectedWebsites, preselectedCategoryId, userId, navigate]);
+
+  const handleNext = (e) => {
+    e.preventDefault();
+    navigate('/select', {
+      state: {
+        userId,
+        selectedWebsites,
+        selectedCategories
+      }
+    });
   };
-
+  
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-      <div className="max-w-7xl mx-auto px-4 py-12">
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r p-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="space-y-2">
-              <h1 className="text-4xl text-blue-950 font-bold">
-                Select Categories
-              </h1>
-              <p className="text-gray-600">
-                Choose relevant categories for your advertisement
-              </p>
-            </div>
-            <button 
-              onClick={handleNext}
-              className={`w-full sm:w-auto mt-6 sm:mt-0 flex items-center justify-center px-6 py-3 rounded-lg font-bold text-white sm:text-base transition-all duration-300 ${
-                selectedCategories.length === 0 
-                  ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-[#FF4500] hover:bg-orange-500 hover:-translate-y-0.5'
-              }`}
-            >
-              Next
-            </button>
-          </div>
-
-          {error && (
-            <div className="mx-8 my-6 flex items-center gap-3 text-red-600 bg-red-50 p-4 rounded-xl border border-red-100">
-              <Info className="w-5 h-5 flex-shrink-0" />
-              <span className="text-sm font-medium">Please select at least one category to proceed</span>
-            </div>
-          )}
-
-          <div className="p-8">
-            {isLoading ? (
-              <div className="flex justify-center items-center min-h-[400px]">
-                <LoadingSpinner />
-              </div>
-            ) : categoriesByWebsite.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-                {categoriesByWebsite.map((website) => (
-                  <div 
-                    key={website.websiteName} 
-                    className="flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden transition-shadow duration-300 hover:shadow-lg"
-                  >
-                    <div className="bg-gradient-to-r from-gray-50 to-white p-4 flex justify-between items-center border-b border-gray-200">
-                      <h2 className="text-lg font-semibold text-blue-950">{website.websiteName}</h2>
-                      <a 
-                        href={website.websiteLink} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <LinkIcon className="w-5 h-5" />
-                      </a>
-                    </div>
-                    
-                    {website.categories.length > 0 ? (
-                      <div className="p-6 grid gap-4">
-                        {website.categories.map((category) => (
-                          <div
-                            key={category._id}
-                            onClick={() => 
-                              !category.isFullyBooked && handleCategorySelection(category._id)
-                            }
-                            className={`group relative flex flex-col bg-white rounded-xl p-5 border-2 transition-all duration-300 ${
-                              category.isFullyBooked 
-                                ? 'opacity-50 cursor-not-allowed bg-gray-100' 
-                                : 'cursor-pointer hover:shadow-lg'
-                            } ${
-                              selectedCategories.includes(category._id)
-                                ? 'border-[#FF4500] bg-red-50/50 scale-[1.02]'
-                                : 'border-gray-200'
-                            }`}
-                          >
-                            {category.isFullyBooked && (
-                              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded">
-                                Fully Booked
-                              </div>
-                            )}
-                            <div className="flex justify-between items-start mb-4">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 bg-blue-100 rounded-lg">
-                                  <Tag className="w-5 h-5 text-blue-600" />
-                                </div>
-                                <h3 className="font-semibold text-blue-950">
-                                  {category.categoryName}
-                                </h3>
-                              </div>
-                              {selectedCategories.includes(category._id) && (
-                                <div className="p-1 bg-blue-500 rounded-full">
-                                  <Check size={16} className="text-white" />
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-start gap-2 mb-4">
-                              <p className="text-gray-600 text-sm leading-relaxed line-clamp-2">
-                                {category.description}
-                              </p>
-                              {category.description.length > 100 && (
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedDescription(category.description);
-                                  }}
-                                  className="flex-shrink-0 p-1 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                >
-                                  <Info className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                              <span className="text-sm font-medium text-green-600">RWF</span>
-                              <span className="text-lg font-semibold text-blue-950">{category.price}</span>
-                            </div>
-
-                            <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                              <span className="text-sm font-medium text-green-600">RWF</span>
-                              <span className="text-lg font-semibold text-blue-950">{category.price}</span>
-                              {category.isFullyBooked && (
-                                <span className="ml-2 text-sm text-red-500">(Space Full)</span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="p-12 text-center text-gray-500">
-                        <p className="font-medium">No categories available</p>
-                        <p className="text-sm text-gray-400 mt-1">Check back later for updates</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-16">
-                <p className="text-lg font-medium text-gray-600">No categories available</p>
-                <p className="text-sm text-gray-500 mt-1">Please select different websites and try again</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    // Rest of the component remains the same
   );
 };
 
-export default Categories;
+// 5. Update main App.js to include the new route
+// App.js
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/advertise" element={<RequireAuth><Websites /></RequireAuth>} />
+        <Route path="/websites" element={<RequireAuth><Websites /></RequireAuth>} />
+        <Route path="/categories" element={<RequireAuth><Categories /></RequireAuth>} />
+        <Route path="/select" element={<RequireAuth><Select /></RequireAuth>} />
+        <Route path="/business" element={<RequireAuth><BusinessForm /></RequireAuth>} />
+        {/* Other routes */}
+      </Routes>
+    </BrowserRouter>
+  );
+}
