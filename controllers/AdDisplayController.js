@@ -48,7 +48,7 @@ exports.displayAd = async (req, res) => {
           const targetUrl = ad.businessLink.startsWith('http') ? 
             ad.businessLink : `https://${ad.businessLink}`;
 
-          // Add data attributes for tracking
+          // Add data attributes for tracking and modal display
           return `
             <div class="yepper-ad-item" 
                   data-ad-id="${ad._id}"
@@ -59,9 +59,11 @@ exports.displayAd = async (req, res) => {
                   target="_blank" 
                   rel="noopener"
                   data-tracking="true">
+                
                 <div class="yepper-ad-image-wrapper">
                   <img class="yepper-ad-image" src="${imageUrl}" alt="${ad.businessName}" loading="lazy">
                 </div>
+                
                 <p class="yepper-ad-text">${ad.businessName}</p>
               </a>
             </div>
@@ -77,8 +79,36 @@ exports.displayAd = async (req, res) => {
     const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
     return res.json({ html: finalHtml });
   } catch (error) {
-    console.error('Error displaying ad:', error);
-    return res.json({ html: getNoAdsHtml() });
+    console.error('Error incrementing view:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.getAdDetails = async (req, res) => {
+  try {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    
+    const { adId } = req.params;
+    
+    const ad = await ImportAd.findById(adId).lean();
+    
+    if (!ad) {
+      return res.status(404).json({ error: 'Ad not found' });
+    }
+    
+    // Return only the necessary data for the modal
+    return res.json({
+      businessName: ad.businessName,
+      businessLink: ad.businessLink, 
+      businessLocation: ad.businessLocation,
+      adDescription: ad.adDescription,
+      imageUrl: ad.imageUrl || 'https://via.placeholder.com/600x300'
+    });
+  } catch (error) {
+    console.error('Error getting ad details:', error);
+    return res.status(500).json({ error: 'Failed to fetch ad details' });
   }
 };
 
