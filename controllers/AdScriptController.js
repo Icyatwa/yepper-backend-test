@@ -4,10 +4,20 @@ const AdCategory = require('../models/AdCategoryModel');
 exports.serveAdScript = async (req, res) => {
   try {
     const { scriptId } = req.params;
-    const adCategory = await AdCategory.findById(scriptId);
+    const adCategory = await AdCategory.findById(scriptId)
+      .populate('websiteId')
+      .lean();
+    
+    if (!adCategory) {
+      return res.status(404).send('Ad category not found');
+    }
+    
     const categoryPrice = adCategory.price;
-    const defaultLanguage = adCategory.defaultLanguage || 'english'; // Use the saved default language
-
+    const defaultLanguage = adCategory.defaultLanguage || 'english';
+    const websiteId = adCategory.websiteId._id;
+    const websiteName = adCategory.websiteId.websiteName || 'This website';
+    const categoryName = adCategory.categoryName || 'this space';
+    
     // Verify this is a valid category ID and get the price immediately
     if (!adCategory) {
       return res.status(404).send('// Script not found');
@@ -25,10 +35,13 @@ exports.serveAdScript = async (req, res) => {
     (function() {
       const d = document,
         _i = "${scriptId}",
+        _w = "${websiteId}",
+        _wName = "${websiteName}",
+        _cName = "${categoryName}",
         _b = "http://localhost:5000/api",
         _t = 5000,
-        _p = ${categoryPrice}, // Include price directly in the script
-        _l = "${defaultLanguage}"; // Default language from the database
+        _p = ${categoryPrice},
+        _l = "${defaultLanguage}";
     
       // Create and append styles
       const styles = \`
@@ -265,7 +278,7 @@ exports.serveAdScript = async (req, res) => {
           '<div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">' +
             '<div class="yepper-ad-empty-title font-bold tracking-wide"><h3>' + translations[currentLang].title + '</h3></div>' +
             '<div class="yepper-ad-empty-text"><p>' + translations[currentLang].price + ' $' + _p + '</p></div>' +
-            '<a href="http://localhost:3000/websites" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">' +
+            '<a href="http://localhost:3000/direct-ad?websiteId=' + _w + '&categoryId=' + _i + '" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">' +
               '<div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>' +
               '<span class="relative z-10 uppercase tracking-wider">' + translations[currentLang].action + '</span>' +
             '</a>' +
@@ -316,9 +329,7 @@ exports.serveAdScript = async (req, res) => {
             showEmptyState(container);
             return;
           }
-          
           container.innerHTML = data.html;
-          
           const items = Array.from(container.getElementsByClassName("yepper-ad-item"));
           
           if (!items.length) {
