@@ -35,7 +35,7 @@ exports.initiateCardPayment = async (req, res) => {
       tx_ref,
       amount,
       currency,
-      redirect_url: 'http://localhost:5000/api/payment/callback',
+      redirect_url: 'https://yepper-backend.onrender.com/api/payment/callback',
       customer: {
         email: email || 'no-email@example.com',
         phonenumber: phoneNumber,
@@ -91,11 +91,11 @@ exports.paymentCallback = async (req, res) => {
         });
       }
 
-      return res.redirect('http://localhost:3000/list'); 
+      return res.redirect('https://yepper.cc/list'); 
     } else {
       // Update the payment record as failed
       await Payment.findOneAndUpdate({ tx_ref }, { status: 'failed' });
-      return res.redirect('http://localhost:3000/failed');
+      return res.redirect('https://yepper.cc/failed');
     }
   } catch (error) {
     console.error('Error processing payment callback:', error);

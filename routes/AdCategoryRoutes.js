@@ -10,5 +10,6 @@ router.get('/', adCategoryController.getCategories);
 router.get('/:websiteId/advertiser', adCategoryController.getCategoriesByWebsiteForAdvertisers);
 router.get('/:websiteId', adCategoryController.getCategoriesByWebsite);
 router.get('/category/:categoryId', adCategoryController.getCategoryById);
+router.patch('/category/:categoryId/language', adCategoryController.updateCategoryLanguage);
 
 module.exports = router;

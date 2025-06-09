@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/database');
@@ -19,20 +18,21 @@ const adDisplayRoutes = require('./routes/AdDisplayRoutes');
 const paymentRoutes = require('./routes/PaymentRoutes');
 const payoutRoutes = require('./routes/payoutRoutes');
 const pictureRoutes = require('./routes/PictureRoutes');
+const referralRoutes = require('./routes/referralRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Expanded allowedOrigins list
 const allowedOrigins = [
-  'http://payment-test-page.vercel.app',
-  'https://payment-test-page.vercel.app',
-  'https://www.payment-test-page.vercel.app',
+  'http://yepper.cc',
+  'https://yepper.cc',
+  'https://www.yepper.cc',
   'http://localhost:3000',
   'http://localhost:5000',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5000',
-  'https://yepper-backend-test.onrender.com',
+  'https://yepper-backend.onrender.com',
   // Add your production domain when ready
 ];
 
@@ -124,6 +124,7 @@ app.use('/api/ads', adDisplayRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/picture', pictureRoutes);
 app.use('/api/payout', payoutRoutes);
+app.use('/api/referrals', referralRoutes);
 
 const server = http.createServer(app);
 const io = socketIo(server, {
