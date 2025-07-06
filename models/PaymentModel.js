@@ -37,6 +37,7 @@ const paymentSchema = new mongoose.Schema({
     },
     userId: { type: String },
     adId: { type: mongoose.Schema.Types.ObjectId, ref: 'ImportAd', required: true },
+    websiteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Website', required: true }, // Added this field
     webOwnerId: { type: String },
     withdrawn: { type: Boolean, default: false },
     paymentTrackerId: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentTracker' }

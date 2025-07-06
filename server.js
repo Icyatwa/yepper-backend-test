@@ -5,7 +5,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
 const axios = require('axios');
-const setupWebSocketServer = require('./config/websocketServer'); // Add this line
+const setupWebSocketServer = require('./config/websocketServer');
 const waitlistRoutes = require('./routes/WaitlistRoutes');
 const sitePartnersRoutes = require('./routes/SitePartnersRoutes');
 const importAdRoutes = require('./routes/ImportAdRoutes');
@@ -19,6 +19,7 @@ const paymentRoutes = require('./routes/PaymentRoutes');
 const payoutRoutes = require('./routes/payoutRoutes');
 const pictureRoutes = require('./routes/PictureRoutes');
 const referralRoutes = require('./routes/referralRoutes');
+// const { clerkMiddleware } = require('@clerk/express');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -77,6 +78,10 @@ app.options('*', cors(corsOptions));
 
 // Error handling middleware with more detailed responses
 app.use((err, req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  next();
+
   console.error('Error:', {
     message: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
@@ -100,17 +105,22 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Add security headers middleware
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '86400'); // 24 hours
-  next();
-});
-
-// Rest of your existing code...
-app.use(express.json());
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Debug middleware to log requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    headers: {
+      authorization: req.headers.authorization ? 'Bearer [TOKEN]' : 'None',
+      'content-type': req.headers['content-type']
+    }
+  });
+  next();
+});
 
 app.use('/api/join-site-waitlist', sitePartnersRoutes);
 app.use('/api/join-waitlist', waitlistRoutes);
@@ -126,6 +136,25 @@ app.use('/api/picture', pictureRoutes);
 app.use('/api/payout', payoutRoutes);
 app.use('/api/referrals', referralRoutes);
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Error handling middleware
+app.use((error, req, res, next) => {
+  console.error('Global error handler:', error);
+  
+  if (error.message === 'Not allowed by CORS') {
+    return res.status(403).json({ message: 'CORS error: Origin not allowed' });
+  }
+  
+  res.status(500).json({ 
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+  });
+});
+
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -139,11 +168,13 @@ const io = socketIo(server, {
 setupWebSocketServer(server, io);
 
 module.exports.io = io;
+
 connectDB()
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
       console.log('Allowed origins:', allowedOrigins);
+      console.log('Environment:', process.env.NODE_ENV);
     });
   })
   .catch((error) => {
