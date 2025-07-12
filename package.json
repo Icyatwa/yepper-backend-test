@@ -1,43 +1,26 @@
 {
-  "name": "api",
+  "name": "auth-backend",
   "version": "1.0.0",
-  "description": "dostBackend",
-  "main": "server",
+  "description": "MERN Authentication Backend",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "author": "ndoba",
-  "license": "ISC",
   "dependencies": {
-    "@clerk/express": "^1.7.2",
-    "@google-cloud/storage": "^7.14.0",
-    "@paypal/checkout-server-sdk": "^1.0.3",
-    "@paypal/paypal-js": "^8.1.2",
-    "axios": "^1.7.7",
-    "bcrypt": "^5.1.1",
-    "compression": "^1.7.4",
-    "connect-mongo": "^5.1.0",
-    "cors": "^2.8.5",
-    "crypto": "^1.0.1",
-    "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "express-session": "^1.18.1",
-    "flutterwave-node-v3": "^1.1.11",
+    "mongoose": "^7.5.0",
+    "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "mailgun-js": "^0.22.0",
-    "mongodb": "^6.6.2",
-    "mongoose": "^8.8.4",
-    "multer": "^1.4.5-lts.1",
-    "node-fetch": "^3.3.2",
-    "nodemailer": "^6.9.15",
-    "nodemon": "^3.1.1",
-    "redis": "^4.7.0",
-    "resend": "^4.0.0",
-    "sharp": "^0.33.5",
-    "socket.io": "^4.7.4",
-    "uuid": "^10.0.0",
-    "validator": "^13.11.0"
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "nodemailer": "^6.9.4",
+    "passport": "^0.6.0",
+    "passport-google-oauth20": "^2.0.0",
+    "express-session": "^1.17.3",
+    "crypto": "^1.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   }
 }
