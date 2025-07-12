@@ -1,4 +1,4 @@
-// User.js
+// User.js - Completely clean, no Clerk references
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 

@@ -1,4 +1,4 @@
-// userController.js
+// authController.js
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -11,38 +11,64 @@ const generateToken = (userId) => {
   });
 };
 
-// Email transporter setup - FIXED: Changed from createTransporter to createTransport
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+// Email transporter setup with better error handling
+const createTransporter = () => {
+  // Check if email credentials are available
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.warn('Email credentials not configured. Email verification will be skipped.');
+    return null;
   }
-});
 
-// Send verification email
-const sendVerificationEmail = async (email, token) => {
-  const verificationUrl = `http://localhost:3000/verify-email?token=${token}`;
-  
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: 'Email Verification',
-    html: `
-      <h2>Email Verification</h2>
-      <p>Please click the link below to verify your email:</p>
-      <a href="${verificationUrl}">Verify Email</a>
-      <p>This link will expire in 1 hour.</p>
-    `
-  };
-
-  await transporter.sendMail(mailOptions);
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
 };
 
-// Register
+// Send verification email with error handling
+const sendVerificationEmail = async (email, token) => {
+  const transporter = createTransporter();
+  
+  if (!transporter) {
+    console.warn('Email transporter not available. Skipping email verification.');
+    return false;
+  }
+
+  try {
+    const verificationUrl = `http://localhost:3000/verify-email?token=${token}`;
+    
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Email Verification',
+      html: `
+        <h2>Email Verification</h2>
+        <p>Please click the link below to verify your email:</p>
+        <a href="${verificationUrl}">Verify Email</a>
+        <p>This link will expire in 1 hour.</p>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    return true;
+  } catch (error) {
+    console.error('Error sending verification email:', error);
+    return false;
+  }
+};
+
+// Register with improved error handling
 exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
+
+    // Validate input
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
+    }
 
     // Check if user exists
     const existingUser = await User.findOne({ email });
@@ -60,16 +86,25 @@ exports.register = async (req, res) => {
       email,
       password,
       verificationToken,
-      verificationTokenExpires
+      verificationTokenExpires,
+      // If email service is not available, auto-verify the user
+      isVerified: !process.env.EMAIL_USER || !process.env.EMAIL_PASS
     });
 
     await user.save();
 
-    // Send verification email
-    await sendVerificationEmail(email, verificationToken);
+    // Attempt to send verification email
+    const emailSent = await sendVerificationEmail(email, verificationToken);
+
+    let message;
+    if (emailSent) {
+      message = 'User registered successfully. Please check your email to verify your account.';
+    } else {
+      message = 'User registered successfully. Email verification is currently unavailable, so your account has been automatically verified.';
+    }
 
     res.status(201).json({
-      message: 'User registered successfully. Please check your email to verify your account.',
+      message,
       user: {
         id: user._id,
         name: user.name,
@@ -78,7 +113,11 @@ exports.register = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Registration error:', error);
+    res.status(500).json({ 
+      message: 'Server error during registration', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
@@ -86,6 +125,11 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
     // Find user
     const user = await User.findOne({ email });
@@ -99,8 +143,8 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // Check if email is verified
-    if (!user.isVerified) {
+    // Check if email is verified (only if email service is configured)
+    if (!user.isVerified && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       return res.status(400).json({ message: 'Please verify your email first' });
     }
 
@@ -119,7 +163,11 @@ exports.login = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Login error:', error);
+    res.status(500).json({ 
+      message: 'Server error during login', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
@@ -127,6 +175,10 @@ exports.login = async (req, res) => {
 exports.verifyEmail = async (req, res) => {
   try {
     const { token } = req.query;
+
+    if (!token) {
+      return res.status(400).json({ message: 'Token is required' });
+    }
 
     const user = await User.findOne({
       verificationToken: token,
@@ -144,7 +196,11 @@ exports.verifyEmail = async (req, res) => {
 
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Email verification error:', error);
+    res.status(500).json({ 
+      message: 'Server error during email verification', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
@@ -152,6 +208,10 @@ exports.verifyEmail = async (req, res) => {
 exports.resendVerification = async (req, res) => {
   try {
     const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
 
     const user = await User.findOne({ email });
     if (!user) {
@@ -169,11 +229,19 @@ exports.resendVerification = async (req, res) => {
     user.verificationTokenExpires = verificationTokenExpires;
     await user.save();
 
-    await sendVerificationEmail(email, verificationToken);
+    const emailSent = await sendVerificationEmail(email, verificationToken);
 
-    res.json({ message: 'Verification email sent' });
+    if (emailSent) {
+      res.json({ message: 'Verification email sent' });
+    } else {
+      res.status(500).json({ message: 'Failed to send verification email' });
+    }
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Resend verification error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
@@ -187,7 +255,11 @@ exports.getProfile = async (req, res) => {
 
     res.json({ user });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Get profile error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
