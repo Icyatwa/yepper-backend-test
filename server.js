@@ -8,6 +8,7 @@ require('dotenv').config();
 require('./config/passport');
 
 const authRoutes = require('./routes/authRoutes');
+const createWebsiteRoutes = require('./routes/createWebsiteRoutes')
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use(passport.session());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/createWebsite', createWebsiteRoutes);
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {

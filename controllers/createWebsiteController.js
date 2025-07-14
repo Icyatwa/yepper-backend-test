@@ -1,7 +1,7 @@
 // createWebsiteController.js
 const Website = require('../models/CreateWebsiteModel');
 const multer = require('multer');
-const User = require('../models/User');
+const User = require('../models/User'); // CHANGE: Added User model import for custom auth
 const path = require('path');
 const jwt = require('jsonwebtoken'); // ADD THIS LINE - Missing import
 const { Storage } = require('@google-cloud/storage');
@@ -90,10 +90,9 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ message: 'User not found' });
     }
 
-    req.user = user;
+    req.user = user; // CHANGE: Set user object instead of just userId
     next();
   } catch (error) {
-    console.error('Token verification error:', error);
     return res.status(403).json({ message: 'Invalid token' });
   }
 };
@@ -101,7 +100,7 @@ const authenticateToken = async (req, res, next) => {
 exports.createWebsite = [upload.single('file'), authenticateToken, async (req, res) => {
   try {
     const { websiteName, websiteLink } = req.body;
-    const ownerId = req.user._id.toString();
+    const ownerId = req.user._id.toString(); // CHANGE: Get user ID from authenticated user instead of request body
 
     if (!websiteName || !websiteLink) {
       return res.status(400).json({ message: 'Website name and link are required' });
@@ -153,23 +152,74 @@ exports.createWebsite = [upload.single('file'), authenticateToken, async (req, r
   }
 }];
 
-// Add other controller methods that are referenced in routes
 exports.updateWebsiteName = async (req, res) => {
-  // Implementation needed
-  res.status(501).json({ message: 'Method not implemented' });
+  try {
+    const { websiteId } = req.params;
+    const { websiteName } = req.body;
+
+    // Validate input
+    if (!websiteId || !websiteName) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Find and update the website
+    const updatedWebsite = await Website.findByIdAndUpdate(
+      websiteId, 
+      { websiteName }, 
+      { new: true, runValidators: true }
+    );
+
+    // Check if website exists
+    if (!updatedWebsite) {
+      return res.status(404).json({ message: 'Website not found' });
+    }
+
+    res.status(200).json(updatedWebsite);
+  } catch (error) {
+    console.error('Error updating website name:', error);
+    res.status(500).json({ 
+      message: 'Failed to update website name',
+      error: error.message 
+    });
+  }
 };
 
 exports.getAllWebsites = async (req, res) => {
-  // Implementation needed
-  res.status(501).json({ message: 'Method not implemented' });
+  const { page = 1, limit = 10 } = req.query;  // Pagination parameters
+  try {
+    const websites = await Website.find()
+      .lean()  // Use lean for performance
+      .select('ownerId websiteName websiteLink imageUrl createdAt')  // Fetch only necessary fields
+      // .skip((page - 1) * limit)
+      // .limit(parseInt(limit));
+
+    res.status(200).json(websites);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch websites', error });
+  }
 };
 
 exports.getWebsitesByOwner = async (req, res) => {
-  // Implementation needed
-  res.status(501).json({ message: 'Method not implemented' });
+  const { ownerId } = req.params;
+  try {
+    const websites = await Website.find({ ownerId })
+      .lean()
+      .select('ownerId websiteName websiteLink imageUrl createdAt');
+    res.status(200).json(websites);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch websites', error });
+  }
 };
 
 exports.getWebsiteById = async (req, res) => {
-  // Implementation needed
-  res.status(501).json({ message: 'Method not implemented' });
+  const { websiteId } = req.params;
+  try {
+    const website = await Website.findById(websiteId).lean();  // Use lean for fast loading
+    if (!website) {
+      return res.status(404).json({ message: 'Website not found' });
+    }
+    res.status(200).json(website);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch website', error });
+  }
 };
