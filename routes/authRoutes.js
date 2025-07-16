@@ -21,6 +21,9 @@ router.post('/resend-verification', authController.resendVerification);
 // Get profile (protected route)
 router.get('/profile', authMiddleware, authController.getProfile);
 
+// Get user (protected route)
+router.get('/me', authMiddleware, authController.getCurrentUser);
+
 // Google OAuth routes
 router.get('/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })

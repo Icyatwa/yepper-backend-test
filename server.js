@@ -8,7 +8,9 @@ require('dotenv').config();
 require('./config/passport');
 
 const authRoutes = require('./routes/authRoutes');
-const createWebsiteRoutes = require('./routes/createWebsiteRoutes')
+const createWebsiteRoutes = require('./routes/createWebsiteRoutes');
+const createCategoryRoutes = require('./routes/createCategoryRoutes');
+const adDisplayRoutes = require('./routes/AdDisplayRoutes');
 
 const app = express();
 
@@ -32,6 +34,8 @@ app.use(passport.session());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/createWebsite', createWebsiteRoutes);
+app.use('/api/ad-categories', createCategoryRoutes);
+app.use('/api/ads', adDisplayRoutes);
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {
