@@ -10,12 +10,12 @@ router.use(authMiddleware);
 // Create a new category
 router.post('/', categoryController.createCategory);
 
-// router.put('/:categoryId/reset-user-count', adCategoryController.resetUserCount);
-// router.delete('/:categoryId', adCategoryController.deleteCategory);
-// router.get('/', adCategoryController.getCategories);
-// router.get('/:websiteId/advertiser', adCategoryController.getCategoriesByWebsiteForAdvertisers);
-// router.get('/:websiteId', adCategoryController.getCategoriesByWebsite);
-// router.get('/category/:categoryId', adCategoryController.getCategoryById);
-// router.patch('/category/:categoryId/language', adCategoryController.updateCategoryLanguage);
+router.put('/:categoryId/reset-user-count', categoryController.resetUserCount);
+router.delete('/:categoryId', categoryController.deleteCategory);
+router.get('/', categoryController.getCategories);
+router.get('/:websiteId/advertiser', categoryController.getCategoriesByWebsiteForAdvertisers);
+router.get('/:websiteId', categoryController.getCategoriesByWebsite);
+router.get('/category/:categoryId', categoryController.getCategoryById);
+router.patch('/category/:categoryId/language', categoryController.updateCategoryLanguage);
 
 module.exports = router;
