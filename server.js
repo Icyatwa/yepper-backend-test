@@ -7,10 +7,13 @@ const passport = require('passport');
 require('dotenv').config();
 require('./config/passport');
 
+// User
 const authRoutes = require('./routes/authRoutes');
-const createWebsiteRoutes = require('./routes/createWebsiteRoutes');
-const createCategoryRoutes = require('./routes/createCategoryRoutes');
-const adDisplayRoutes = require('./routes/AdDisplayRoutes');
+
+// Ad Promoter
+const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
+const createCategoryRoutes = require('./AdPromoter/routes/createCategoryRoutes');
+const adDisplayRoutes = require('./AdPromoter/routes/AdDisplayRoutes');
 
 const app = express();
 

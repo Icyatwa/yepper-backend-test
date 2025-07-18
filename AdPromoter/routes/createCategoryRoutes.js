@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/createCategoryController');
-const authMiddleware = require('../middleware/authMiddleware');
+const authMiddleware = require('../../middleware/authMiddleware');
 
 // All category routes require authentication
 router.use(authMiddleware);

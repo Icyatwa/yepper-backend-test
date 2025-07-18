@@ -1,7 +1,7 @@
 // createWebsiteController.js
 const Website = require('../models/CreateWebsiteModel');
 const multer = require('multer');
-const User = require('../models/User'); // CHANGE: Added User model import for custom auth
+const User = require('../../models/User'); // CHANGE: Added User model import for custom auth
 const path = require('path');
 const jwt = require('jsonwebtoken'); // ADD THIS LINE - Missing import
 const { Storage } = require('@google-cloud/storage');

@@ -1,6 +1,6 @@
 // createCategoryController.js
 const AdCategory = require('../models/CreateCategoryModel');
-const User = require('../models/User');
+const User = require('../../models/User');
 
 const generateScriptTag = (categoryId) => {
   return {

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NewsHub - Interactive News App</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .app-header {
+            background: rgba(255,255,255,0.95);
+            padding: 20px 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .app-header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .search-bar input {
+            flex: 1;
+            padding: 12px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-bar input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .search-btn {
+            padding: 12px 25px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.3s ease;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .filter-tabs {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-tab {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.3);
+            border: 2px solid transparent;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        .filter-tab.active {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .filter-tab:hover {
+            background: rgba(255,255,255,0.5);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .news-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+        }
+
+        .news-card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease;
+            cursor: pointer;
+        }
+
+        .news-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .news-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .news-card h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 1.3rem;
+        }
+
+        .news-meta {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        .news-card p {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .news-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .like-btn, .share-btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .like-btn {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .like-btn.liked {
+            background: #c0392b;
+        }
+
+        .share-btn {
+            background: #3498db;
+            color: white;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .widget {
+            background: rgba(255,255,255,0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .widget h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .trending-item {
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .trending-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .trending-item:last-child {
+            border-bottom: none;
+        }
+
+        .weather-widget {
+            text-align: center;
+        }
+
+        .weather-temp {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .adsContainer {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            text-align: center;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(45deg, #00b894, #00a085);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .notification.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .news-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .filter-tabs {
+                justify-content: flex-start;
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="app-header">
+            <h1>NewsHub</h1>
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Search for news, topics, or keywords...">
+                <button class="search-btn" onclick="searchNews()">🔍 Search</button>
+            </div>
+            <div class="filter-tabs">
+                <div class="filter-tab active" onclick="filterNews('all')">All News</div>
+                <div class="filter-tab" onclick="filterNews('breaking')">Breaking</div>
+                <div class="filter-tab" onclick="filterNews('technology')">Technology</div>
+                <div class="filter-tab" onclick="filterNews('politics')">Politics</div>
+                <div class="filter-tab" onclick="filterNews('sports')">Sports</div>
+                <div class="filter-tab" onclick="filterNews('business')">Business</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="news-grid" id="newsGrid">
+                <div class="news-card" data-category="breaking">
+                    <img src="https://via.placeholder.com/350x200/667eea/ffffff?text=Breaking+News" alt="News">
+                    <h3>Major Breakthrough in Quantum Computing</h3>
+                    <div class="news-meta">
+                        <span>📅 2 hours ago</span>
+                        <span>👤 Dr. Sarah Kim</span>
+                        <span>🏷️ Technology</span>
+                    </div>
+                    <p>Scientists at Stanford University have achieved a significant milestone in quantum computing, demonstrating a 1000-qubit processor that maintains coherence for unprecedented durations...</p>
+                    <div class="news-actions">
+                        <button class="like-btn" onclick="likeNews(this)">❤️ 124</button>
+                        <button class="share-btn" onclick="shareNews(this)">📤 Share</button>
+                    </div>
+                </div>
+
+                <div class="news-card" data-category="politics">
+                    <img src="https://via.placeholder.com/350x200/e74c3c/ffffff?text=Political+News" alt="Politics">
+                    <h3>International Trade Agreement Signed</h3>
+                    <div class="news-meta">
+                        <span>📅 4 hours ago</span>
+                        <span>👤 James Wilson</span>
+                        <span>🏷️ Politics</span>
+                    </div>
+                    <p>A landmark trade agreement between major economies was signed today, promising to reduce tariffs and boost international commerce across multiple sectors...</p>
+                    <div class="news-actions">
+                        <button class="like-btn" onclick="likeNews(this)">❤️ 89</button>
+                        <button class="share-btn" onclick="shareNews(this)">📤 Share</button>
+                    </div>
+                </div>
+
+                <div class="news-card" data-category="sports">
+                    <img src="https://via.placeholder.com/350x200/f39c12/ffffff?text=Sports+News" alt="Sports">
+                    <h3>World Cup Finals Draw Record Audience</h3>
+                    <div class="news-meta">
+                        <span>📅 6 hours ago</span>
+                        <span>👤 Maria Rodriguez</span>
+                        <span>🏷️ Sports</span>
+                    </div>
+                    <p>The World Cup finals attracted over 2 billion viewers worldwide, making it the most-watched sporting event in history. The thrilling match went to penalty kicks...</p>
+                    <div class="news-actions">
+                        <button class="like-btn" onclick="likeNews(this)">❤️ 256</button>
+                        <button class="share-btn" onclick="shareNews(this)">📤 Share</button>
+                    </div>
+                </div>
+
+                <div class="news-card" data-category="technology">
+                    <img src="https://via.placeholder.com/350x200/9b59b6/ffffff?text=AI+News" alt="AI News">
+                    <h3>AI Revolutionizes Medical Diagnostics</h3>
+                    <div class="news-meta">
+                        <span>📅 8 hours ago</span>
+                        <span>👤 Dr. Michael Chen</span>
+                        <span>🏷️ Technology</span>
+                    </div>
+                    <p>A new AI system can diagnose diseases from medical images with 99.7% accuracy, potentially transforming healthcare delivery in remote areas...</p>
+                    <div class="news-actions">
+                        <button class="like-btn" onclick="likeNews(this)">❤️ 178</button>
+                        <button class="share-btn" onclick="shareNews(this)">📤 Share</button>
+                    </div>
+                </div>
+
+                <div class="news-card" data-category="business">
+                    <img src="https://via.placeholder.com/350x200/27ae60/ffffff?text=Business+News" alt="Business">
+                    <h3>Green Energy Stocks Surge to New Highs</h3>
+                    <div class="news-meta">
+                        <span>📅 10 hours ago</span>
+                        <span>👤 Emma Thompson</span>
+                        <span>🏷️ Business</span>
+                    </div>
+                    <p>Renewable energy companies saw their stock prices soar following announcement of new government incentives and private sector investments...</p>
+                    <div class="news-actions">
+                        <button class="like-btn" onclick="likeNews(this)">❤️ 145</button>
+                        <button class="share-btn" onclick="shareNews(this)">📤 Share</button>
+                    </div>
+                </div>
+
+                <div class="news-card" data-category="breaking">
+                    <img src="https://via.placeholder.com/350x200/e67e22/ffffff?text=Climate+News" alt="Climate">
+                    <h3>Antarctic Ice Sheet Shows Unexpected Recovery</h3>
+                    <div class="news-meta">
+                        <span>📅 12 hours ago</span>
+                        <span>👤 Dr. Lisa Park</span>
+                        <span>🏷️ Environment</span>
+                    </div>
+                    <p>Satellite data reveals surprising growth in Antarctic ice coverage, challenging previous climate models and offering new insights into polar dynamics...</p>
+                    <div class="news-actions">
+                        <button class="like-btn" onclick="likeNews(this)">❤️ 203</button>
+                        <button class="share-btn" onclick="shareNews(this)">📤 Share</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="widget weather-widget">
+                    <h3>🌤️ Weather</h3>
+                    <div class="weather-temp">24°C</div>
+                    <p>Partly Cloudy</p>
+                    <p>Kigali, Rwanda</p>
+                </div>
+
+                <div class="adsContainer">
+                    <h3>Advertisement</h3>
+                    <script src="http://localhost:5000/api/ads/script/68781be533b1582958228861"></script>
+                    <p>Interactive Ad Space</p>
+                </div>
+
+                <div class="widget">
+                    <h3>🔥 Trending Topics</h3>
+                    <div class="trending-item" onclick="searchSpecific('quantum computing')">
+                        <h4>Quantum Computing</h4>
+                        <p>Revolutionary breakthroughs in quantum technology</p>
+                    </div>
+                    <div class="trending-item" onclick="searchSpecific('climate change')">
+                        <h4>Climate Change</h4>
+                        <p>Latest developments in environmental science</p>
+                    </div>
+                    <div class="trending-item" onclick="searchSpecific('space exploration')">
+                        <h4>Space Exploration</h4>
+                        <p>Mars missions and cosmic discoveries</p>
+                    </div>
+                    <div class="trending-item" onclick="searchSpecific('artificial intelligence')">
+                        <h4>AI Advances</h4>
+                        <p>Machine learning transforming industries</p>
+                    </div>
+                </div>
+
+                <div class="widget">
+                    <h3>📈 Market Summary</h3>
+                    <div class="trending-item">
+                        <h4>S&P 500</h4>
+                        <p style="color: #27ae60;">+2.3% ↗️</p>
+                    </div>
+                    <div class="trending-item">
+                        <h4>NASDAQ</h4>
+                        <p style="color: #27ae60;">+1.8% ↗️</p>
+                    </div>
+                    <div class="trending-item">
+                        <h4>Bitcoin</h4>
+                        <p style="color: #e74c3c;">-0.5% ↘️</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        function filterNews(category) {
+            const tabs = document.querySelectorAll('.filter-tab');
+            const cards = document.querySelectorAll('.news-card');
+            
+            tabs.forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            cards.forEach(card => {
+                if (category === 'all' || card.dataset.category === category) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function searchNews() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const cards = document.querySelectorAll('.news-card');
+            
+            cards.forEach(card => {
+                const title = card.querySelector('h3').textContent.toLowerCase();
+                const content = card.querySelector('p').textContent.toLowerCase();
+                
+                if (title.includes(searchTerm) || content.includes(searchTerm)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            
+            if (searchTerm) {
+                showNotification(`Searching for: ${searchTerm}`);
+            }
+        }
+
+        function searchSpecific(term) {
+            document.getElementById('searchInput').value = term;
+            searchNews();
+        }
+
+        function likeNews(button) {
+            const currentLikes = parseInt(button.textContent.match(/\d+/)[0]);
+            const newLikes = button.classList.contains('liked') ? currentLikes - 1 : currentLikes + 1;
+            
+            button.textContent = `❤️ ${newLikes}`;
+            button.classList.toggle('liked');
+            
+            const action = button.classList.contains('liked') ? 'Liked' : 'Unliked';
+            showNotification(`${action} article!`);
+        }
+
+        function shareNews(button) {
+            const card = button.closest('.news-card');
+            const title = card.querySelector('h3').textContent;
+            
+            if (navigator.share) {
+                navigator.share({
+                    title: title,
+                    text: 'Check out this news article',
+                    url: window.location.href
+                });
+            } else {
+                // Fallback for browsers that don't support Web Share API
+                const dummy = document.createElement('input');
+                document.body.appendChild(dummy);
+                dummy.value = `${title} - ${window.location.href}`;
+                dummy.select();
+                document.execCommand('copy');
+                document.body.removeChild(dummy);
+                showNotification('Link copied to clipboard!');
+            }
+        }
+
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // Auto-refresh news every 5 minutes
+        setInterval(() => {
+            showNotification('News updated!');
+        }, 300000);
+
+        // Add keyboard shortcut for search
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchNews();
+            }
+        });
+
+        // Simulate real-time updates
+        function updateNewsStats() {
+            const likeButtons = document.querySelectorAll('.like-btn');
+            likeButtons.forEach(button => {
+                if (Math.random() > 0.98) { // 2% chance to update
+                    const currentLikes = parseInt(button.textContent.match(/\d+/)[0]);
+                    const newLikes = currentLikes + Math.floor(Math.random() * 5) + 1;
+                    button.textContent = button.textContent.replace(/\d+/, newLikes);
+                }
+            });
+        }
+
+        // Update stats every 30 seconds
+        setInterval(updateNewsStats, 30000);
+
+        // Add smooth scrolling for better UX
+        document.querySelectorAll('.news-card').forEach(card => {
+            card.addEventListener('click', function(e) {
+                if (!e.target.closest('.like-btn') && !e.target.closest('.share-btn')) {
+                    // Simulate opening article in modal or new page
+                    showNotification('Opening article...');
+                }
+            });
+        });
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            showNotification('Welcome to NewsHub!');
+        });
+    </script>
+</body>
+</html>

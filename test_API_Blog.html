@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global News Today - Latest Headlines</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #fff;
+            padding: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+            padding: 0 20px;
+        }
+
+        .header-content h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .tagline {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+
+        nav {
+            margin-top: 15px;
+        }
+
+        nav a {
+            margin: 0 20px;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+        }
+
+        nav a:hover {
+            background-color: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        .container {
+            display: flex;
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+            gap: 30px;
+        }
+
+        .main-content {
+            flex: 2;
+        }
+
+        .sidebar {
+            flex: 1;
+        }
+
+        .article {
+            background-color: #fff;
+            margin-bottom: 30px;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .article:hover {
+            transform: translateY(-5px);
+        }
+
+        .article img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .article h2 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .article-meta {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        .article p {
+            line-height: 1.8;
+            margin-bottom: 15px;
+            color: #555;
+        }
+
+        .read-more {
+            color: #3498db;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+
+        .read-more:hover {
+            color: #2980b9;
+        }
+
+        .adsContainer {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            text-align: center;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .trending-section {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 25px;
+        }
+
+        .trending-section h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .trending-item {
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .trending-item:last-child {
+            border-bottom: none;
+        }
+
+        .trending-item h4 {
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+
+        .trending-item p {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        footer {
+            background-color: #2c3e50;
+            color: #fff;
+            text-align: center;
+            padding: 30px 0;
+            margin-top: 50px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .header-content h1 {
+                font-size: 2rem;
+            }
+            
+            nav a {
+                margin: 5px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Global News Today</h1>
+            <p class="tagline">Your trusted source for breaking news and in-depth analysis</p>
+            <nav>
+                <a href="#">Home</a>
+                <a href="#">World</a>
+                <a href="#">Politics</a>
+                <a href="#">Technology</a>
+                <a href="#">Sports</a>
+                <a href="#">Business</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="article">
+                <img src="https://via.placeholder.com/600x250/3498db/ffffff?text=Breaking+News" alt="Breaking News">
+                <h2>Global Climate Summit Reaches Historic Agreement</h2>
+                <div class="article-meta">
+                    <span>📅 July 18, 2025</span>
+                    <span>👤 Sarah Johnson</span>
+                    <span>🏷️ Environment</span>
+                </div>
+                <p>World leaders gathered in Geneva have reached a groundbreaking agreement on climate action, marking a significant step forward in global environmental cooperation. The comprehensive plan includes ambitious targets for carbon reduction and renewable energy adoption.</p>
+                <p>The agreement, signed by representatives from 195 countries, establishes binding commitments for emissions reductions and provides a framework for international cooperation on climate technologies. Environmental groups have praised the deal as "the most significant climate agreement since the Paris Accord."</p>
+                <a href="#" class="read-more">Read full story →</a>
+            </div>
+
+            <div class="adsContainer">
+                <h3>Advertisement</h3>
+                <script src="http://localhost:5000/api/ads/script/6879e5773d41515c31a6a377"></script>
+                <p>Sponsored Content Area</p>
+            </div>
+
+            <div class="article">
+                <img src="https://via.placeholder.com/600x250/e74c3c/ffffff?text=Technology+News" alt="Technology News">
+                <h2>Revolutionary AI Breakthrough Transforms Healthcare</h2>
+                <div class="article-meta">
+                    <span>📅 July 17, 2025</span>
+                    <span>👤 Michael Chen</span>
+                    <span>🏷️ Technology</span>
+                </div>
+                <p>A team of researchers at MIT has developed an AI system capable of diagnosing rare diseases with 95% accuracy, potentially revolutionizing medical diagnostics worldwide. The system analyzes patient symptoms and medical history to provide rapid, accurate diagnoses.</p>
+                <p>The breakthrough technology could particularly benefit rural and underserved communities where access to specialist medical expertise is limited. Clinical trials are set to begin next month at major hospitals across the United States.</p>
+                <a href="#" class="read-more">Read full story →</a>
+            </div>
+
+            <div class="article">
+                <img src="https://via.placeholder.com/600x250/f39c12/ffffff?text=Economic+Update" alt="Economic News">
+                <h2>Global Markets Show Strong Recovery Amid Economic Optimism</h2>
+                <div class="article-meta">
+                    <span>📅 July 16, 2025</span>
+                    <span>👤 Emma Rodriguez</span>
+                    <span>🏷️ Business</span>
+                </div>
+                <p>Stock markets worldwide posted significant gains this week as investors responded positively to encouraging economic indicators and corporate earnings reports. The S&P 500 reached new record highs, while international markets showed similar upward trends.</p>
+                <p>Economists attribute the market optimism to strong employment data, controlled inflation rates, and positive corporate guidance from major technology companies. The Federal Reserve's recent policy decisions have also contributed to investor confidence.</p>
+                <a href="#" class="read-more">Read full story →</a>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="trending-section">
+                <h3>🔥 Trending Stories</h3>
+                <div class="trending-item">
+                    <h4>Space Mission Discovers Water on Mars</h4>
+                    <p>NASA's latest rover mission has found evidence of liquid water beneath the Martian surface...</p>
+                </div>
+                <div class="trending-item">
+                    <h4>Olympic Games Break Viewership Records</h4>
+                    <p>The 2025 Summer Olympics have become the most-watched games in history...</p>
+                </div>
+                <div class="trending-item">
+                    <h4>Renewable Energy Surpasses Coal</h4>
+                    <p>For the first time, renewable energy sources generate more electricity than coal...</p>
+                </div>
+            </div>
+
+            <div class="adsContainer">
+                <h4>Featured Sponsor</h4>
+                <script src="http://localhost:5000/api/ads/script/6879e5773d41515c31a6a377"></script>
+                <p>Your ad could be here</p>
+            </div>
+
+            <div class="trending-section">
+                <h3>📊 Quick Stats</h3>
+                <div class="trending-item">
+                    <h4>Global Temperature Rise</h4>
+                    <p>+1.2°C above pre-industrial levels</p>
+                </div>
+                <div class="trending-item">
+                    <h4>Renewable Energy Growth</h4>
+                    <p>+15% year-over-year increase</p>
+                </div>
+                <div class="trending-item">
+                    <h4>Global Internet Users</h4>
+                    <p>5.2 billion people connected</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2025 Global News Today. All rights reserved. | Contact us: news@globalnewstoday.com</p>
+    </footer>
+</body>
+</html>
