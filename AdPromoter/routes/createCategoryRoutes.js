@@ -18,4 +18,14 @@ router.get('/:websiteId', categoryController.getCategoriesByWebsite);
 router.get('/category/:categoryId', categoryController.getCategoryById);
 router.patch('/category/:categoryId/language', categoryController.updateCategoryLanguage);
 
+router.get('/pending/:ownerId', categoryController.getPendingAds);
+router.get('/mixed/:userId', categoryController.getUserMixedAds);
+router.get('/pending-ad/:adId', categoryController.getPendingAdById);
+router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForWebsite);
+router.put('/approve/:adId', categoryController.approveAd);
+router.get('/approved-ads', categoryController.getApprovedAds);
+router.get('/approved/:ownerId', categoryController.getApprovedAdsByUser);
+router.get('/ad-details/:adId', categoryController.getAdDetails);
+router.put('/confirm/:adId/website/:websiteId', categoryController.confirmWebsiteAd);
+
 module.exports = router;

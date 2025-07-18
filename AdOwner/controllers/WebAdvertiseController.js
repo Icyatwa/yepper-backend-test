@@ -1,20 +1,27 @@
-// createCategoryController.js
-const mongoose = require('mongoose');
-const AdCategory = require('../models/CreateCategoryModel');
+// WebAdvertiseController.js
+const multer = require('multer');
+const path = require('path');
+const bucket = require('../../config/storage');
+const ImportAd = require('../models/WebAdvertiseModel');
+const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const User = require('../../models/User');
-const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
-const Website = require('../models/CreateWebsiteModel');
-const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
-const Payment = require('../models/PaymentModel');
-const PaymentTracker = require('../models/PaymentTracker');
-const Withdrawal = require('../models/WithdrawalModel');
+const Website = require('../../AdPromoter/models/CreateWebsiteModel');
+const WebOwnerBalance = require('../../AdPromoter/models/WebOwnerBalanceModel');
+const Payment = require('../../AdPromoter/models/PaymentModel');
+const PaymentTracker = require('../../AdPromoter/models/PaymentTracker');
+const Withdrawal = require('../../AdPromoter/models/WithdrawalModel');
 const sendEmailNotification = require('../../controllers/emailService');
 
-const generateScriptTag = (categoryId) => {
-  return {
-    script: `<script src="http://localhost:5000/api/ads/script/${categoryId}"></script>`
-  };
-};
+const upload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|bmp|webp|tiff|svg|mp4|avi|mov|mkv|webm|pdf/;
+    const isValid = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    if (isValid) return cb(null, true);
+    cb(new Error('Invalid file type.'));
+  },
+});
+
 class WithdrawalService {
   // Validate withdrawal input parameters
   static validateWithdrawalInput(amount, phoneNumber, userId) {
@@ -48,411 +55,240 @@ class WithdrawalService {
   }
 }
 
-exports.createCategory = async (req, res) => {
+exports.createImportAd = [upload.single('file'), async (req, res) => {
   try {
-    // Add debugging to see what's in req.user
-    console.log('req.user:', req.user);
-    console.log('req.headers:', req.headers);
-    
-    // Check if user is authenticated
-    if (!req.user) {
-      return res.status(401).json({ message: 'Authentication required. Please login.' });
-    }
-
-    const { 
-      websiteId,
-      categoryName,
-      description,
-      price,
-      customAttributes,
-      spaceType,
-      userCount,
-      instructions,
-      visitorRange,
-      tier
+    const {
+      adOwnerEmail,
+      businessName,
+      businessLink,
+      businessLocation,
+      adDescription,
+      selectedWebsites,
+      selectedCategories,
     } = req.body;
 
-    // Get userId from req.user with fallback options
-    const userId = req.user.userId || req.user.id || req.user._id;
+    const websitesArray = JSON.parse(selectedWebsites);
+    const categoriesArray = JSON.parse(selectedCategories);
 
-    if (!userId) {
+    let imageUrl = '';
+    let videoUrl = '';
+    let pdfUrl = '';
+
+    // Handle file upload
+    if (req.file) {
+      const blob = bucket.file(`${Date.now()}-${req.file.originalname}`);
+      const blobStream = blob.createWriteStream({
+        resumable: false,
+        contentType: req.file.mimetype,
+      });
+
+      await new Promise((resolve, reject) => {
+        blobStream.on('error', (err) => {
+          console.error('Upload error:', err);
+          reject(new Error('Failed to upload file.'));
+        });
+
+        blobStream.on('finish', async () => {
+          try {
+            await blob.makePublic();
+            const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+            
+            if (req.file.mimetype.startsWith('image')) {
+              imageUrl = publicUrl;
+            } else if (req.file.mimetype.startsWith('video')) {
+              videoUrl = publicUrl;
+            } else if (req.file.mimetype === 'application/pdf') {
+              pdfUrl = publicUrl;
+            }
+            resolve();
+          } catch (err) {
+            console.error('Error making file public:', err);
+            reject(new Error('Failed to make file public.'));
+          }
+        });
+
+        blobStream.end(req.file.buffer);
+      });
+    }
+
+    // Fetch all selected categories to validate website associations
+    const categories = await AdCategory.find({
+      _id: { $in: categoriesArray }
+    });
+
+    // Create a map of websiteId to its categories for efficient lookup
+    const websiteCategoryMap = categories.reduce((map, category) => {
+      const websiteId = category.websiteId.toString();
+      if (!map.has(websiteId)) {
+        map.set(websiteId, []);
+      }
+      map.get(websiteId).push(category._id);
+      return map;
+    }, new Map());
+
+    // Create websiteSelections array with proper category associations
+    const websiteSelections = websitesArray.map(websiteId => {
+      // Get categories that belong to this website
+      const websiteCategories = websiteCategoryMap.get(websiteId.toString()) || [];
+      
+      // Filter selected categories to only include ones that belong to this website
+      const validCategories = categoriesArray.filter(categoryId => 
+        websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
+      );
+
+      return {
+        websiteId,
+        categories: validCategories,
+        approved: false,
+        approvedAt: null
+      };
+    }).filter(selection => selection.categories.length > 0); // Only include websites that have matching categories
+
+    // Validate that we have at least one valid website-category combination
+    if (websiteSelections.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid Selection',
+        message: 'No valid website and category combinations found'
+      });
+    }
+
+    const ownerId = req.user.userId || req.user.id || req.user._id;
+
+    if (!ownerId) {
       console.error('No userId found in req.user:', req.user);
       return res.status(401).json({ message: 'User ID not found in authentication data' });
     }
 
-    // Try to find user by ID
-    const user = await User.findById(userId);
+    const user = await User.findById(ownerId);
     if (!user) {
-      console.error('User not found in database with ID:', userId);
+      console.error('User not found in database with ID:', ownerId);
       return res.status(401).json({ message: 'User not found in database' });
     }
 
-    const ownerId = user._id.toString();
-    const webOwnerEmail = user.email;
+    const userId = user._id.toString();
 
-    // Validation
-    if (!websiteId || !categoryName || !price || !spaceType || !visitorRange || !tier) {
-      return res.status(400).json({ 
-        message: 'Missing required fields',
-        required: ['websiteId', 'categoryName', 'price', 'spaceType', 'visitorRange', 'tier'],
-        received: { websiteId, categoryName, price, spaceType, visitorRange, tier }
-      });
-    }
-
-    // Create new category
-    const newCategory = new AdCategory({
-      ownerId,
-      websiteId,
-      categoryName,
-      description,
-      price,
-      spaceType,
-      userCount: userCount || 0,
-      instructions,
-      customAttributes: customAttributes || {},
-      webOwnerEmail,
-      selectedAds: [],
-      visitorRange,
-      tier
+    // Create new ad entry with restructured data
+    const newRequestAd = new ImportAd({
+      userId,
+      adOwnerEmail,
+      imageUrl,
+      videoUrl,
+      pdfUrl,
+      businessName,
+      businessLink,
+      businessLocation,
+      adDescription,
+      websiteSelections,
+      confirmed: false,
+      clicks: 0,
+      views: 0
     });
 
-    const savedCategory = await newCategory.save();
-    const { script } = generateScriptTag(savedCategory._id.toString());
+    const savedRequestAd = await newRequestAd.save();
 
-    // Update with API codes
-    savedCategory.apiCodes = {
-      HTML: script,
-      JavaScript: `const script = document.createElement('script');\nscript.src = "http://localhost:5000/api/ads/script/${savedCategory._id}";\ndocument.body.appendChild(script);`,
-      PHP: `<?php echo '${script}'; ?>`,
-      Python: `print('${script}')`
-    };
+    // Populate the saved ad with website and category details
+    const populatedAd = await ImportAd.findById(savedRequestAd._id)
+      .populate('websiteSelections.websiteId')
+      .populate('websiteSelections.categories');
 
-    const finalCategory = await savedCategory.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'Category created successfully',
-      category: finalCategory
-    });
-    
-  } catch (error) {
-    console.error('Error creating category:', error);
-    
-    // Handle specific mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: validationErrors 
-      });
-    }
-
-    // Handle duplicate key errors
-    if (error.code === 11000) {
-      return res.status(400).json({ 
-        message: 'Category with this name already exists for this website' 
-      });
-    }
-
-    res.status(500).json({ 
-      message: 'Failed to create category', 
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-exports.resetUserCount = async (req, res) => {
-  try {
-    const { categoryId } = req.params;
-    const { newUserCount } = req.body;
-
-    // Validate input
-    if (!newUserCount || newUserCount < 0) {
-      return res.status(400).json({ 
-        error: 'Invalid Input', 
-        message: 'User count must be a non-negative number' 
-      });
-    }
-
-    // Find the category
-    const category = await AdCategory.findById(categoryId);
-    
-    if (!category) {
-      return res.status(404).json({ 
-        error: 'Not Found', 
-        message: 'Category not found' 
-      });
-    }
-
-    // Count current users who have selected this category
-    const currentUserCount = await ImportAd.countDocuments({
-      'websiteSelections.categories': categoryId,
-      'websiteSelections.approved': true
-    });
-
-    // Ensure new user count is not less than current users
-    if (newUserCount < currentUserCount) {
-      return res.status(400).json({ 
-        error: 'Invalid Reset', 
-        message: 'New user count cannot be less than current approved users' 
-      });
-    }
-
-    // Update the category with new user count
-    category.userCount = newUserCount;
-    await category.save();
-
-    res.status(200).json({
-      message: 'User count reset successfully',
-      category
-    });
-  } catch (error) {
-    console.error('Error resetting user count:', error);
+    res.status(201).json(populatedAd);
+  } catch (err) {
+    console.error('Error creating ad:', err);
     res.status(500).json({ 
       error: 'Internal Server Error',
-      message: error.message 
+      message: err.message 
     });
   }
-};
+}];
 
-exports.deleteCategory = async (req, res) => {
-  const session = await mongoose.startSession();
-  
-  try {
-    const { categoryId } = req.params;
-    const { ownerId } = req.body;
+// exports.getAdsByUserId = async (req, res) => {
+//   const userId = req.params.userId;
 
-    // Find the category
-    const category = await AdCategory.findById(categoryId);
+//   try {
+//     const ads = await ImportAd.find({ userId })
+//       .lean()
+//       .select(
+//         'businessName businessLink businessLocation adDescription imageUrl videoUrl approved selectedWebsites selectedCategories selectedSpaces'
+//       );
 
-    // Check if category exists
-    if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
-    }
+//     res.status(200).json(ads);
+//   } catch (err) {
+//     console.error('Error fetching ads:', err);
+//     res.status(500).json({ error: 'Failed to fetch ads' });
+//   }
+// };
 
-    // Verify the owner
-    if (category.ownerId !== ownerId) {
-      return res.status(403).json({ message: 'Unauthorized to delete this category' });
-    }
+// exports.getAllAds = async (req, res) => {
+//   try {
+//     const ads = await ImportAd.find();
+//     res.status(200).json(ads);
+//   } catch (error) {
+//     console.error('Error fetching ads:', error);
+//     res.status(500).json({ message: 'Internal Server Error' });
+//   }
+// };
 
-    // Check for any ads with this category confirmed or approved
-    const existingAds = await ImportAd.find({
-      'websiteSelections': {
-        $elemMatch: {
-          'categories': categoryId,
-          $or: [
-            { 'confirmed': true },
-            { 'approved': true }
-          ]
-        }
-      }
-    });
+// exports.getAdByIds = async (req, res) => {
+//   const adId = req.params.id;
 
-    // If any ads exist with this category confirmed or approved, prevent deletion
-    if (existingAds.length > 0) {
-      return res.status(400).json({ 
-        message: 'Cannot delete category with active or confirmed ads',
-        affectedAds: existingAds.map(ad => ad._id)
-      });
-    }
+//   try {
+//     const ad = await ImportAd.findById(adId)
+//       .lean()  // Faster loading
+//       .select('businessName businessLink businessLocation adDescription imageUrl pdfUrl videoUrl approved selectedWebsites selectedCategories selectedSpaces');
 
-    // Start transaction
-    session.startTransaction();
+//     if (!ad) {
+//       return res.status(404).json({ message: 'Ad not found' });
+//     }
+//     res.status(200).json(ad);
+//   } catch (error) {
+//     console.error('Error fetching ad by ID:', error);
+//     res.status(500).json({ message: 'Internal server error' });
+//   }
+// };
 
-    try {
-      // Delete the category
-      await AdCategory.findByIdAndDelete(categoryId).session(session);
+// exports.getProjectsByUserId = async (req, res) => {
+//   const userId = req.params.userId;
 
-      // Remove references to this category from all ImportAd documents
-      await ImportAd.updateMany(
-        { 'websiteSelections.categories': categoryId },
-        { 
-          $pull: { 
-            'websiteSelections.$.categories': categoryId 
-          } 
-        }
-      ).session(session);
+//   try {
+//     const approvedAds = await ImportAd.find({ userId, approved: true })
+//       .lean()
+//       .populate('selectedWebsites', 'websiteName websiteLink')
+//       .populate('selectedCategories', 'categoryName description')
+//       .populate('selectedSpaces', 'spaceType price availability')
+//       .select('businessName businessLink businessLocation adDescription imageUrl pdfUrl videoUrl approved selectedWebsites selectedCategories selectedSpaces');
 
-      // Commit the transaction
-      await session.commitTransaction();
+//     const pendingAds = await ImportAd.find({ userId, approved: false })
+//       .lean()
+//       .populate('selectedWebsites', 'websiteName websiteLink')
+//       .populate('selectedCategories', 'categoryName description')
+//       .populate('selectedSpaces', 'spaceType price availability')
+//       .select('businessName businessLink businessLocation adDescription approved selectedWebsites selectedCategories selectedSpaces');
+      
+//     res.status(200).json({
+//       approvedAds,
+//       pendingAds
+//     });
+//   } catch (error) {
+//     console.error('Error fetching ads by user ID:', error);
+//     res.status(500).json({ message: 'Internal Server Error' });
+//   }
+// };
 
-      res.status(200).json({ 
-        message: 'Category deleted successfully' 
-      });
-
-    } catch (transactionError) {
-      // Abort the transaction on error
-      await session.abortTransaction();
-      throw transactionError;
-    }
-
-  } catch (error) {
-    console.error('Error deleting category:', error);
-    
-    // Ensure session is ended even if there's an error
-    if (session) {
-      await session.endSession();
-    }
-
-    res.status(500).json({ 
-      message: 'Failed to delete category', 
-      error: error.message 
-    });
-  } finally {
-    // Ensure session is always ended
-    if (session) {
-      await session.endSession();
-    }
-  }
-};
-
-exports.getCategories = async (req, res) => {
-  const { ownerId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
-  try {
-    const categories = await AdCategory.find({ ownerId })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const count = await AdCategory.countDocuments({ ownerId });
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch categories', error });
-  }
-};
-
-exports.getCategoriesByWebsiteForAdvertisers = async (req, res) => {
-  const { websiteId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
-  try {
-    // Validate websiteId is a valid ObjectId
-    if (!mongoose.Types.ObjectId.isValid(websiteId)) {
-      return res.status(400).json({ message: 'Invalid website ID' });
-    }
-
-    const websiteObjectId = new mongoose.Types.ObjectId(websiteId);
-
-    const categories = await AdCategory.aggregate([
-      { $match: { websiteId: websiteObjectId } },
-      {
-        $lookup: {
-          from: 'importads', 
-          let: { categoryId: '$_id' },
-          pipeline: [
-            { $unwind: { path: '$websiteSelections', preserveNullAndEmptyArrays: true } },
-            { $match: { 
-              $expr: { 
-                $and: [
-                  { $eq: ['$websiteSelections.websiteId', websiteObjectId] },
-                  { $in: ['$$categoryId', '$websiteSelections.categories'] }
-                ]
-              }
-            }},
-            { $count: 'categoryCount' }
-          ],
-          as: 'currentUserCount'
-        }
-      },
-      {
-        $addFields: {
-          currentUserCount: { 
-            $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] 
-          },
-          isFullyBooked: { 
-            $gte: [
-              { $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] }, 
-              '$userCount' 
-            ] 
-          }
-        }
-      }
-    ])
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
-
-    const count = await AdCategory.countDocuments({ websiteId: websiteObjectId });
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
-  } catch (error) {
-    console.error('Error in getCategoriesByWebsiteForAdvertisers:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch categories', 
-      error: error.message 
-    });
-  }
-};
-
-exports.getCategoriesByWebsite = async (req, res) => {
-  const { websiteId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
-  try {
-    const categories = await AdCategory.find({ websiteId })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const count = await AdCategory.countDocuments({ websiteId });
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch categories', error });
-  }
-};
-
-exports.getCategoryById = async (req, res) => {
-  const { categoryId } = req.params;
-
-  try {
-    const category = await AdCategory.findById(categoryId);
-
-    if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
-    }
-
-    res.status(200).json(category);
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch category', error });
-  }
-};
-
-exports.updateCategoryLanguage = async (req, res) => {
-  const { categoryId } = req.params;
-  const { defaultLanguage } = req.body;
-  
-  try {
-    const updatedCategory = await AdCategory.findByIdAndUpdate(
-      categoryId,
-      { defaultLanguage },
-      { new: true, runValidators: true }
-    );
-    
-    if (!updatedCategory) {
-      return res.status(404).json({ message: 'Category not found' });
-    }
-    
-    res.status(200).json(updatedCategory);
-  } catch (error) {
-    console.error('Error updating category language:', error);
-    res.status(500).json({ message: 'Error updating category language', error: error.message });
-  }
-};
+// exports.getAdsByUserIdWithClicks = async (req, res) => {
+//   const userId = req.params.userId;
+//   try {
+//     const ads = await ImportAd.find({ userId });
+//     for (const ad of ads) {
+//       const clicks = await AdClick.find({ adId: ad._id }).exec();
+//       ad.clicks = clicks.length;
+//       ad.websites = [...new Set(clicks.map(click => click.website))]; // Unique websites
+//     }
+//     res.status(200).json(ads);
+//   } catch (error) {
+//     console.error('Error fetching ads with clicks:', error);
+//     res.status(500).json({ message: 'Internal Server Error' });
+//   }
+// };
 
 exports.getPendingAds = async (req, res) => {
   try {

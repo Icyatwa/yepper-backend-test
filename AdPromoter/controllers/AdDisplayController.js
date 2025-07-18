@@ -1,6 +1,6 @@
 // AdDisplayController.js
-const AdCategory = require('../models/AdCategoryModel');
-const ImportAd = require('../models/ImportAdModel');
+const AdCategory = require('../models/CreateCategoryModel');
+const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const PaymentTracker = require('../models/PaymentTracker');
 
 exports.displayAd = async (req, res) => {
