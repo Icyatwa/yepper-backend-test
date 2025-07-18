@@ -4,11 +4,11 @@ const router = express.Router();
 const WebAdvertiseController = require('../controllers/WebAdvertiseController');
 
 router.post('/', WebAdvertiseController.createImportAd);
-router.get('/', WebAdvertiseController.getAllAds);
-router.get('/ad/:id', WebAdvertiseController.getAdByIds);
-router.get('/ads/:userId', WebAdvertiseController.getAdsByUserId);
-router.get('/projects/:userId', WebAdvertiseController.getProjectsByUserId);
-router.get('/ads/:userId/with-clicks', WebAdvertiseController.getAdsByUserIdWithClicks);
+// router.get('/', WebAdvertiseController.getAllAds);
+// router.get('/ad/:id', WebAdvertiseController.getAdByIds);
+// router.get('/ads/:userId', WebAdvertiseController.getAdsByUserId);
+// router.get('/projects/:userId', WebAdvertiseController.getProjectsByUserId);
+// router.get('/ads/:userId/with-clicks', WebAdvertiseController.getAdsByUserIdWithClicks);
 
 router.get('/pending/:ownerId', WebAdvertiseController.getPendingAds);
 router.get('/mixed/:userId', WebAdvertiseController.getUserMixedAds);

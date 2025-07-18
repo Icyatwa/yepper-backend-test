@@ -15,6 +15,9 @@ const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
 const createCategoryRoutes = require('./AdPromoter/routes/createCategoryRoutes');
 const adDisplayRoutes = require('./AdPromoter/routes/AdDisplayRoutes');
 
+// AdOwner.js
+const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes')
+
 const app = express();
 
 // Middleware
@@ -34,11 +37,16 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Routes
+// Auth Routes
 app.use('/api/auth', authRoutes);
+
+// AdPromoter Routes
 app.use('/api/createWebsite', createWebsiteRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);
+
+// AdPromoter Routes
+app.use('/api/web-advertise', webAdvertiseRoutes);
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {
