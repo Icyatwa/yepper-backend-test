@@ -57,6 +57,17 @@ class WithdrawalService {
 
 exports.createImportAd = [upload.single('file'), async (req, res) => {
   try {
+    // Early validation of authentication
+    if (!req.user) {
+      console.error('Authentication failed: req.user is undefined');
+      return res.status(401).json({ 
+        error: 'Authentication Failed',
+        message: 'User authentication is required' 
+      });
+    }
+
+    console.log('req.user:', req.user); // Debug log
+
     const {
       adOwnerEmail,
       businessName,
@@ -66,6 +77,14 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       selectedWebsites,
       selectedCategories,
     } = req.body;
+
+    // Validate required fields
+    if (!selectedWebsites || !selectedCategories) {
+      return res.status(400).json({
+        error: 'Missing Required Fields',
+        message: 'selectedWebsites and selectedCategories are required'
+      });
+    }
 
     const websitesArray = JSON.parse(selectedWebsites);
     const categoriesArray = JSON.parse(selectedCategories);
@@ -152,17 +171,25 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       });
     }
 
+    // Get userId from req.user with multiple fallbacks
     const ownerId = req.user.userId || req.user.id || req.user._id;
 
     if (!ownerId) {
       console.error('No userId found in req.user:', req.user);
-      return res.status(401).json({ message: 'User ID not found in authentication data' });
+      return res.status(401).json({ 
+        error: 'Authentication Error',
+        message: 'User ID not found in authentication data' 
+      });
     }
 
+    // Verify user exists in database
     const user = await User.findById(ownerId);
     if (!user) {
       console.error('User not found in database with ID:', ownerId);
-      return res.status(401).json({ message: 'User not found in database' });
+      return res.status(401).json({ 
+        error: 'User Not Found',
+        message: 'User not found in database' 
+      });
     }
 
     const userId = user._id.toString();
@@ -170,7 +197,7 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     // Create new ad entry with restructured data
     const newRequestAd = new ImportAd({
       userId,
-      adOwnerEmail,
+      adOwnerEmail: adOwnerEmail || user.email, // Fallback to user email
       imageUrl,
       videoUrl,
       pdfUrl,
@@ -191,12 +218,17 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       .populate('websiteSelections.websiteId')
       .populate('websiteSelections.categories');
 
-    res.status(201).json(populatedAd);
+    res.status(201).json({
+      success: true,
+      data: populatedAd
+    });
+
   } catch (err) {
     console.error('Error creating ad:', err);
     res.status(500).json({ 
       error: 'Internal Server Error',
-      message: err.message 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   }
 }];

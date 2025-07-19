@@ -2,8 +2,9 @@
 const express = require('express');
 const router = express.Router();
 const WebAdvertiseController = require('../controllers/WebAdvertiseController');
+const authMiddleware = require('../../middleware/authMiddleware');
 
-router.post('/', WebAdvertiseController.createImportAd);
+router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
 // router.get('/', WebAdvertiseController.getAllAds);
 // router.get('/ad/:id', WebAdvertiseController.getAdByIds);
 // router.get('/ads/:userId', WebAdvertiseController.getAdsByUserId);
