@@ -457,19 +457,37 @@ exports.updateCategoryLanguage = async (req, res) => {
 exports.getPendingAds = async (req, res) => {
   try {
     const { ownerId } = req.params;
+    console.log('🔍 Debug: ownerId received:', ownerId);
     
     // First verify the requesting user owns these websites
     const websites = await Website.find({ 
       ownerId: ownerId 
     });
     
+    console.log('🔍 Debug: websites found:', websites.length);
+    console.log('🔍 Debug: website details:', websites.map(w => ({ id: w._id, name: w.websiteName })));
+    
     if (!websites.length) {
+      console.log('❌ Debug: No websites found for owner:', ownerId);
       return res.status(403).json({ 
         message: 'No websites found for this owner' 
       });
     }
 
     const websiteIds = websites.map(website => website._id);
+    console.log('🔍 Debug: websiteIds array:', websiteIds);
+
+    // Check all ads first (for debugging)
+    const allAds = await ImportAd.find({});
+    console.log('🔍 Debug: Total ads in database:', allAds.length);
+    console.log('🔍 Debug: All ads websiteSelections:', allAds.map(ad => ({
+      id: ad._id,
+      businessName: ad.businessName,
+      websiteSelections: ad.websiteSelections.map(ws => ({
+        websiteId: ws.websiteId,
+        approved: ws.approved
+      }))
+    })));
 
     // Add owner verification to the query
     const pendingAds = await ImportAd.find({
@@ -486,6 +504,17 @@ exports.getPendingAds = async (req, res) => {
     })
     .populate('websiteSelections.categories');
 
+    console.log('🔍 Debug: Raw pending ads found:', pendingAds.length);
+    console.log('🔍 Debug: Pending ads before transformation:', pendingAds.map(ad => ({
+      id: ad._id,
+      businessName: ad.businessName,
+      websiteSelections: ad.websiteSelections.map(ws => ({
+        websiteId: ws.websiteId,
+        approved: ws.approved,
+        populated: ws.websiteId !== null
+      }))
+    })));
+
     // Filter out any selections where websiteId is null (means user doesn't own it)
     const transformedAds = pendingAds
       .map(ad => {
@@ -493,6 +522,8 @@ exports.getPendingAds = async (req, res) => {
         const validSelections = ad.websiteSelections.filter(
           selection => selection.websiteId !== null
         );
+
+        console.log('🔍 Debug: Valid selections for ad', ad.businessName, ':', validSelections.length);
 
         // If no valid selections remain, return null
         if (validSelections.length === 0) return null;
@@ -515,9 +546,12 @@ exports.getPendingAds = async (req, res) => {
       })
       .filter(ad => ad !== null); // Remove any null entries
 
+    console.log('🔍 Debug: Final transformed ads:', transformedAds.length);
+    console.log('🔍 Debug: Sending response:', JSON.stringify(transformedAds, null, 2));
+
     res.status(200).json(transformedAds);
   } catch (error) {
-    console.error('Server error:', error);
+    console.error('❌ Server error:', error);
     res.status(500).json({ message: 'Error fetching pending ads', error: error.message });
   }
 };
