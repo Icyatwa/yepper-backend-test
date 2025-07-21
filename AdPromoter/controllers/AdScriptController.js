@@ -39,7 +39,7 @@ exports.serveAdScript = async (req, res) => {
         _w = "${websiteId}",
         _wName = "${websiteName}",
         _cName = "${categoryName}",
-        _b = "https://yepper-backend.onrender.com/api",
+        _b = "http://localhost:5000/api",
         _t = 5000,
         _p = ${categoryPrice},
         _l = "${defaultLanguage}";
