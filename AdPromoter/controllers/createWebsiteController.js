@@ -100,7 +100,7 @@ const authenticateToken = async (req, res, next) => {
 exports.createWebsite = [upload.single('file'), authenticateToken, async (req, res) => {
   try {
     const { websiteName, websiteLink } = req.body;
-    const ownerId = req.user._id.toString(); // CHANGE: Get user ID from authenticated user instead of request body
+    const ownerId = req.user._id.toString();
 
     if (!websiteName || !websiteLink) {
       return res.status(400).json({ message: 'Website name and link are required' });
@@ -137,12 +137,17 @@ exports.createWebsite = [upload.single('file'), authenticateToken, async (req, r
       ownerId,
       websiteName,
       websiteLink,
-      imageUrl
+      imageUrl,
+      businessCategories: [], // Initialize empty array
+      isBusinessCategoriesSelected: false // Not selected yet
     });
 
     const savedWebsite = await newWebsite.save();
 
-    res.status(201).json(savedWebsite);
+    res.status(201).json({
+      ...savedWebsite.toObject(),
+      nextStep: 'business-categories' // Indicate next step for frontend
+    });
   } catch (error) {
     console.error('Error creating website:', error);
     res.status(500).json({ 

@@ -14,6 +14,7 @@ const authRoutes = require('./routes/authRoutes');
 const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
 const createCategoryRoutes = require('./AdPromoter/routes/createCategoryRoutes');
 const adDisplayRoutes = require('./AdPromoter/routes/AdDisplayRoutes');
+const businessCategoriesRoutes = require('./AdPromoter/routes/businessCategoriesRoutes');
 
 // AdOwner.js
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes')
@@ -42,6 +43,7 @@ app.use('/api/auth', authRoutes);
 
 // AdPromoter Routes
 app.use('/api/createWebsite', createWebsiteRoutes);
+app.use('/api/business-categories', businessCategoriesRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);
 
