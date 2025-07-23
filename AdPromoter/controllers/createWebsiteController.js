@@ -194,13 +194,20 @@ exports.getAllWebsites = async (req, res) => {
   try {
     const websites = await Website.find()
       .lean()  // Use lean for performance
-      .select('ownerId websiteName websiteLink imageUrl createdAt')  // Fetch only necessary fields
-      // .skip((page - 1) * limit)
-      // .limit(parseInt(limit));
+      .select('ownerId websiteName websiteLink imageUrl businessCategories createdAt');  // Include businessCategories
 
-    res.status(200).json(websites);
+    // Ensure all websites have businessCategories as an array
+    const sanitizedWebsites = websites.map(website => ({
+      ...website,
+      businessCategories: Array.isArray(website.businessCategories) 
+        ? website.businessCategories 
+        : [] // Default to empty array if not set
+    }));
+
+    res.status(200).json(sanitizedWebsites);
   } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch websites', error });
+    console.error('Error fetching websites:', error);
+    res.status(500).json({ message: 'Failed to fetch websites', error: error.message });
   }
 };
 
