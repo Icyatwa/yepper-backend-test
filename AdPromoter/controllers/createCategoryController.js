@@ -4,6 +4,44 @@ const AdCategory = require('../models/CreateCategoryModel');
 const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
+const Website = require('../models/WebsiteModel');
+const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
+const Payment = require('../models/PaymentModel');
+const PaymentTracker = require('../models/PaymentTracker');
+const Withdrawal = require('../models/WithdrawalModel');
+
+class WithdrawalService {
+  // Validate withdrawal input parameters
+  static validateWithdrawalInput(amount, phoneNumber, userId) {
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      throw new Error('Invalid amount. Must be a positive number.');
+    }
+
+    if (!phoneNumber || !/^(07\d{8})$/.test(phoneNumber)) {
+      throw new Error('Invalid phone number. Must start with 07 and be 10 digits.');
+    }
+
+    if (!userId) {
+      throw new Error('User ID is required.');
+    }
+  }
+
+  // Prepare Flutterwave transfer payload
+  static prepareTransferPayload(phoneNumber, amount, userId) {
+    const reference = `WITHDRAWAL-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    
+    return {
+      account_bank: 'MPS',
+      account_number: phoneNumber,
+      amount,
+      currency: 'RWF',
+      beneficiary_name: 'MoMo Transfer',
+      reference,
+      callback_url: "https://yepper-backend.onrender.com/api/accept/withdrawal-callback",
+      debit_currency: 'RWF'
+    };
+  }
+}
 
 const generateScriptTag = (categoryId) => {
   return {
@@ -589,5 +627,414 @@ exports.approveAdForWebsite = async (req, res) => {
       message: 'Error processing ad approval', 
       error: error.message 
     });
+  }
+};
+
+exports.checkWithdrawalEligibility = async (req, res) => {
+  try {
+    const { payment } = req.params;
+    console.log('Received payment parameter:', payment);
+    
+    // First try to find the PaymentTracker by the payment reference
+    let paymentTracker;
+    try {
+      paymentTracker = await PaymentTracker.findOne({
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
+          { paymentReference: payment }
+        ]
+      });
+      console.log('Existing payment tracker:', paymentTracker);
+    } catch (findError) {
+      console.error('Error finding payment tracker:', findError);
+      throw findError;
+    }
+
+    if (!paymentTracker) {
+      console.log('No existing payment tracker found, attempting to create new one');
+      // If no PaymentTracker exists, create one
+      const paymentParts = payment.split('-');
+      console.log('Payment reference parts:', paymentParts);
+
+      if (paymentParts.length < 3) {
+        return res.status(400).json({
+          eligible: false,
+          message: 'Invalid payment reference format',
+          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
+        });
+      }
+
+      const userId = paymentParts[1];
+      const adId = paymentParts[2];
+      const categoryId = paymentParts[3];
+
+      try {
+        const newPaymentTracker = new PaymentTracker({
+          userId,
+          adId: adId,
+          categoryId: categoryId,
+          paymentDate: new Date(),
+          amount: 0, // You'll need to set this from your payment data
+          viewsRequired: 1000, // Set your default required views
+          currentViews: 0,
+          status: 'pending',
+          paymentReference: payment
+        });
+
+        console.log('Attempting to save new payment tracker:', newPaymentTracker);
+        await newPaymentTracker.save();
+        paymentTracker = newPaymentTracker;
+        console.log('Successfully saved new payment tracker');
+      } catch (createError) {
+        console.error('Error creating payment tracker:', createError);
+        return res.status(500).json({
+          eligible: false,
+          message: 'Error creating payment tracker',
+          error: createError.message
+        });
+      }
+    }
+
+    console.log('Attempting to populate payment data');
+    // If found, then populate the references
+    let populatedPayment;
+    try {
+      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
+        .populate({
+          path: 'adId',
+          select: 'businessName businessLocation businessLink'
+        })
+        .populate({
+          path: 'categoryId',
+          select: 'categoryName visitorRange'
+        });
+
+      console.log('Populated payment data:', populatedPayment);
+    } catch (populateError) {
+      console.error('Error populating payment data:', populateError);
+      throw populateError;
+    }
+
+    const paymentData = populatedPayment.toObject();
+
+    const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
+    const daysSinceLastWithdrawal = Math.floor(
+      (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
+    );
+
+    if (daysSinceLastWithdrawal < 30) {
+      const nextEligibleDate = new Date(lastRelevantDate);
+      nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
+      
+      return res.status(200).json({
+        eligible: false,
+        message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
+        nextEligibleDate,
+        payment: paymentData
+      });
+    }
+
+    if (paymentData.currentViews < paymentData.viewsRequired) {
+      return res.status(200).json({
+        eligible: false,
+        message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
+        payment: paymentData
+      });
+    }
+
+    return res.status(200).json({ 
+      eligible: true,
+      message: 'Eligible for withdrawal',
+      payment: paymentData
+    });
+
+  } catch (error) {
+    console.error('Withdrawal eligibility check error:', error);
+    return res.status(500).json({ 
+      eligible: false,
+      message: 'Error checking withdrawal eligibility',
+      error: error.message,
+      stack: error.stack
+    });
+  }
+};
+
+exports.updateWebOwnerBalance = async (req, res) => {
+  try {
+    const { userId, amount } = req.body;
+
+    if (!userId || userId.trim() === '') {
+      return res.status(400).json({ message: 'User ID is required.' });
+    }
+
+    const balanceRecord = await WebOwnerBalance.findOneAndUpdate(
+      { userId },
+      { $inc: { totalEarnings: amount, availableBalance: amount } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
+
+    res.status(200).json({ message: 'Balance updated successfully.', balance: balanceRecord });
+  } catch (error) {
+    console.error('Error updating balance:', error);
+    res.status(500).json({ message: 'Error updating balance.', error: error.message });
+  }
+};
+
+exports.getWebOwnerBalance = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    const balance = await WebOwnerBalance.findOne({ userId });
+
+    if (!balance) {
+      return res.status(404).json({ message: 'No balance found for this user' });
+    }
+
+    res.status(200).json(balance);
+  } catch (error) {
+    console.error('Error fetching balance:', error);
+    res.status(500).json({ 
+      message: 'Error fetching balance', 
+      error: error.message 
+    });
+  }
+};
+
+exports.getDetailedEarnings = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    // Find all successful payments for this web owner
+    const payments = await Payment.aggregate([
+      {
+        $match: {
+          webOwnerId: userId,
+          status: 'successful',
+          withdrawn: false
+        }
+      },
+      {
+        // Join with ImportAd to get business details
+        $lookup: {
+          from: 'importads',
+          localField: 'adId',
+          foreignField: '_id',
+          as: 'adDetails'
+        }
+      },
+      {
+        $unwind: '$adDetails'
+      },
+      {
+        // Format the output
+        $project: {
+          _id: 1,
+          amount: 1,
+          currency: 1,
+          paymentDate: '$createdAt',
+          businessName: '$adDetails.businessName',
+          businessLocation: '$adDetails.businessLocation',
+          businessLink: '$adDetails.businessLink',
+          advertiserEmail: '$adDetails.adOwnerEmail',
+          paymentReference: '$tx_ref'
+        }
+      },
+      {
+        // Sort by payment date, most recent first
+        $sort: { paymentDate: -1 }
+      }
+    ]);
+
+    // Get the total balance
+    const balanceRecord = await WebOwnerBalance.findOne({ userId });
+
+    // Group payments by month
+    const groupedPayments = payments.reduce((acc, payment) => {
+      const monthYear = new Date(payment.paymentDate).toLocaleString('en-US', {
+        month: 'long',
+        year: 'numeric'
+      });
+
+      if (!acc[monthYear]) {
+        acc[monthYear] = {
+          totalAmount: 0,
+          payments: []
+        };
+      }
+
+      acc[monthYear].payments.push(payment);
+      acc[monthYear].totalAmount += payment.amount;
+
+      return acc;
+    }, {});
+
+    const response = {
+      totalBalance: {
+        totalEarnings: balanceRecord?.totalEarnings || 0,
+        availableBalance: balanceRecord?.availableBalance || 0
+      },
+      monthlyEarnings: Object.entries(groupedPayments).map(([month, data]) => ({
+        month,
+        totalAmount: data.totalAmount,
+        payments: data.payments
+      }))
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('Error fetching detailed earnings:', error);
+    res.status(500).json({
+      message: 'Error fetching detailed earnings',
+      error: error.message
+    });
+  }
+};
+
+exports.initiateWithdrawal = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { userId, amount, phoneNumber, paymentId } = req.body;
+
+    // Input validation
+    try {
+      WithdrawalService.validateWithdrawalInput(amount, phoneNumber, userId);
+    } catch (validationError) {
+      return res.status(400).json({ message: validationError.message });
+    }
+
+    // Check if user has sufficient balance
+    const balance = await WebOwnerBalance.findOne({ userId });
+    if (!balance || balance.availableBalance < amount) {
+      return res.status(400).json({ 
+        message: 'Insufficient balance',
+        currentBalance: balance?.availableBalance || 0
+      });
+    }
+
+    // Prepare transfer payload
+    const transferPayload = WithdrawalService.prepareTransferPayload(phoneNumber, amount, userId);
+
+    try {
+      // Initiate transfer via Flutterwave
+      const response = await axios.post('https://api.flutterwave.com/v3/transfers', transferPayload, {
+        headers: { 
+          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+
+      // Create withdrawal record
+      const withdrawal = new Withdrawal({
+        userId,
+        amount,
+        phoneNumber,
+        status: response.data.status === 'success' ? 'processing' : 'failed',
+        transactionId: response.data.data?.id,
+      });
+      await withdrawal.save({ session });
+
+      if (response.data.status === 'success') {
+        // Update user's available balance
+        await WebOwnerBalance.findOneAndUpdate(
+          { userId },
+          { $inc: { availableBalance: -amount } },
+          { session }
+        );
+
+        // Update payment tracker status
+        await PaymentTracker.findByIdAndUpdate(
+          paymentId,
+          {
+            lastWithdrawalDate: new Date(),
+            status: 'withdrawn'
+          },
+          { session }
+        );
+
+        await session.commitTransaction();
+        
+        return res.status(200).json({
+          message: 'Withdrawal initiated successfully',
+          reference: transferPayload.reference,
+          withdrawal
+        });
+      } else {
+        await session.abortTransaction();
+        return res.status(400).json({ 
+          message: 'Failed to initiate transfer',
+          error: response.data 
+        });
+      }
+    } catch (transferError) {
+      await session.abortTransaction();
+      console.error('Transfer error:', transferError);
+      
+      return res.status(500).json({ 
+        message: 'Error processing transfer',
+        error: transferError.response?.data || transferError.message
+      });
+    }
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Withdrawal error:', error);
+    res.status(500).json({ 
+      message: 'Error processing withdrawal',
+      error: error.message 
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+exports.withdrawalCallback = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { data } = req.body;
+    const withdrawal = await Withdrawal.findOne({ transactionId: data.id });
+
+    if (!withdrawal) {
+      return res.status(404).json({ message: 'Withdrawal not found' });
+    }
+
+    if (data.status === 'successful') {
+      withdrawal.status = 'completed';
+    } else {
+      withdrawal.status = 'failed';
+      withdrawal.failureReason = data.complete_message;
+      
+      // Refund the amount back to available balance
+      await WebOwnerBalance.findOneAndUpdate(
+        { userId: withdrawal.userId },
+        { $inc: { availableBalance: withdrawal.amount } },
+        { session }
+      );
+    }
+
+    await withdrawal.save({ session });
+    await session.commitTransaction();
+    
+    res.status(200).json({ message: 'Callback processed successfully' });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Withdrawal callback error:', error);
+    res.status(500).json({ 
+      message: 'Error processing callback',
+      error: error.message 
+    });
+  } finally {
+    session.endSession();
   }
 };

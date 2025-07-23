@@ -5,12 +5,27 @@ const bucket = require('../../config/storage');
 const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const User = require('../../models/User');
-const Website = require('../../AdPromoter/models/CreateWebsiteModel');
 const WebOwnerBalance = require('../../AdPromoter/models/WebOwnerBalanceModel');
-const Payment = require('../../AdPromoter/models/PaymentModel');
-const PaymentTracker = require('../../AdPromoter/models/PaymentTracker');
-const Withdrawal = require('../../AdPromoter/models/WithdrawalModel');
 const sendEmailNotification = require('../../controllers/emailService');
+
+class PaymentService {
+  // Simulate successful payment response for test mode
+  static simulateTestPayment(paymentPayload) {
+    const testLink = `${process.env.BASE_URL || 'https://yepper-backend.onrender.com'}/api/accept/test-payment?tx_ref=${paymentPayload.tx_ref}&amount=${paymentPayload.amount}`;
+    
+    return {
+      data: {
+        status: 'success',
+        message: 'Payment link generated successfully (TEST MODE)',
+        data: {
+          link: testLink,
+          test_mode: true,
+          payment_details: paymentPayload
+        }
+      }
+    };
+  }
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -21,39 +36,6 @@ const upload = multer({
     cb(new Error('Invalid file type.'));
   },
 });
-
-class WithdrawalService {
-  // Validate withdrawal input parameters
-  static validateWithdrawalInput(amount, phoneNumber, userId) {
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      throw new Error('Invalid amount. Must be a positive number.');
-    }
-
-    if (!phoneNumber || !/^(07\d{8})$/.test(phoneNumber)) {
-      throw new Error('Invalid phone number. Must start with 07 and be 10 digits.');
-    }
-
-    if (!userId) {
-      throw new Error('User ID is required.');
-    }
-  }
-
-  // Prepare Flutterwave transfer payload
-  static prepareTransferPayload(phoneNumber, amount, userId) {
-    const reference = `WITHDRAWAL-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
-    return {
-      account_bank: 'MPS',
-      account_number: phoneNumber,
-      amount,
-      currency: 'RWF',
-      beneficiary_name: 'MoMo Transfer',
-      reference,
-      callback_url: "https://yepper-backend.onrender.com/api/accept/withdrawal-callback",
-      debit_currency: 'RWF'
-    };
-  }
-}
 
 exports.createImportAd = [upload.single('file'), async (req, res) => {
   try {
@@ -373,18 +355,13 @@ exports.initiateAdPayment = async (req, res) => {
   try {
     const { adId, websiteId, amount, email, phoneNumber, userId } = req.body;
 
-    // Input validation
-    if (!adId || !websiteId || !amount || !email || !userId) {
-      return res.status(400).json({ 
-        message: 'Missing required fields', 
-        required: ['adId', 'websiteId', 'amount', 'email', 'userId'] 
-      });
-    }
-
     // Validate amount
     const numericAmount = Number(amount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
-      return res.status(400).json({ message: 'Invalid amount provided' });
+      return res.status(400).json({ 
+        message: 'Invalid amount provided',
+        testMode: TEST_MODE
+      });
     }
 
     // Check if the ad is already confirmed for this website
@@ -399,7 +376,10 @@ exports.initiateAdPayment = async (req, res) => {
     });
 
     if (existingAd) {
-      return res.status(400).json({ message: 'Ad is already confirmed for this website' });
+      return res.status(400).json({ 
+        message: 'Ad payment already completed for this website',
+        testMode: TEST_MODE
+      });
     }
 
     // Find ad and verify it's approved but not confirmed
@@ -415,7 +395,10 @@ exports.initiateAdPayment = async (req, res) => {
     });
 
     if (!ad) {
-      return res.status(404).json({ message: 'Ad not found or not approved for this website' });
+      return res.status(404).json({ 
+        message: 'Ad not found or not approved for this website',
+        testMode: TEST_MODE
+      });
     }
 
     // Get website selection and verify categories
@@ -423,8 +406,11 @@ exports.initiateAdPayment = async (req, res) => {
       selection => selection.websiteId.toString() === websiteId.toString()
     );
 
-    if (!websiteSelection || !websiteSelection.categories?.length) {
-      return res.status(400).json({ message: 'Invalid website selection or no categories selected' });
+    if (!websiteSelection) {
+      return res.status(404).json({ 
+        message: 'Website selection not found',
+        testMode: TEST_MODE
+      });
     }
 
     // Verify categories exist
@@ -434,13 +420,13 @@ exports.initiateAdPayment = async (req, res) => {
     });
 
     if (!categories.length) {
-      return res.status(404).json({ message: 'Categories not found for this website' });
+      return res.status(404).json({ 
+        message: 'No valid categories found for this website',
+        testMode: TEST_MODE
+      });
     }
 
-    // Generate unique transaction reference
-    const tx_ref = `AD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // Create payment record first
+    const tx_ref = `${TEST_MODE ? 'TEST-' : ''}AD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const payment = new Payment({
       tx_ref,
       amount: numericAmount,
@@ -448,14 +434,14 @@ exports.initiateAdPayment = async (req, res) => {
       email,
       userId,
       adId,
-      websiteId, // Add the missing websiteId field
+      websiteId,
       webOwnerId: categories[0].ownerId,
-      status: 'pending'
+      status: 'pending',
+      testMode: TEST_MODE
     });
 
     await payment.save();
 
-    // Construct clean Flutterwave payment payload
     const paymentPayload = {
       tx_ref,
       amount: numericAmount,
@@ -465,94 +451,160 @@ exports.initiateAdPayment = async (req, res) => {
       meta: {
         adId: adId.toString(),
         websiteId: websiteId.toString(),
-        userId: userId.toString()
+        userId: userId.toString(),
+        testMode: TEST_MODE
       },
       customer: {
         email: email.trim(),
         name: ad.businessName || 'Ad Customer',
-        // Add phone number if provided
         ...(phoneNumber && { phone_number: phoneNumber })
       },
       customizations: {
-        title: 'Ad Space Payment',
-        description: `Payment for ad space - ${ad.businessName}`,
+        title: TEST_MODE ? 'Test Ad Space Payment' : 'Ad Space Payment',
+        description: `${TEST_MODE ? 'TEST: ' : ''}Payment for ad space - ${ad.businessName}`,
         logo: process.env.COMPANY_LOGO_URL || ''
       }
     };
 
-    console.log('Clean Flutterwave payload:', JSON.stringify(paymentPayload, null, 2));
+    let response;
 
-    // Validate environment variables
-    if (!process.env.FLW_SECRET_KEY) {
-      throw new Error('Flutterwave secret key not configured');
-    }
-
-    // Make request to Flutterwave with proper error handling
-    const response = await axios.post(
-      'https://api.flutterwave.com/v3/payments', 
-      paymentPayload, 
-      {
-        headers: { 
-          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000 // 30 second timeout
+    try {
+      if (TEST_MODE) {
+        // Simulate payment in test mode
+        console.log('🧪 TEST MODE: Simulating payment initiation:', paymentPayload);
+        response = PaymentService.simulateTestPayment(paymentPayload);
+        
+        // Add delay to simulate real API call
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } else {
+        // Real payment via Flutterwave
+        response = await axios.post(
+          `${FLW_BASE_URL}/payments`, 
+          paymentPayload, 
+          {
+            headers: { 
+              Authorization: `Bearer ${FLW_SECRET_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 30000
+          }
+        );
       }
-    );
 
-    console.log('Flutterwave response:', response.data);
+      if (response.data?.status === 'success' && response.data?.data?.link) {
+        res.status(200).json({ 
+          success: true,
+          paymentLink: response.data.data.link,
+          tx_ref,
+          message: TEST_MODE ? 'Test payment link generated successfully' : 'Payment link generated successfully',
+          testMode: TEST_MODE,
+          ...(TEST_MODE && { 
+            note: 'This is a test payment - no real money will be charged',
+            testInstructions: 'Use the test payment link to simulate successful/failed payments'
+          })
+        });
+      } else {
+        throw new Error(`Invalid payment response: ${JSON.stringify(response.data)}`);
+      }
 
-    if (response.data?.status === 'success' && response.data?.data?.link) {
-      res.status(200).json({ 
-        success: true,
-        paymentLink: response.data.data.link,
-        tx_ref,
-        message: 'Payment link generated successfully'
+    } catch (error) {
+      // Clean up failed payment record
+      if (error.response?.status >= 400) {
+        try {
+          await Payment.findOneAndDelete({ tx_ref });
+        } catch (deleteError) {
+          console.error('Error deleting failed payment record:', deleteError.message);
+        }
+      }
+
+      // Return specific error messages
+      let errorMessage = TEST_MODE ? 'Error initiating test payment' : 'Error initiating payment';
+      let statusCode = 500;
+
+      if (error.response?.status === 400) {
+        errorMessage = 'Invalid payment data provided';
+        statusCode = 400;
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Payment service authentication failed';
+        statusCode = 401;
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        errorMessage = 'Payment service temporarily unavailable';
+        statusCode = 503;
+      }
+
+      res.status(statusCode).json({ 
+        success: false,
+        message: errorMessage,
+        testMode: TEST_MODE,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
-    } else {
-      throw new Error(`Invalid payment response: ${JSON.stringify(response.data)}`);
     }
 
   } catch (error) {
-    console.error('Payment initiation error:', {
-      message: error.message,
-      response: error.response?.data,
-      status: error.response?.status
-    });
-    
-    // Clean up failed payment record
-    if (error.response?.status >= 400) {
-      try {
-        const { tx_ref } = req.body;
-        if (tx_ref) {
-          await Payment.findOneAndDelete({ tx_ref });
-        }
-      } catch (deleteError) {
-        console.error('Error deleting failed payment record:', deleteError.message);
-      }
-    }
-
-    // Return specific error messages
-    let errorMessage = 'Error initiating payment';
-    let statusCode = 500;
-
-    if (error.response?.status === 400) {
-      errorMessage = 'Invalid payment data provided';
-      statusCode = 400;
-    } else if (error.response?.status === 401) {
-      errorMessage = 'Payment service authentication failed';
-      statusCode = 401;
-    } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      errorMessage = 'Payment service temporarily unavailable';
-      statusCode = 503;
-    }
-
-    res.status(statusCode).json({ 
+    console.error('Payment initiation error:', error);
+    res.status(500).json({ 
       success: false,
-      message: errorMessage,
+      message: TEST_MODE ? 'Error processing test payment request' : 'Error processing payment request',
+      testMode: TEST_MODE,
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+};
+
+exports.testPaymentPage = async (req, res) => {
+  if (!TEST_MODE) {
+    return res.status(403).json({ message: 'This endpoint is only available in test mode' });
+  }
+
+  const { tx_ref, amount } = req.query;
+  
+  if (!tx_ref || !amount) {
+    return res.status(400).json({ message: 'Missing required parameters' });
+  }
+
+  // Simple HTML page for test payments
+  const testPageHTML = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Test Payment - Yepper</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+            .container { background: #f5f5f5; padding: 30px; border-radius: 10px; text-align: center; }
+            .amount { font-size: 24px; color: #2c5aa0; font-weight: bold; margin: 20px 0; }
+            .button { padding: 12px 24px; margin: 10px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            .success { background: #28a745; color: white; }
+            .failed { background: #dc3545; color: white; }
+            .warning { background: #ffc107; color: #212529; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>🧪 Test Payment</h2>
+            <div class="warning">
+                <strong>TEST MODE:</strong> This is a simulated payment. No real money will be charged.
+            </div>
+            <p>Transaction Reference: <strong>${tx_ref}</strong></p>
+            <div class="amount">Amount: $${amount}</div>
+            <p>Choose a test outcome:</p>
+            <button class="button success" onclick="processPayment(true)">✅ Simulate Successful Payment</button>
+            <button class="button failed" onclick="processPayment(false)">❌ Simulate Failed Payment</button>
+        </div>
+
+        <script>
+            function processPayment(success) {
+                const status = success ? 'successful' : 'failed';
+                const transactionId = 'test_' + Date.now();
+                
+                // Redirect to callback with test parameters
+                window.location.href = '/api/accept/callback?tx_ref=${tx_ref}&transaction_id=' + transactionId + '&status=' + status;
+            }
+        </script>
+    </body>
+    </html>
+  `;
+
+  res.send(testPageHTML);
 };
 
 exports.adPaymentCallback = async (req, res) => {
@@ -562,43 +614,56 @@ exports.adPaymentCallback = async (req, res) => {
   try {
     const { tx_ref, transaction_id, status: queryStatus } = req.query;
     
-    console.log('Payment callback received:', { tx_ref, transaction_id, queryStatus });
-
+    console.log(TEST_MODE ? '🧪 TEST MODE: Payment callback received:' : 'Payment callback received:', { tx_ref, transaction_id, queryStatus });
+    
     if (!tx_ref || !transaction_id) {
       console.error('Missing required callback parameters');
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=invalid-params`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=invalid-params&test=${TEST_MODE}`);
     }
 
     // Find the payment record first
     const payment = await Payment.findOne({ tx_ref });
     if (!payment) {
       console.error('Payment record not found for tx_ref:', tx_ref);
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=payment-not-found`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=payment-not-found&test=${TEST_MODE}`);
     }
 
-    // Verify the transaction with Flutterwave
-    const transactionVerification = await axios.get(
-      `https://api.flutterwave.com/v3/transactions/${transaction_id}/verify`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
-      }
-    );
+    let transactionData;
 
-    const transactionData = transactionVerification.data.data;
+    if (TEST_MODE) {
+      // Simulate transaction verification in test mode
+      transactionData = {
+        status: queryStatus || 'successful',
+        amount: payment.amount,
+        currency: payment.currency,
+        tx_ref: tx_ref,
+        id: transaction_id,
+        test_mode: true
+      };
+      console.log('🧪 TEST MODE: Simulated transaction verification:', transactionData);
+    } else {
+      // Verify the transaction with Flutterwave
+      const transactionVerification = await axios.get(
+        `${FLW_BASE_URL}/transactions/${transaction_id}/verify`,
+        {
+          headers: {
+            Authorization: `Bearer ${FLW_SECRET_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+      transactionData = transactionVerification.data.data;
+    }
+
     const { status, amount, currency, tx_ref: verifiedTxRef } = transactionData;
-
-    console.log('Transaction verification result:', { status, amount, currency, verifiedTxRef });
 
     // Verify transaction reference matches
     if (verifiedTxRef !== tx_ref) {
       console.error('Transaction reference mismatch');
       payment.status = 'failed';
       await payment.save();
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=tx-ref-mismatch`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=tx-ref-mismatch&test=${TEST_MODE}`);
     }
 
     // Verify payment amount and currency
@@ -609,7 +674,7 @@ exports.adPaymentCallback = async (req, res) => {
       });
       payment.status = 'failed';
       await payment.save();
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=amount-mismatch`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=amount-mismatch&test=${TEST_MODE}`);
     }
 
     if (status === 'successful') {
@@ -622,19 +687,27 @@ exports.adPaymentCallback = async (req, res) => {
       
       // Update payment status
       payment.status = 'successful';
+      payment.completedAt = new Date();
+      if (TEST_MODE) {
+        payment.testTransactionData = transactionData;
+      }
       await payment.save({ session });
 
       await session.commitTransaction();
       transactionStarted = false;
 
-      console.log('Payment processed successfully for tx_ref:', tx_ref);
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=success`);
+      console.log(TEST_MODE ? '🧪 TEST MODE: Payment processed successfully for tx_ref:' : 'Payment processed successfully for tx_ref:', tx_ref);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=success&test=${TEST_MODE}`);
       
     } else {
       payment.status = 'failed';
+      payment.failureReason = queryStatus || 'Payment failed';
+      if (TEST_MODE) {
+        payment.testTransactionData = transactionData;
+      }
       await payment.save();
-      console.log('Payment failed for tx_ref:', tx_ref, 'Status:', status);
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=failed`);
+      console.log(TEST_MODE ? '🧪 TEST MODE: Payment failed for tx_ref:' : 'Payment failed for tx_ref:', tx_ref, 'Status:', status);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=failed&test=${TEST_MODE}`);
     }
 
   } catch (error) {
@@ -644,7 +717,7 @@ exports.adPaymentCallback = async (req, res) => {
       await session.abortTransaction();
     }
     
-    return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=error`);
+    return res.redirect(`${process.env.FRONTEND_URL || 'https://yepper.cc'}/approved-ads?status=error&test=${TEST_MODE}`);
   } finally {
     await session.endSession();
   }
@@ -685,7 +758,8 @@ async function processSuccessfulPayment(payment, session) {
     { 
       $set: { 
         'websiteSelections.$.confirmed': true,
-        'websiteSelections.$.confirmedAt': new Date()
+        'websiteSelections.$.confirmedAt': new Date(),
+        ...(TEST_MODE && { 'websiteSelections.$.testMode': true })
       }
     },
     { new: true, session }
@@ -722,7 +796,8 @@ async function processSuccessfulPayment(payment, session) {
       $inc: {
         totalEarnings: payment.amount,
         availableBalance: payment.amount
-      }
+      },
+      ...(TEST_MODE && { lastTestPayment: new Date() })
     },
     { upsert: true, session }
   );
@@ -737,417 +812,9 @@ async function processSuccessfulPayment(payment, session) {
     viewsRequired: category.visitorRange?.max || 1000,
     currentViews: 0,
     status: 'pending',
-    paymentReference: payment.tx_ref
+    paymentReference: payment.tx_ref,
+    testMode: TEST_MODE
   }));
 
   await PaymentTracker.insertMany(paymentTrackers, { session });
 }
-
-exports.checkWithdrawalEligibility = async (req, res) => {
-  try {
-    const { payment } = req.params;
-    console.log('Received payment parameter:', payment);
-    
-    // First try to find the PaymentTracker by the payment reference
-    let paymentTracker;
-    try {
-      paymentTracker = await PaymentTracker.findOne({
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
-          { paymentReference: payment }
-        ]
-      });
-      console.log('Existing payment tracker:', paymentTracker);
-    } catch (findError) {
-      console.error('Error finding payment tracker:', findError);
-      throw findError;
-    }
-
-    if (!paymentTracker) {
-      console.log('No existing payment tracker found, attempting to create new one');
-      // If no PaymentTracker exists, create one
-      const paymentParts = payment.split('-');
-      console.log('Payment reference parts:', paymentParts);
-
-      if (paymentParts.length < 3) {
-        return res.status(400).json({
-          eligible: false,
-          message: 'Invalid payment reference format',
-          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
-        });
-      }
-
-      const userId = paymentParts[1];
-      const adId = paymentParts[2];
-      const categoryId = paymentParts[3];
-
-      try {
-        const newPaymentTracker = new PaymentTracker({
-          userId,
-          adId: adId,
-          categoryId: categoryId,
-          paymentDate: new Date(),
-          amount: 0, // You'll need to set this from your payment data
-          viewsRequired: 1000, // Set your default required views
-          currentViews: 0,
-          status: 'pending',
-          paymentReference: payment
-        });
-
-        console.log('Attempting to save new payment tracker:', newPaymentTracker);
-        await newPaymentTracker.save();
-        paymentTracker = newPaymentTracker;
-        console.log('Successfully saved new payment tracker');
-      } catch (createError) {
-        console.error('Error creating payment tracker:', createError);
-        return res.status(500).json({
-          eligible: false,
-          message: 'Error creating payment tracker',
-          error: createError.message
-        });
-      }
-    }
-
-    console.log('Attempting to populate payment data');
-    // If found, then populate the references
-    let populatedPayment;
-    try {
-      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
-        .populate({
-          path: 'adId',
-          select: 'businessName businessLocation businessLink'
-        })
-        .populate({
-          path: 'categoryId',
-          select: 'categoryName visitorRange'
-        });
-
-      console.log('Populated payment data:', populatedPayment);
-    } catch (populateError) {
-      console.error('Error populating payment data:', populateError);
-      throw populateError;
-    }
-
-    const paymentData = populatedPayment.toObject();
-
-    const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
-    const daysSinceLastWithdrawal = Math.floor(
-      (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
-    );
-
-    if (daysSinceLastWithdrawal < 30) {
-      const nextEligibleDate = new Date(lastRelevantDate);
-      nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
-      
-      return res.status(200).json({
-        eligible: false,
-        message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
-        nextEligibleDate,
-        payment: paymentData
-      });
-    }
-
-    if (paymentData.currentViews < paymentData.viewsRequired) {
-      return res.status(200).json({
-        eligible: false,
-        message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
-        payment: paymentData
-      });
-    }
-
-    return res.status(200).json({ 
-      eligible: true,
-      message: 'Eligible for withdrawal',
-      payment: paymentData
-    });
-
-  } catch (error) {
-    console.error('Withdrawal eligibility check error:', error);
-    return res.status(500).json({ 
-      eligible: false,
-      message: 'Error checking withdrawal eligibility',
-      error: error.message,
-      stack: error.stack
-    });
-  }
-};
-
-exports.updateWebOwnerBalance = async (req, res) => {
-  try {
-    const { userId, amount } = req.body;
-
-    if (!userId || userId.trim() === '') {
-      return res.status(400).json({ message: 'User ID is required.' });
-    }
-
-    const balanceRecord = await WebOwnerBalance.findOneAndUpdate(
-      { userId },
-      { $inc: { totalEarnings: amount, availableBalance: amount } },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
-    );
-
-    res.status(200).json({ message: 'Balance updated successfully.', balance: balanceRecord });
-  } catch (error) {
-    console.error('Error updating balance:', error);
-    res.status(500).json({ message: 'Error updating balance.', error: error.message });
-  }
-};
-
-exports.getWebOwnerBalance = async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
-    }
-
-    const balance = await WebOwnerBalance.findOne({ userId });
-
-    if (!balance) {
-      return res.status(404).json({ message: 'No balance found for this user' });
-    }
-
-    res.status(200).json(balance);
-  } catch (error) {
-    console.error('Error fetching balance:', error);
-    res.status(500).json({ 
-      message: 'Error fetching balance', 
-      error: error.message 
-    });
-  }
-};
-
-exports.getDetailedEarnings = async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
-    }
-
-    // Find all successful payments for this web owner
-    const payments = await Payment.aggregate([
-      {
-        $match: {
-          webOwnerId: userId,
-          status: 'successful',
-          withdrawn: false
-        }
-      },
-      {
-        // Join with ImportAd to get business details
-        $lookup: {
-          from: 'importads',
-          localField: 'adId',
-          foreignField: '_id',
-          as: 'adDetails'
-        }
-      },
-      {
-        $unwind: '$adDetails'
-      },
-      {
-        // Format the output
-        $project: {
-          _id: 1,
-          amount: 1,
-          currency: 1,
-          paymentDate: '$createdAt',
-          businessName: '$adDetails.businessName',
-          businessLocation: '$adDetails.businessLocation',
-          businessLink: '$adDetails.businessLink',
-          advertiserEmail: '$adDetails.adOwnerEmail',
-          paymentReference: '$tx_ref'
-        }
-      },
-      {
-        // Sort by payment date, most recent first
-        $sort: { paymentDate: -1 }
-      }
-    ]);
-
-    // Get the total balance
-    const balanceRecord = await WebOwnerBalance.findOne({ userId });
-
-    // Group payments by month
-    const groupedPayments = payments.reduce((acc, payment) => {
-      const monthYear = new Date(payment.paymentDate).toLocaleString('en-US', {
-        month: 'long',
-        year: 'numeric'
-      });
-
-      if (!acc[monthYear]) {
-        acc[monthYear] = {
-          totalAmount: 0,
-          payments: []
-        };
-      }
-
-      acc[monthYear].payments.push(payment);
-      acc[monthYear].totalAmount += payment.amount;
-
-      return acc;
-    }, {});
-
-    const response = {
-      totalBalance: {
-        totalEarnings: balanceRecord?.totalEarnings || 0,
-        availableBalance: balanceRecord?.availableBalance || 0
-      },
-      monthlyEarnings: Object.entries(groupedPayments).map(([month, data]) => ({
-        month,
-        totalAmount: data.totalAmount,
-        payments: data.payments
-      }))
-    };
-
-    res.status(200).json(response);
-  } catch (error) {
-    console.error('Error fetching detailed earnings:', error);
-    res.status(500).json({
-      message: 'Error fetching detailed earnings',
-      error: error.message
-    });
-  }
-};
-
-exports.initiateWithdrawal = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { userId, amount, phoneNumber, paymentId } = req.body;
-
-    // Input validation
-    try {
-      WithdrawalService.validateWithdrawalInput(amount, phoneNumber, userId);
-    } catch (validationError) {
-      return res.status(400).json({ message: validationError.message });
-    }
-
-    // Check if user has sufficient balance
-    const balance = await WebOwnerBalance.findOne({ userId });
-    if (!balance || balance.availableBalance < amount) {
-      return res.status(400).json({ 
-        message: 'Insufficient balance',
-        currentBalance: balance?.availableBalance || 0
-      });
-    }
-
-    // Prepare transfer payload
-    const transferPayload = WithdrawalService.prepareTransferPayload(phoneNumber, amount, userId);
-
-    try {
-      // Initiate transfer via Flutterwave
-      const response = await axios.post('https://api.flutterwave.com/v3/transfers', transferPayload, {
-        headers: { 
-          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      });
-
-      // Create withdrawal record
-      const withdrawal = new Withdrawal({
-        userId,
-        amount,
-        phoneNumber,
-        status: response.data.status === 'success' ? 'processing' : 'failed',
-        transactionId: response.data.data?.id,
-      });
-      await withdrawal.save({ session });
-
-      if (response.data.status === 'success') {
-        // Update user's available balance
-        await WebOwnerBalance.findOneAndUpdate(
-          { userId },
-          { $inc: { availableBalance: -amount } },
-          { session }
-        );
-
-        // Update payment tracker status
-        await PaymentTracker.findByIdAndUpdate(
-          paymentId,
-          {
-            lastWithdrawalDate: new Date(),
-            status: 'withdrawn'
-          },
-          { session }
-        );
-
-        await session.commitTransaction();
-        
-        return res.status(200).json({
-          message: 'Withdrawal initiated successfully',
-          reference: transferPayload.reference,
-          withdrawal
-        });
-      } else {
-        await session.abortTransaction();
-        return res.status(400).json({ 
-          message: 'Failed to initiate transfer',
-          error: response.data 
-        });
-      }
-    } catch (transferError) {
-      await session.abortTransaction();
-      console.error('Transfer error:', transferError);
-      
-      return res.status(500).json({ 
-        message: 'Error processing transfer',
-        error: transferError.response?.data || transferError.message
-      });
-    }
-  } catch (error) {
-    await session.abortTransaction();
-    console.error('Withdrawal error:', error);
-    res.status(500).json({ 
-      message: 'Error processing withdrawal',
-      error: error.message 
-    });
-  } finally {
-    session.endSession();
-  }
-};
-
-exports.withdrawalCallback = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { data } = req.body;
-    const withdrawal = await Withdrawal.findOne({ transactionId: data.id });
-
-    if (!withdrawal) {
-      return res.status(404).json({ message: 'Withdrawal not found' });
-    }
-
-    if (data.status === 'successful') {
-      withdrawal.status = 'completed';
-    } else {
-      withdrawal.status = 'failed';
-      withdrawal.failureReason = data.complete_message;
-      
-      // Refund the amount back to available balance
-      await WebOwnerBalance.findOneAndUpdate(
-        { userId: withdrawal.userId },
-        { $inc: { availableBalance: withdrawal.amount } },
-        { session }
-      );
-    }
-
-    await withdrawal.save({ session });
-    await session.commitTransaction();
-    
-    res.status(200).json({ message: 'Callback processed successfully' });
-  } catch (error) {
-    await session.abortTransaction();
-    console.error('Withdrawal callback error:', error);
-    res.status(500).json({ 
-      message: 'Error processing callback',
-      error: error.message 
-    });
-  } finally {
-    session.endSession();
-  }
-};
