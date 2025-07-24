@@ -5,8 +5,8 @@ const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
 const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
-const Payment = require('../models/PaymentModel');
-const PaymentTracker = require('../models/PaymentTracker');
+const Payment = require('../../AdOwner/models/PaymentModel');
+const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
 const Withdrawal = require('../models/WithdrawalModel');
 
 const TEST_CONFIG = {
