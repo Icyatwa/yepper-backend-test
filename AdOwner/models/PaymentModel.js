@@ -14,10 +14,14 @@ const paymentSchema = new mongoose.Schema({
     },
     userId: { type: String },
     adId: { type: mongoose.Schema.Types.ObjectId, ref: 'ImportAd', required: true },
-    websiteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Website', required: true }, // Added this field
+    websiteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Website', required: true },
     webOwnerId: { type: String },
     withdrawn: { type: Boolean, default: false },
-    paymentTrackerId: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentTracker' }
+    paymentTrackerId: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentTracker' },
+    testMode: { type: Boolean, default: false },
+    processedAt: { type: Date },
+    failureReason: { type: String }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Payment', paymentSchema);
+// Check if model already exists to prevent OverwriteModelError
+module.exports = mongoose.models.Payment || mongoose.model('Payment', paymentSchema);

@@ -4,11 +4,28 @@ const AdCategory = require('../models/CreateCategoryModel');
 const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
-const Website = require('../models/WebsiteModel');
 const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
 const Payment = require('../models/PaymentModel');
 const PaymentTracker = require('../models/PaymentTracker');
 const Withdrawal = require('../models/WithdrawalModel');
+
+const TEST_CONFIG = {
+  // Flutterwave Test API Base URL
+  FLUTTERWAVE_BASE_URL: 'https://api.flutterwave.com/v3',
+  
+  // Test Secret Key (replace with your actual test key)
+  FLW_TEST_SECRET_KEY: process.env.FLW_TEST_SECRET_KEY || 'FLWSECK_TEST-your-test-secret-key-here',
+  
+  // Test callback URL
+  CALLBACK_URL: process.env.TEST_CALLBACK_URL || "https://your-test-domain.com/api/accept/withdrawal-callback",
+  
+  // Test phone numbers that work in sandbox
+  TEST_PHONE_NUMBERS: [
+    '0700000001', // Always successful
+    '0700000002', // Always fails
+    '0700000003', // Pending then successful
+  ]
+};
 
 class WithdrawalService {
   // Validate withdrawal input parameters
@@ -26,20 +43,30 @@ class WithdrawalService {
     }
   }
 
-  // Prepare Flutterwave transfer payload
+  // Prepare Flutterwave transfer payload for test mode
   static prepareTransferPayload(phoneNumber, amount, userId) {
-    const reference = `WITHDRAWAL-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const reference = `TEST-WITHDRAWAL-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
     return {
-      account_bank: 'MPS',
+      account_bank: 'MPS', // Mobile Money Rwanda
       account_number: phoneNumber,
       amount,
       currency: 'RWF',
-      beneficiary_name: 'MoMo Transfer',
+      beneficiary_name: 'Test MoMo Transfer',
       reference,
-      callback_url: "https://yepper-backend.onrender.com/api/accept/withdrawal-callback",
-      debit_currency: 'RWF'
+      callback_url: TEST_CONFIG.CALLBACK_URL,
+      debit_currency: 'RWF',
+      // Test mode specific fields
+      meta: {
+        test_mode: true,
+        environment: 'sandbox'
+      }
     };
+  }
+
+  // Check if phone number is a test number
+  static isTestPhoneNumber(phoneNumber) {
+    return TEST_CONFIG.TEST_PHONE_NUMBERS.includes(phoneNumber);
   }
 }
 
@@ -759,27 +786,6 @@ exports.checkWithdrawalEligibility = async (req, res) => {
   }
 };
 
-exports.updateWebOwnerBalance = async (req, res) => {
-  try {
-    const { userId, amount } = req.body;
-
-    if (!userId || userId.trim() === '') {
-      return res.status(400).json({ message: 'User ID is required.' });
-    }
-
-    const balanceRecord = await WebOwnerBalance.findOneAndUpdate(
-      { userId },
-      { $inc: { totalEarnings: amount, availableBalance: amount } },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
-    );
-
-    res.status(200).json({ message: 'Balance updated successfully.', balance: balanceRecord });
-  } catch (error) {
-    console.error('Error updating balance:', error);
-    res.status(500).json({ message: 'Error updating balance.', error: error.message });
-  }
-};
-
 exports.getWebOwnerBalance = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -905,11 +911,21 @@ exports.initiateWithdrawal = async (req, res) => {
   try {
     const { userId, amount, phoneNumber, paymentId } = req.body;
 
+    console.log('🧪 TEST MODE: Initiating withdrawal', { userId, amount, phoneNumber });
+
     // Input validation
     try {
       WithdrawalService.validateWithdrawalInput(amount, phoneNumber, userId);
     } catch (validationError) {
-      return res.status(400).json({ message: validationError.message });
+      return res.status(400).json({ 
+        message: validationError.message,
+        test_mode: true 
+      });
+    }
+
+    // Test mode warning for non-test phone numbers
+    if (!WithdrawalService.isTestPhoneNumber(phoneNumber)) {
+      console.warn('⚠️  Using non-test phone number in test mode. Use test numbers for guaranteed results:', TEST_CONFIG.TEST_PHONE_NUMBERS);
     }
 
     // Check if user has sufficient balance
@@ -917,7 +933,8 @@ exports.initiateWithdrawal = async (req, res) => {
     if (!balance || balance.availableBalance < amount) {
       return res.status(400).json({ 
         message: 'Insufficient balance',
-        currentBalance: balance?.availableBalance || 0
+        currentBalance: balance?.availableBalance || 0,
+        test_mode: true
       });
     }
 
@@ -925,14 +942,22 @@ exports.initiateWithdrawal = async (req, res) => {
     const transferPayload = WithdrawalService.prepareTransferPayload(phoneNumber, amount, userId);
 
     try {
-      // Initiate transfer via Flutterwave
-      const response = await axios.post('https://api.flutterwave.com/v3/transfers', transferPayload, {
-        headers: { 
-          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      });
+      console.log('🧪 Sending test transfer request to Flutterwave sandbox...');
+      
+      // Initiate transfer via Flutterwave TEST API
+      const response = await axios.post(
+        `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/transfers`, 
+        transferPayload, 
+        {
+          headers: { 
+            Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
+
+      console.log('🧪 Flutterwave test response:', response.data);
 
       // Create withdrawal record
       const withdrawal = new Withdrawal({
@@ -941,6 +966,8 @@ exports.initiateWithdrawal = async (req, res) => {
         phoneNumber,
         status: response.data.status === 'success' ? 'processing' : 'failed',
         transactionId: response.data.data?.id,
+        testMode: true, // Flag for test transactions
+        reference: transferPayload.reference
       });
       await withdrawal.save({ session });
 
@@ -952,45 +979,56 @@ exports.initiateWithdrawal = async (req, res) => {
           { session }
         );
 
-        // Update payment tracker status
-        await PaymentTracker.findByIdAndUpdate(
-          paymentId,
-          {
-            lastWithdrawalDate: new Date(),
-            status: 'withdrawn'
-          },
-          { session }
-        );
+        // Update payment tracker status if provided
+        if (paymentId) {
+          await PaymentTracker.findByIdAndUpdate(
+            paymentId,
+            {
+              lastWithdrawalDate: new Date(),
+              status: 'withdrawn'
+            },
+            { session }
+          );
+        }
 
         await session.commitTransaction();
         
         return res.status(200).json({
-          message: 'Withdrawal initiated successfully',
+          message: '🧪 TEST: Withdrawal initiated successfully',
           reference: transferPayload.reference,
-          withdrawal
+          withdrawal,
+          test_mode: true,
+          flutterwave_response: response.data
         });
       } else {
         await session.abortTransaction();
         return res.status(400).json({ 
-          message: 'Failed to initiate transfer',
-          error: response.data 
+          message: '🧪 TEST: Failed to initiate transfer',
+          error: response.data,
+          test_mode: true
         });
       }
     } catch (transferError) {
       await session.abortTransaction();
-      console.error('Transfer error:', transferError);
+      console.error('🧪 TEST: Transfer error:', transferError.response?.data || transferError.message);
       
       return res.status(500).json({ 
-        message: 'Error processing transfer',
-        error: transferError.response?.data || transferError.message
+        message: '🧪 TEST: Error processing transfer',
+        error: transferError.response?.data || transferError.message,
+        test_mode: true,
+        helpful_info: {
+          test_phone_numbers: TEST_CONFIG.TEST_PHONE_NUMBERS,
+          note: "Use test phone numbers for predictable results in sandbox mode"
+        }
       });
     }
   } catch (error) {
     await session.abortTransaction();
-    console.error('Withdrawal error:', error);
+    console.error('🧪 TEST: Withdrawal error:', error);
     res.status(500).json({ 
-      message: 'Error processing withdrawal',
-      error: error.message 
+      message: '🧪 TEST: Error processing withdrawal',
+      error: error.message,
+      test_mode: true
     });
   } finally {
     session.endSession();
@@ -998,6 +1036,8 @@ exports.initiateWithdrawal = async (req, res) => {
 };
 
 exports.withdrawalCallback = async (req, res) => {
+  console.log('🧪 TEST: Withdrawal callback received:', req.body);
+  
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -1006,14 +1046,22 @@ exports.withdrawalCallback = async (req, res) => {
     const withdrawal = await Withdrawal.findOne({ transactionId: data.id });
 
     if (!withdrawal) {
-      return res.status(404).json({ message: 'Withdrawal not found' });
+      console.error('🧪 TEST: Withdrawal not found for transaction:', data.id);
+      return res.status(404).json({ 
+        message: 'Withdrawal not found',
+        test_mode: true 
+      });
     }
 
-    if (data.status === 'successful') {
+    console.log('🧪 TEST: Processing callback for withdrawal:', withdrawal._id);
+
+    if (data.status === 'successful' || data.status === 'SUCCESSFUL') {
       withdrawal.status = 'completed';
+      withdrawal.completedAt = new Date();
+      console.log('🧪 TEST: Withdrawal completed successfully');
     } else {
       withdrawal.status = 'failed';
-      withdrawal.failureReason = data.complete_message;
+      withdrawal.failureReason = data.complete_message || 'Transfer failed';
       
       // Refund the amount back to available balance
       await WebOwnerBalance.findOneAndUpdate(
@@ -1021,18 +1069,25 @@ exports.withdrawalCallback = async (req, res) => {
         { $inc: { availableBalance: withdrawal.amount } },
         { session }
       );
+      
+      console.log('🧪 TEST: Withdrawal failed, amount refunded');
     }
 
     await withdrawal.save({ session });
     await session.commitTransaction();
     
-    res.status(200).json({ message: 'Callback processed successfully' });
+    res.status(200).json({ 
+      message: '🧪 TEST: Callback processed successfully',
+      test_mode: true,
+      withdrawal_status: withdrawal.status
+    });
   } catch (error) {
     await session.abortTransaction();
-    console.error('Withdrawal callback error:', error);
+    console.error('🧪 TEST: Withdrawal callback error:', error);
     res.status(500).json({ 
-      message: 'Error processing callback',
-      error: error.message 
+      message: '🧪 TEST: Error processing callback',
+      error: error.message,
+      test_mode: true
     });
   } finally {
     session.endSession();

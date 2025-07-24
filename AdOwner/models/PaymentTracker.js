@@ -15,7 +15,9 @@ const paymentTrackerSchema = new mongoose.Schema({
     enum: ['pending', 'available', 'withdrawn'],
     default: 'pending'
   },
-  paymentReference: { type: String, unique: true, sparse: true }
-});
+  paymentReference: { type: String, unique: true, sparse: true },
+  testMode: { type: Boolean, default: false }
+}, { timestamps: true });
 
-module.exports = mongoose.model('PaymentTracker', paymentTrackerSchema);
+// Check if model already exists to prevent OverwriteModelError
+module.exports = mongoose.models.PaymentTracker || mongoose.model('PaymentTracker', paymentTrackerSchema);

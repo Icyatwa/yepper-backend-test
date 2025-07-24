@@ -17,4 +17,10 @@ router.patch('/category/:categoryId/language', categoryController.updateCategory
 router.get('/pending/:ownerId', categoryController.getPendingAds);
 router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForWebsite);
 
+router.get('/check-eligibility/:payment', categoryController.checkWithdrawalEligibility);
+router.get('/balance/:userId', categoryController.getWebOwnerBalance);
+router.get('/earnings/:userId', categoryController.getDetailedEarnings);
+router.post('/withdraw', categoryController.initiateWithdrawal);
+router.post('/withdrawal-callback', categoryController.withdrawalCallback);
+
 module.exports = router;
