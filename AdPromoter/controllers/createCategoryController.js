@@ -7,66 +7,179 @@ const Website = require('../models/CreateWebsiteModel');
 const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
 const Payment = require('../../AdOwner/models/PaymentModel');
 const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
-const Withdrawal = require('../models/WithdrawalModel');
+const axios = require('axios');
 
 const TEST_CONFIG = {
-  // Flutterwave Test API Base URL
   FLUTTERWAVE_BASE_URL: 'https://api.flutterwave.com/v3',
-  
-  // Test Secret Key (replace with your actual test key)
   FLW_TEST_SECRET_KEY: process.env.FLW_TEST_SECRET_KEY || 'FLWSECK_TEST-your-test-secret-key-here',
-  
-  // Test callback URL
   CALLBACK_URL: process.env.TEST_CALLBACK_URL || "https://your-test-domain.com/api/accept/withdrawal-callback",
   
-  // Test phone numbers that work in sandbox
-  TEST_PHONE_NUMBERS: [
+  // Test data for different payment methods
+  TEST_MOBILE_NUMBERS: [
     '0700000001', // Always successful
     '0700000002', // Always fails
     '0700000003', // Pending then successful
+  ],
+  
+  TEST_CARD_NUMBERS: [
+    '4187427415564246', // Visa - Always successful
+    '5531886652142950', // Mastercard - Always successful
+    '4000000000000002', // Always fails
   ]
 };
 
-class WithdrawalService {
-  // Validate withdrawal input parameters
-  static validateWithdrawalInput(amount, phoneNumber, userId) {
+// Enhanced Withdrawal Model to support multiple payment methods
+const enhancedWithdrawalSchema = new mongoose.Schema({
+  userId: { type: String, required: true, index: true },
+  amount: { type: Number, required: true },
+  
+  // Payment method type
+  paymentMethod: { 
+    type: String, 
+    enum: ['mobile_money', 'bank_card', 'bank_transfer'],
+    required: true
+  },
+  
+  // Mobile Money fields
+  phoneNumber: { type: String },
+  
+  // Card fields
+  cardNumber: { type: String },
+  cardHolderName: { type: String },
+  expiryMonth: { type: String },
+  expiryYear: { type: String },
+  
+  // Bank transfer fields
+  bankCode: { type: String },
+  accountNumber: { type: String },
+  accountName: { type: String },
+  
+  // Common fields
+  status: { 
+    type: String, 
+    enum: ['pending', 'processing', 'completed', 'failed'],
+    default: 'pending'
+  },
+  transactionId: { type: String },
+  reference: { type: String },
+  failureReason: { type: String },
+  testMode: { type: Boolean, default: false },
+  completedAt: { type: Date },
+}, { timestamps: true });
+
+// Update the model export
+const EnhancedWithdrawal = mongoose.models.EnhancedWithdrawal || 
+  mongoose.model('EnhancedWithdrawal', enhancedWithdrawalSchema);
+
+class EnhancedWithdrawalService {
+  // Validate withdrawal input for different payment methods
+  static validateWithdrawalInput(data) {
+    const { amount, userId, paymentMethod } = data;
+
     if (!amount || typeof amount !== 'number' || amount <= 0) {
       throw new Error('Invalid amount. Must be a positive number.');
-    }
-
-    if (!phoneNumber || !/^(07\d{8})$/.test(phoneNumber)) {
-      throw new Error('Invalid phone number. Must start with 07 and be 10 digits.');
     }
 
     if (!userId) {
       throw new Error('User ID is required.');
     }
+
+    if (!paymentMethod) {
+      throw new Error('Payment method is required.');
+    }
+
+    // Method-specific validation
+    switch (paymentMethod) {
+      case 'mobile_money':
+        if (!data.phoneNumber || !/^(07\d{8})$/.test(data.phoneNumber)) {
+          throw new Error('Invalid phone number. Must start with 07 and be 10 digits.');
+        }
+        break;
+        
+      case 'bank_card':
+        if (!data.cardNumber || !data.cardHolderName || !data.expiryMonth || !data.expiryYear) {
+          throw new Error('Card details are incomplete. All fields are required.');
+        }
+        if (!/^\d{13,19}$/.test(data.cardNumber.replace(/\s/g, ''))) {
+          throw new Error('Invalid card number format.');
+        }
+        break;
+        
+      case 'bank_transfer':
+        if (!data.bankCode || !data.accountNumber || !data.accountName) {
+          throw new Error('Bank details are incomplete. All fields are required.');
+        }
+        break;
+        
+      default:
+        throw new Error('Unsupported payment method.');
+    }
   }
 
-  // Prepare Flutterwave transfer payload for test mode
-  static prepareTransferPayload(phoneNumber, amount, userId) {
-    const reference = `TEST-WITHDRAWAL-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  // Prepare payload for different payment methods
+  static prepareTransferPayload(data) {
+    const reference = `WITHDRAWAL-${data.userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
-    return {
-      account_bank: 'MPS', // Mobile Money Rwanda
-      account_number: phoneNumber,
-      amount,
-      currency: 'RWF',
-      beneficiary_name: 'Test MoMo Transfer',
+    const basePayload = {
+      amount: data.amount,
+      currency: data.currency || 'USD', // Default to USD for international
       reference,
       callback_url: TEST_CONFIG.CALLBACK_URL,
-      debit_currency: 'RWF',
-      // Test mode specific fields
       meta: {
         test_mode: true,
-        environment: 'sandbox'
+        environment: 'sandbox',
+        user_id: data.userId
       }
     };
+
+    switch (data.paymentMethod) {
+      case 'mobile_money':
+        return {
+          ...basePayload,
+          account_bank: 'MPS', // Mobile Money Rwanda
+          account_number: data.phoneNumber,
+          currency: 'RWF',
+          beneficiary_name: 'MoMo Transfer',
+          debit_currency: 'RWF'
+        };
+        
+      case 'bank_card':
+        return {
+          ...basePayload,
+          type: 'card',
+          card_number: data.cardNumber.replace(/\s/g, ''),
+          card_holder_name: data.cardHolderName,
+          expiry_month: data.expiryMonth,
+          expiry_year: data.expiryYear,
+          beneficiary_name: data.cardHolderName
+        };
+        
+      case 'bank_transfer':
+        return {
+          ...basePayload,
+          account_bank: data.bankCode,
+          account_number: data.accountNumber,
+          beneficiary_name: data.accountName,
+          debit_currency: data.currency || 'USD'
+        };
+        
+      default:
+        throw new Error('Unsupported payment method for payload preparation.');
+    }
   }
 
-  // Check if phone number is a test number
-  static isTestPhoneNumber(phoneNumber) {
-    return TEST_CONFIG.TEST_PHONE_NUMBERS.includes(phoneNumber);
+  // Get appropriate endpoint based on payment method
+  static getTransferEndpoint(paymentMethod) {
+    switch (paymentMethod) {
+      case 'mobile_money':
+        return '/transfers';
+      case 'bank_card':
+        return '/transfers'; // Flutterwave handles card transfers via same endpoint
+      case 'bank_transfer':
+        return '/transfers';
+      default:
+        return '/transfers';
+    }
   }
 }
 
@@ -657,135 +770,6 @@ exports.approveAdForWebsite = async (req, res) => {
   }
 };
 
-exports.checkWithdrawalEligibility = async (req, res) => {
-  try {
-    const { payment } = req.params;
-    console.log('Received payment parameter:', payment);
-    
-    // First try to find the PaymentTracker by the payment reference
-    let paymentTracker;
-    try {
-      paymentTracker = await PaymentTracker.findOne({
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
-          { paymentReference: payment }
-        ]
-      });
-      console.log('Existing payment tracker:', paymentTracker);
-    } catch (findError) {
-      console.error('Error finding payment tracker:', findError);
-      throw findError;
-    }
-
-    if (!paymentTracker) {
-      console.log('No existing payment tracker found, attempting to create new one');
-      // If no PaymentTracker exists, create one
-      const paymentParts = payment.split('-');
-      console.log('Payment reference parts:', paymentParts);
-
-      if (paymentParts.length < 3) {
-        return res.status(400).json({
-          eligible: false,
-          message: 'Invalid payment reference format',
-          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
-        });
-      }
-
-      const userId = paymentParts[1];
-      const adId = paymentParts[2];
-      const categoryId = paymentParts[3];
-
-      try {
-        const newPaymentTracker = new PaymentTracker({
-          userId,
-          adId: adId,
-          categoryId: categoryId,
-          paymentDate: new Date(),
-          amount: 0, // You'll need to set this from your payment data
-          viewsRequired: 1000, // Set your default required views
-          currentViews: 0,
-          status: 'pending',
-          paymentReference: payment
-        });
-
-        console.log('Attempting to save new payment tracker:', newPaymentTracker);
-        await newPaymentTracker.save();
-        paymentTracker = newPaymentTracker;
-        console.log('Successfully saved new payment tracker');
-      } catch (createError) {
-        console.error('Error creating payment tracker:', createError);
-        return res.status(500).json({
-          eligible: false,
-          message: 'Error creating payment tracker',
-          error: createError.message
-        });
-      }
-    }
-
-    console.log('Attempting to populate payment data');
-    // If found, then populate the references
-    let populatedPayment;
-    try {
-      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
-        .populate({
-          path: 'adId',
-          select: 'businessName businessLocation businessLink'
-        })
-        .populate({
-          path: 'categoryId',
-          select: 'categoryName visitorRange'
-        });
-
-      console.log('Populated payment data:', populatedPayment);
-    } catch (populateError) {
-      console.error('Error populating payment data:', populateError);
-      throw populateError;
-    }
-
-    const paymentData = populatedPayment.toObject();
-
-    const lastRelevantDate = paymentData.lastWithdrawalDate || paymentData.paymentDate;
-    const daysSinceLastWithdrawal = Math.floor(
-      (new Date() - new Date(lastRelevantDate)) / (1000 * 60 * 60 * 24)
-    );
-
-    if (daysSinceLastWithdrawal < 30) {
-      const nextEligibleDate = new Date(lastRelevantDate);
-      nextEligibleDate.setDate(nextEligibleDate.getDate() + 30);
-      
-      return res.status(200).json({
-        eligible: false,
-        message: `Next withdrawal available from ${nextEligibleDate.toLocaleDateString()}`,
-        nextEligibleDate,
-        payment: paymentData
-      });
-    }
-
-    if (paymentData.currentViews < paymentData.viewsRequired) {
-      return res.status(200).json({
-        eligible: false,
-        message: `Required views not met (${paymentData.currentViews}/${paymentData.viewsRequired} views)`,
-        payment: paymentData
-      });
-    }
-
-    return res.status(200).json({ 
-      eligible: true,
-      message: 'Eligible for withdrawal',
-      payment: paymentData
-    });
-
-  } catch (error) {
-    console.error('Withdrawal eligibility check error:', error);
-    return res.status(500).json({ 
-      eligible: false,
-      message: 'Error checking withdrawal eligibility',
-      error: error.message,
-      stack: error.stack
-    });
-  }
-};
-
 exports.getWebOwnerBalance = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -904,33 +888,120 @@ exports.getDetailedEarnings = async (req, res) => {
   }
 };
 
+exports.checkWithdrawalEligibility = async (req, res) => {
+  try {
+    const { payment } = req.params;
+    console.log('Received payment parameter:', payment);
+    
+    let paymentTracker;
+    try {
+      paymentTracker = await PaymentTracker.findOne({
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
+          { paymentReference: payment }
+        ]
+      });
+    } catch (findError) {
+      console.error('Error finding payment tracker:', findError);
+      throw findError;
+    }
+
+    if (!paymentTracker) {
+      const paymentParts = payment.split('-');
+      if (paymentParts.length < 3) {
+        return res.status(400).json({
+          eligible: false,
+          message: 'Invalid payment reference format',
+          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
+        });
+      }
+
+      const userId = paymentParts[1];
+      const adId = paymentParts[2];
+      const categoryId = paymentParts[3];
+
+      try {
+        const newPaymentTracker = new PaymentTracker({
+          userId,
+          adId: adId,
+          categoryId: categoryId,
+          paymentDate: new Date(),
+          amount: 0,
+          viewsRequired: 1000,
+          currentViews: 0,
+          status: 'pending',
+          paymentReference: payment
+        });
+
+        await newPaymentTracker.save();
+        paymentTracker = newPaymentTracker;
+      } catch (createError) {
+        return res.status(500).json({
+          eligible: false,
+          message: 'Error creating payment tracker',
+          error: createError.message
+        });
+      }
+    }
+
+    let populatedPayment;
+    try {
+      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
+        .populate({
+          path: 'adId',
+          select: 'businessName businessLocation businessLink'
+        })
+        .populate({
+          path: 'categoryId',
+          select: 'categoryName visitorRange'
+        });
+    } catch (populateError) {
+      throw populateError;
+    }
+
+    const paymentData = populatedPayment.toObject();
+
+    console.log('🧪 TEST MODE: Skipping restrictions for testing');
+    return res.status(200).json({ 
+      eligible: true,
+      message: '🧪 TEST MODE: Eligible for withdrawal (restrictions bypassed)',
+      payment: paymentData,
+      test_mode: true
+    });
+
+  } catch (error) {
+    console.error('Withdrawal eligibility check error:', error);
+    return res.status(500).json({ 
+      eligible: false,
+      message: 'Error checking withdrawal eligibility',
+      error: error.message
+    });
+  }
+};
+
 exports.initiateWithdrawal = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { userId, amount, phoneNumber, paymentId } = req.body;
-
-    console.log('🧪 TEST MODE: Initiating withdrawal', { userId, amount, phoneNumber });
+    const withdrawalData = req.body;
+    console.log('🧪 TEST MODE: Initiating withdrawal', withdrawalData);
 
     // Input validation
     try {
-      WithdrawalService.validateWithdrawalInput(amount, phoneNumber, userId);
+      EnhancedWithdrawalService.validateWithdrawalInput(withdrawalData);
     } catch (validationError) {
+      await session.abortTransaction();
       return res.status(400).json({ 
         message: validationError.message,
         test_mode: true 
       });
     }
 
-    // Test mode warning for non-test phone numbers
-    if (!WithdrawalService.isTestPhoneNumber(phoneNumber)) {
-      console.warn('⚠️  Using non-test phone number in test mode. Use test numbers for guaranteed results:', TEST_CONFIG.TEST_PHONE_NUMBERS);
-    }
-
     // Check if user has sufficient balance
-    const balance = await WebOwnerBalance.findOne({ userId });
-    if (!balance || balance.availableBalance < amount) {
+    const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
+    if (!balance || balance.availableBalance < withdrawalData.amount) {
+      await session.abortTransaction();
       return res.status(400).json({ 
         message: 'Insufficient balance',
         currentBalance: balance?.availableBalance || 0,
@@ -939,14 +1010,15 @@ exports.initiateWithdrawal = async (req, res) => {
     }
 
     // Prepare transfer payload
-    const transferPayload = WithdrawalService.prepareTransferPayload(phoneNumber, amount, userId);
+    const transferPayload = EnhancedWithdrawalService.prepareTransferPayload(withdrawalData);
+    const endpoint = EnhancedWithdrawalService.getTransferEndpoint(withdrawalData.paymentMethod);
 
     try {
       console.log('🧪 Sending test transfer request to Flutterwave sandbox...');
+      console.log('Payload:', JSON.stringify(transferPayload, null, 2));
       
-      // Initiate transfer via Flutterwave TEST API
       const response = await axios.post(
-        `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/transfers`, 
+        `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}${endpoint}`, 
         transferPayload, 
         {
           headers: { 
@@ -959,30 +1031,48 @@ exports.initiateWithdrawal = async (req, res) => {
 
       console.log('🧪 Flutterwave test response:', response.data);
 
-      // Create withdrawal record
-      const withdrawal = new Withdrawal({
-        userId,
-        amount,
-        phoneNumber,
+      // Create enhanced withdrawal record
+      const withdrawal = new EnhancedWithdrawal({
+        userId: withdrawalData.userId,
+        amount: withdrawalData.amount,
+        paymentMethod: withdrawalData.paymentMethod,
+        
+        // Payment method specific fields
+        ...(withdrawalData.paymentMethod === 'mobile_money' && {
+          phoneNumber: withdrawalData.phoneNumber
+        }),
+        ...(withdrawalData.paymentMethod === 'bank_card' && {
+          cardNumber: `****-****-****-${withdrawalData.cardNumber.slice(-4)}`, // Store masked
+          cardHolderName: withdrawalData.cardHolderName,
+          expiryMonth: withdrawalData.expiryMonth,
+          expiryYear: withdrawalData.expiryYear
+        }),
+        ...(withdrawalData.paymentMethod === 'bank_transfer' && {
+          bankCode: withdrawalData.bankCode,
+          accountNumber: withdrawalData.accountNumber,
+          accountName: withdrawalData.accountName
+        }),
+        
         status: response.data.status === 'success' ? 'processing' : 'failed',
         transactionId: response.data.data?.id,
-        testMode: true, // Flag for test transactions
-        reference: transferPayload.reference
+        reference: transferPayload.reference,
+        testMode: true
       });
+
       await withdrawal.save({ session });
 
       if (response.data.status === 'success') {
         // Update user's available balance
         await WebOwnerBalance.findOneAndUpdate(
-          { userId },
-          { $inc: { availableBalance: -amount } },
+          { userId: withdrawalData.userId },
+          { $inc: { availableBalance: -withdrawalData.amount } },
           { session }
         );
 
         // Update payment tracker status if provided
-        if (paymentId) {
+        if (withdrawalData.paymentId) {
           await PaymentTracker.findByIdAndUpdate(
-            paymentId,
+            withdrawalData.paymentId,
             {
               lastWithdrawalDate: new Date(),
               status: 'withdrawn'
@@ -1017,8 +1107,8 @@ exports.initiateWithdrawal = async (req, res) => {
         error: transferError.response?.data || transferError.message,
         test_mode: true,
         helpful_info: {
-          test_phone_numbers: TEST_CONFIG.TEST_PHONE_NUMBERS,
-          note: "Use test phone numbers for predictable results in sandbox mode"
+          supported_methods: ['mobile_money', 'bank_card', 'bank_transfer'],
+          note: "Ensure all required fields are provided for the selected payment method"
         }
       });
     }
@@ -1043,7 +1133,12 @@ exports.withdrawalCallback = async (req, res) => {
 
   try {
     const { data } = req.body;
-    const withdrawal = await Withdrawal.findOne({ transactionId: data.id });
+    const withdrawal = await EnhancedWithdrawal.findOne({ 
+      $or: [
+        { transactionId: data.id },
+        { reference: data.tx_ref }
+      ]
+    });
 
     if (!withdrawal) {
       console.error('🧪 TEST: Withdrawal not found for transaction:', data.id);
