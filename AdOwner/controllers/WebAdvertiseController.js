@@ -382,21 +382,29 @@ exports.initiateAdPayment = async (req, res) => {
       });
     }
 
-    // Check if payment already exists for this combination
-    const existingPayment = await Payment.findOne({
+    // FIX: Only check for successful payments, not failed ones
+    const existingSuccessfulPayment = await Payment.findOne({
       adId,
       websiteId,
       userId,
-      status: { $in: ['pending', 'successful'] }
+      status: 'successful' // Only block if payment was successful
     });
 
-    if (existingPayment) {
+    if (existingSuccessfulPayment) {
       return res.status(400).json({
         success: false,
-        message: 'Payment already exists for this ad and website',
+        message: 'Payment already completed successfully for this ad and website',
         test_mode: true
       });
     }
+
+    // FIX: Clean up any failed payment records for this combination
+    await Payment.deleteMany({
+      adId,
+      websiteId,
+      userId,
+      status: { $in: ['failed', 'pending'] } // Clean up failed/pending payments
+    });
 
     // Find ad and verify it exists
     const ad = await ImportAd.findById(adId);
@@ -483,23 +491,19 @@ exports.initiateAdPayment = async (req, res) => {
         test_mode: true
       },
       customer: {
-        email: TEST_CONFIG.TEST_CUSTOMER.email, // Use Flutterwave test email
+        email: TEST_CONFIG.TEST_CUSTOMER.email,
         name: ad.businessName || TEST_CONFIG.TEST_CUSTOMER.name,
-        phone_number: TEST_CONFIG.TEST_CUSTOMER.phone_number // Use Flutterwave test phone
+        phone_number: TEST_CONFIG.TEST_CUSTOMER.phone_number
       },
       customizations: {
         title: '🧪 TEST: Ad Space Payment',
         description: `TEST: Payment for ad space - ${ad.businessName}`,
         logo: process.env.COMPANY_LOGO_URL || ''
       },
-      // Add test mode configuration
       payment_plan: null,
       subaccounts: [],
       integrity_hash: null
     };
-
-    console.log('🧪 Sending test payment request to Flutterwave...');
-    console.log('🧪 Payment payload:', JSON.stringify(paymentPayload, null, 2));
 
     // Make request to Flutterwave TEST API
     const response = await axios.post(
@@ -513,8 +517,6 @@ exports.initiateAdPayment = async (req, res) => {
         timeout: 30000
       }
     );
-
-    console.log('🧪 Flutterwave test payment response:', JSON.stringify(response.data, null, 2));
 
     if (response.data?.status === 'success' && response.data?.data?.link) {
       res.status(200).json({ 
@@ -567,8 +569,6 @@ exports.initiateAdPayment = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('🧪 TEST: Payment initiation error:', error.response?.data || error.message);
-    
     // Clean up failed payment record if tx_ref was created
     if (req.body.tx_ref) {
       try {
@@ -604,8 +604,6 @@ exports.initiateAdPayment = async (req, res) => {
 };
 
 exports.adPaymentCallback = async (req, res) => {
-  console.log('🧪 TEST: Payment callback received:', req.query);
-  
   const session = await mongoose.startSession();
   let transactionStarted = false;
 
@@ -617,16 +615,12 @@ exports.adPaymentCallback = async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=invalid-params&test=true`);
     }
 
-    // Find the payment record first
     const payment = await Payment.findOne({ tx_ref });
     if (!payment) {
       console.error('🧪 TEST: Payment record not found for tx_ref:', tx_ref);
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=payment-not-found&test=true`);
     }
 
-    console.log('🧪 TEST: Verifying transaction with Flutterwave...');
-
-    // Verify the transaction with Flutterwave TEST API
     const transactionVerification = await axios.get(
       `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/transactions/${transaction_id}/verify`,
       {
@@ -641,9 +635,6 @@ exports.adPaymentCallback = async (req, res) => {
     const transactionData = transactionVerification.data.data;
     const { status, amount, currency, tx_ref: verifiedTxRef } = transactionData;
 
-    console.log('🧪 TEST: Transaction verification result:', { status, amount, currency, verifiedTxRef });
-
-    // Verify transaction reference matches
     if (verifiedTxRef !== tx_ref) {
       console.error('🧪 TEST: Transaction reference mismatch');
       payment.status = 'failed';
@@ -651,7 +642,6 @@ exports.adPaymentCallback = async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=tx-ref-mismatch&test=true`);
     }
 
-    // Verify payment amount and currency (with tolerance for floating point)
     if (Math.abs(payment.amount - amount) > 0.01 || payment.currency !== currency) {
       console.error('🧪 TEST: Payment amount or currency mismatch:', {
         expected: { amount: payment.amount, currency: payment.currency },
@@ -663,16 +653,10 @@ exports.adPaymentCallback = async (req, res) => {
     }
 
     if (status === 'successful') {
-      console.log('🧪 TEST: Processing successful payment...');
-      
-      // Start transaction
       await session.startTransaction();
       transactionStarted = true;
-
-      // Process successful payment
       await processSuccessfulPayment(payment, session);
-      
-      // Update payment status
+    
       payment.status = 'successful';
       payment.processedAt = new Date();
       await payment.save({ session });
@@ -706,28 +690,11 @@ exports.adPaymentCallback = async (req, res) => {
 };
 
 async function processSuccessfulPayment(payment, session) {
-  console.log('🧪 TEST: Processing successful payment for ad:', payment.adId);
-  
-  // Find the ad
   const ad = await ImportAd.findOne({ _id: payment.adId }).session(session);
-  if (!ad) {
-    throw new Error('Advertisement not found');
-  }
-
-  // Find the specific website selection using the websiteId from payment
   const websiteSelection = ad.websiteSelections.find(
     sel => sel.websiteId.toString() === payment.websiteId.toString()
   );
   
-  if (!websiteSelection) {
-    throw new Error('Website selection not found');
-  }
-
-  if (!websiteSelection.approved || websiteSelection.confirmed) {
-    throw new Error('Website selection is not approved or already confirmed');
-  }
-
-  // Update the ad confirmation status
   const updatedAd = await ImportAd.findOneAndUpdate(
     { 
       _id: payment.adId,
@@ -748,23 +715,11 @@ async function processSuccessfulPayment(payment, session) {
     { new: true, session }
   );
 
-  if (!updatedAd) {
-    throw new Error('Failed to update ad confirmation status');
-  }
-
-  console.log('🧪 TEST: Ad confirmed successfully');
-
-  // Find categories
   const categories = await AdCategory.find({
     _id: { $in: websiteSelection.categories },
     websiteId: payment.websiteId
   }).session(session);
 
-  if (!categories.length) {
-    throw new Error('No valid categories found');
-  }
-
-  // Update categories
   await AdCategory.updateMany(
     { 
       _id: { $in: websiteSelection.categories },
@@ -774,9 +729,6 @@ async function processSuccessfulPayment(payment, session) {
     { session }
   );
 
-  console.log('🧪 TEST: Categories updated with new ad');
-
-  // Update web owner's balance
   await WebOwnerBalance.findOneAndUpdate(
     { userId: payment.webOwnerId },
     {
@@ -788,9 +740,6 @@ async function processSuccessfulPayment(payment, session) {
     { upsert: true, session }
   );
 
-  console.log('🧪 TEST: Web owner balance updated');
-
-  // Create payment trackers
   const paymentTrackers = categories.map(category => ({
     userId: payment.webOwnerId,
     adId: ad._id,
@@ -805,6 +754,4 @@ async function processSuccessfulPayment(payment, session) {
   }));
 
   await PaymentTracker.insertMany(paymentTrackers, { session });
-  
-  console.log('🧪 TEST: Payment trackers created:', paymentTrackers.length);
 }

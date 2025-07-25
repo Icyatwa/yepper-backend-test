@@ -20,7 +20,10 @@ router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForW
 router.get('/check-eligibility/:payment', categoryController.checkWithdrawalEligibility);
 router.get('/balance/:userId', categoryController.getWebOwnerBalance);
 router.get('/earnings/:userId', categoryController.getDetailedEarnings);
-router.post('/withdraw', categoryController.initiateWithdrawal);
+router.post('/withdraw', authMiddleware, categoryController.initiateWithdrawal);
 router.post('/withdrawal-callback', categoryController.withdrawalCallback);
+router.post('/withdraw-manual', categoryController.requestManualWithdrawal);
+router.get('/diagnostic/flutterwave-ip', categoryController.checkIPAndFlutterwaveAccess);
+router.get('/manual-withdrawals', categoryController.getManualWithdrawals);
 
 module.exports = router;

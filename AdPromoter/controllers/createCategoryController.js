@@ -987,7 +987,39 @@ exports.initiateWithdrawal = async (req, res) => {
     const withdrawalData = req.body;
     console.log('🧪 TEST MODE: Initiating withdrawal', withdrawalData);
 
-    // Input validation
+    // STEP 1A: First check if we can access Flutterwave API at all
+    console.log('🔍 Testing Flutterwave API access...');
+    try {
+      const testResponse = await axios.get('https://api.flutterwave.com/v3/banks/NG', {
+        headers: {
+          'Authorization': `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+      console.log('✅ Flutterwave API is accessible');
+    } catch (apiTestError) {
+      console.log('❌ API Test Failed:', apiTestError.response?.data?.message || apiTestError.message);
+      
+      // If it's IP whitelist issue, return helpful response
+      if (apiTestError.response?.data?.message?.includes('IP Whitelisting')) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          message: '🚨 IP Whitelist Issue Detected',
+          error: 'Your server IP is not whitelisted in Flutterwave',
+          solution: {
+            step1: 'Go to https://dashboard.flutterwave.com',
+            step2: 'Navigate to Settings > API Keys',
+            step3: 'Update IP Whitelist with your current server IP',
+            step4: 'Wait 5-10 minutes for changes to propagate',
+            currentIP: 'Check your current IP using the diagnostic endpoint below'
+          },
+          test_mode: true
+        });
+      }
+    }
+
+    // Input validation (your existing code)
     try {
       EnhancedWithdrawalService.validateWithdrawalInput(withdrawalData);
     } catch (validationError) {
@@ -998,7 +1030,7 @@ exports.initiateWithdrawal = async (req, res) => {
       });
     }
 
-    // Check if user has sufficient balance
+    // Check balance (your existing code)
     const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
     if (!balance || balance.availableBalance < withdrawalData.amount) {
       await session.abortTransaction();
@@ -1009,10 +1041,11 @@ exports.initiateWithdrawal = async (req, res) => {
       });
     }
 
-    // Prepare transfer payload
+    // Prepare transfer payload (your existing code)
     const transferPayload = EnhancedWithdrawalService.prepareTransferPayload(withdrawalData);
     const endpoint = EnhancedWithdrawalService.getTransferEndpoint(withdrawalData.paymentMethod);
 
+    // STEP 1B: Enhanced Flutterwave request with better error handling
     try {
       console.log('🧪 Sending test transfer request to Flutterwave sandbox...');
       console.log('Payload:', JSON.stringify(transferPayload, null, 2));
@@ -1025,13 +1058,13 @@ exports.initiateWithdrawal = async (req, res) => {
             Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
             'Content-Type': 'application/json'
           },
-          timeout: 15000
+          timeout: 30000 // Increased timeout
         }
       );
 
       console.log('🧪 Flutterwave test response:', response.data);
 
-      // Create enhanced withdrawal record
+      // Continue with your existing withdrawal logic...
       const withdrawal = new EnhancedWithdrawal({
         userId: withdrawalData.userId,
         amount: withdrawalData.amount,
@@ -1042,7 +1075,7 @@ exports.initiateWithdrawal = async (req, res) => {
           phoneNumber: withdrawalData.phoneNumber
         }),
         ...(withdrawalData.paymentMethod === 'bank_card' && {
-          cardNumber: `****-****-****-${withdrawalData.cardNumber.slice(-4)}`, // Store masked
+          cardNumber: `****-****-****-${withdrawalData.cardNumber.slice(-4)}`,
           cardHolderName: withdrawalData.cardHolderName,
           expiryMonth: withdrawalData.expiryMonth,
           expiryYear: withdrawalData.expiryYear
@@ -1102,14 +1135,27 @@ exports.initiateWithdrawal = async (req, res) => {
       await session.abortTransaction();
       console.error('🧪 TEST: Transfer error:', transferError.response?.data || transferError.message);
       
+      // Enhanced error response for IP issues
+      if (transferError.response?.data?.message?.includes('IP Whitelisting')) {
+        return res.status(400).json({ 
+          message: '🚨 IP Whitelist Error',
+          error: 'Your server IP is not whitelisted in Flutterwave dashboard',
+          action_required: 'Update your Flutterwave IP whitelist',
+          steps: [
+            '1. Login to https://dashboard.flutterwave.com',
+            '2. Go to Settings > API Keys',
+            '3. Update IP Whitelist section',
+            '4. Add your current server IP',
+            '5. Wait 5-10 minutes for propagation'
+          ],
+          test_mode: true
+        });
+      }
+      
       return res.status(500).json({ 
         message: '🧪 TEST: Error processing transfer',
         error: transferError.response?.data || transferError.message,
-        test_mode: true,
-        helpful_info: {
-          supported_methods: ['mobile_money', 'bank_card', 'bank_transfer'],
-          note: "Ensure all required fields are provided for the selected payment method"
-        }
+        test_mode: true
       });
     }
   } catch (error) {
@@ -1186,5 +1232,187 @@ exports.withdrawalCallback = async (req, res) => {
     });
   } finally {
     session.endSession();
+  }
+};
+
+exports.checkIPAndFlutterwaveAccess = async (req, res) => {
+  try {
+    console.log('🔍 Running comprehensive diagnostic...');
+    
+    // Get current IP
+    let currentIP = 'unknown';
+    try {
+      const ipResponse = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+      currentIP = ipResponse.data.ip;
+    } catch (ipError) {
+      console.log('Could not determine IP:', ipError.message);
+    }
+    
+    // Test Flutterwave API access
+    let flutterwaveAccess = false;
+    let flutterwaveError = '';
+    
+    try {
+      await axios.get('https://api.flutterwave.com/v3/banks/NG', {
+        headers: {
+          'Authorization': `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+      flutterwaveAccess = true;
+    } catch (fwError) {
+      flutterwaveError = fwError.response?.data?.message || fwError.message;
+    }
+    
+    // Generate response
+    const diagnostic = {
+      server_ip: currentIP,
+      flutterwave_whitelisted_ip: '102.22.140.7',
+      ip_match: currentIP === '102.22.140.7',
+      flutterwave_api_accessible: flutterwaveAccess,
+      flutterwave_error: flutterwaveError,
+      
+      status: flutterwaveAccess ? 'READY' : 'NEEDS_ATTENTION',
+      
+      next_steps: flutterwaveAccess ? 
+        ['✅ Everything looks good! Withdrawals should work.'] :
+        [
+          '🚨 Action required: IP whitelist issue detected',
+          '1. Go to https://dashboard.flutterwave.com',
+          '2. Navigate to Settings > API Keys',
+          '3. Find "IP Whitelisting" section',
+          `4. Add your current IP: ${currentIP}`,
+          '5. Save changes and wait 5-10 minutes',
+          '6. Test this endpoint again'
+        ]
+    };
+    
+    res.json(diagnostic);
+    
+  } catch (error) {
+    res.status(500).json({
+      message: 'Diagnostic failed',
+      error: error.message
+    });
+  }
+};
+
+exports.requestManualWithdrawal = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const withdrawalData = req.body;
+    
+    // Validate input
+    EnhancedWithdrawalService.validateWithdrawalInput(withdrawalData);
+    
+    // Check balance
+    const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
+    if (!balance || balance.availableBalance < withdrawalData.amount) {
+      await session.abortTransaction();
+      return res.status(400).json({ 
+        message: 'Insufficient balance',
+        currentBalance: balance?.availableBalance || 0
+      });
+    }
+    
+    // Create withdrawal record for manual processing
+    const withdrawal = new EnhancedWithdrawal({
+      userId: withdrawalData.userId,
+      amount: withdrawalData.amount,
+      paymentMethod: withdrawalData.paymentMethod,
+      
+      // Store payment details
+      ...(withdrawalData.paymentMethod === 'mobile_money' && {
+        phoneNumber: withdrawalData.phoneNumber
+      }),
+      ...(withdrawalData.paymentMethod === 'bank_card' && {
+        cardNumber: `****-****-****-${withdrawalData.cardNumber.slice(-4)}`,
+        cardHolderName: withdrawalData.cardHolderName,
+        expiryMonth: withdrawalData.expiryMonth,
+        expiryYear: withdrawalData.expiryYear
+      }),
+      ...(withdrawalData.paymentMethod === 'bank_transfer' && {
+        bankCode: withdrawalData.bankCode,
+        accountNumber: withdrawalData.accountNumber,
+        accountName: withdrawalData.accountName
+      }),
+      
+      status: 'pending', // Will be processed manually
+      reference: `MANUAL-${withdrawalData.userId}-${Date.now()}`,
+      testMode: true
+    });
+    
+    await withdrawal.save({ session });
+    
+    // Reserve the amount (don't deduct yet, will deduct when processed)
+    await WebOwnerBalance.findOneAndUpdate(
+      { userId: withdrawalData.userId },
+      { $inc: { availableBalance: -withdrawalData.amount } },
+      { session }
+    );
+    
+    await session.commitTransaction();
+    
+    // Log for manual processing
+    console.log('📋 MANUAL WITHDRAWAL REQUEST:');
+    console.log('================================');
+    console.log(`Reference: ${withdrawal.reference}`);
+    console.log(`User ID: ${withdrawalData.userId}`);
+    console.log(`Amount: ${withdrawalData.amount}`);
+    console.log(`Method: ${withdrawalData.paymentMethod}`);
+    console.log(`Details:`, withdrawalData);
+    console.log('Process this manually in Flutterwave dashboard');
+    
+    res.json({
+      message: 'Withdrawal request received - will be processed manually',
+      reference: withdrawal.reference,
+      estimated_processing_time: '1-2 business days',
+      status: 'pending_manual_processing'
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Manual withdrawal error:', error);
+    res.status(500).json({ 
+      message: 'Error processing withdrawal request',
+      error: error.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+exports.getManualWithdrawals = async (req, res) => {
+  try {
+    const { status = 'pending', limit = 50, page = 1 } = req.query;
+    
+    const manualWithdrawals = await EnhancedWithdrawal.find({
+      status: status,
+      // Optional: filter by recent requests only
+      createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
+    })
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    console.log(`📋 Found ${manualWithdrawals.length} manual withdrawal requests`);
+    
+    res.json({
+      message: 'Manual withdrawal requests retrieved',
+      withdrawals: manualWithdrawals,
+      count: manualWithdrawals.length,
+      page: parseInt(page),
+      status: status
+    });
+    
+  } catch (error) {
+    console.error('Error fetching manual withdrawals:', error);
+    res.status(500).json({
+      message: 'Error fetching manual withdrawals',
+      error: error.message
+    });
   }
 };
