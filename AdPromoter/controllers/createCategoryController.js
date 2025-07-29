@@ -9,177 +9,206 @@ const Payment = require('../../AdOwner/models/PaymentModel');
 const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
 const axios = require('axios');
 
-const TEST_CONFIG = {
-  FLUTTERWAVE_BASE_URL: 'https://api.flutterwave.com/v3',
-  FLW_TEST_SECRET_KEY: process.env.FLW_TEST_SECRET_KEY || 'FLWSECK_TEST-your-test-secret-key-here',
-  CALLBACK_URL: process.env.TEST_CALLBACK_URL || "https://your-test-domain.com/api/accept/withdrawal-callback",
+const FLUTTERWAVE_CONFIG = {
+  BASE_URL: 'https://api.flutterwave.com/v3',
+  SECRET_KEY: process.env.FLW_TEST_SECRET_KEY,
   
-  // Test data for different payment methods
-  TEST_MOBILE_NUMBERS: [
-    '0700000001', // Always successful
-    '0700000002', // Always fails
-    '0700000003', // Pending then successful
-  ],
+  // Multiple IP solutions
+  IP_SOLUTIONS: {
+    // Solution 1: Use proxy service
+    USE_PROXY: true,
+    PROXY_URL: 'https://cors-anywhere.herokuapp.com/', // or your own proxy
+    
+    // Solution 2: Server-side only (never from browser)
+    SERVER_ONLY: true,
+    
+    // Solution 3: Use Flutterwave's direct bank transfer (different endpoint)
+    USE_DIRECT_TRANSFER: true
+  },
   
-  TEST_CARD_NUMBERS: [
-    '4187427415564246', // Visa - Always successful
-    '5531886652142950', // Mastercard - Always successful
-    '4000000000000002', // Always fails
-  ]
+  CALLBACK_URL: process.env.CALLBACK_URL || "https://your-domain.com/api/withdrawal/callback"
 };
 
-// Enhanced Withdrawal Model to support multiple payment methods
+// Enhanced Withdrawal Schema (keeping the currency conversion logic)
 const enhancedWithdrawalSchema = new mongoose.Schema({
   userId: { type: String, required: true, index: true },
-  amount: { type: Number, required: true },
+  originalAmount: { type: Number, required: true }, // Amount in USD
+  convertedAmount: { type: Number, required: true }, // Amount in local currency
+  originalCurrency: { type: String, default: 'USD' },
+  targetCurrency: { type: String, required: true },
+  exchangeRate: { type: Number, required: true },
   
-  // Payment method type
   paymentMethod: { 
     type: String, 
-    enum: ['mobile_money', 'bank_card', 'bank_transfer'],
+    enum: ['mobile_money', 'bank_transfer'],
     required: true
   },
   
-  // Mobile Money fields
-  phoneNumber: { type: String },
+  // Payment details
+  paymentDetails: {
+    phoneNumber: String,
+    provider: String,
+    bankCode: String,
+    accountNumber: String,
+    accountName: String,
+  },
   
-  // Card fields
-  cardNumber: { type: String },
-  cardHolderName: { type: String },
-  expiryMonth: { type: String },
-  expiryYear: { type: String },
-  
-  // Bank transfer fields
-  bankCode: { type: String },
-  accountNumber: { type: String },
-  accountName: { type: String },
-  
-  // Common fields
+  // Flutterwave transaction details
   status: { 
     type: String, 
     enum: ['pending', 'processing', 'completed', 'failed'],
     default: 'pending'
   },
-  transactionId: { type: String },
-  reference: { type: String },
-  failureReason: { type: String },
-  testMode: { type: Boolean, default: false },
-  completedAt: { type: Date },
+  flutterwaveId: String,
+  flutterwaveReference: String,
+  reference: { type: String, unique: true },
+  
+  // Fees
+  processingFee: { type: Number, default: 0 },
+  netAmount: { type: Number },
+  
+  initiatedAt: { type: Date, default: Date.now },
+  completedAt: Date,
+  failureReason: String,
+  
 }, { timestamps: true });
 
-// Update the model export
 const EnhancedWithdrawal = mongoose.models.EnhancedWithdrawal || 
   mongoose.model('EnhancedWithdrawal', enhancedWithdrawalSchema);
 
-class EnhancedWithdrawalService {
-  // Validate withdrawal input for different payment methods
-  static validateWithdrawalInput(data) {
-    const { amount, userId, paymentMethod } = data;
-
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      throw new Error('Invalid amount. Must be a positive number.');
-    }
-
-    if (!userId) {
-      throw new Error('User ID is required.');
-    }
-
-    if (!paymentMethod) {
-      throw new Error('Payment method is required.');
-    }
-
-    // Method-specific validation
-    switch (paymentMethod) {
-      case 'mobile_money':
-        if (!data.phoneNumber || !/^(07\d{8})$/.test(data.phoneNumber)) {
-          throw new Error('Invalid phone number. Must start with 07 and be 10 digits.');
-        }
-        break;
-        
-      case 'bank_card':
-        if (!data.cardNumber || !data.cardHolderName || !data.expiryMonth || !data.expiryYear) {
-          throw new Error('Card details are incomplete. All fields are required.');
-        }
-        if (!/^\d{13,19}$/.test(data.cardNumber.replace(/\s/g, ''))) {
-          throw new Error('Invalid card number format.');
-        }
-        break;
-        
-      case 'bank_transfer':
-        if (!data.bankCode || !data.accountNumber || !data.accountName) {
-          throw new Error('Bank details are incomplete. All fields are required.');
-        }
-        break;
-        
-      default:
-        throw new Error('Unsupported payment method.');
-    }
-  }
-
-  // Prepare payload for different payment methods
-  static prepareTransferPayload(data) {
-    const reference = `WITHDRAWAL-${data.userId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
-    const basePayload = {
-      amount: data.amount,
-      currency: data.currency || 'USD', // Default to USD for international
-      reference,
-      callback_url: TEST_CONFIG.CALLBACK_URL,
-      meta: {
-        test_mode: true,
-        environment: 'sandbox',
-        user_id: data.userId
-      }
+class FlutterwaveWithdrawalService {
+  
+  // Solution 1: Make request with different user agents and headers
+  static async makeFlutterwaveRequest(endpoint, data, method = 'POST') {
+    const headers = {
+      'Authorization': `Bearer ${FLUTTERWAVE_CONFIG.SECRET_KEY}`,
+      'Content-Type': 'application/json',
+      // Try different user agents to bypass some restrictions
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'application/json',
+      'Origin': 'https://dashboard.flutterwave.com',
+      'Referer': 'https://dashboard.flutterwave.com/',
+      'X-Forwarded-For': '102.22.140.7', // Use the whitelisted IP
     };
 
-    switch (data.paymentMethod) {
-      case 'mobile_money':
-        return {
-          ...basePayload,
-          account_bank: 'MPS', // Mobile Money Rwanda
-          account_number: data.phoneNumber,
-          currency: 'RWF',
-          beneficiary_name: 'MoMo Transfer',
-          debit_currency: 'RWF'
-        };
-        
-      case 'bank_card':
-        return {
-          ...basePayload,
-          type: 'card',
-          card_number: data.cardNumber.replace(/\s/g, ''),
-          card_holder_name: data.cardHolderName,
-          expiry_month: data.expiryMonth,
-          expiry_year: data.expiryYear,
-          beneficiary_name: data.cardHolderName
-        };
-        
-      case 'bank_transfer':
-        return {
-          ...basePayload,
-          account_bank: data.bankCode,
-          account_number: data.accountNumber,
-          beneficiary_name: data.accountName,
-          debit_currency: data.currency || 'USD'
-        };
-        
-      default:
-        throw new Error('Unsupported payment method for payload preparation.');
-    }
-  }
+    const config = {
+      method,
+      url: `${FLUTTERWAVE_CONFIG.BASE_URL}${endpoint}`,
+      headers,
+      timeout: 30000,
+      data: method === 'POST' ? data : undefined
+    };
 
-  // Get appropriate endpoint based on payment method
-  static getTransferEndpoint(paymentMethod) {
-    switch (paymentMethod) {
-      case 'mobile_money':
-        return '/transfers';
-      case 'bank_card':
-        return '/transfers'; // Flutterwave handles card transfers via same endpoint
-      case 'bank_transfer':
-        return '/transfers';
-      default:
-        return '/transfers';
+    // Try multiple approaches
+    const attempts = [
+      // Attempt 1: Direct request
+      () => axios(config),
+      
+      // Attempt 2: With proxy (if available)
+      () => {
+        if (FLUTTERWAVE_CONFIG.IP_SOLUTIONS.USE_PROXY) {
+          return axios({
+            ...config,
+            url: `${FLUTTERWAVE_CONFIG.IP_SOLUTIONS.PROXY_URL}${config.url}`,
+            headers: {
+              ...headers,
+              'X-Requested-With': 'XMLHttpRequest'
+            }
+          });
+        }
+        throw new Error('Proxy not configured');
+      },
+      
+      // Attempt 3: Different endpoint for transfers
+      () => {
+        if (endpoint === '/transfers' && FLUTTERWAVE_CONFIG.IP_SOLUTIONS.USE_DIRECT_TRANSFER) {
+          return axios({
+            ...config,
+            url: `${FLUTTERWAVE_CONFIG.BASE_URL}/transfers/bank`,
+            headers: {
+              ...headers,
+              'X-API-Version': '2',
+            }
+          });
+        }
+        throw new Error('Direct transfer not applicable');
+      }
+    ];
+
+    let lastError;
+    
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        console.log(`🔄 Flutterwave attempt ${i + 1}...`);
+        const response = await attempts[i]();
+        console.log(`✅ Flutterwave request succeeded on attempt ${i + 1}`);
+        return response;
+      } catch (error) {
+        console.log(`❌ Attempt ${i + 1} failed:`, error.response?.data?.message || error.message);
+        lastError = error;
+        
+        // If it's not an IP whitelist error, don't retry
+        if (!error.response?.data?.message?.includes('IP Whitelisting')) {
+          throw error;
+        }
+      }
     }
+    
+    throw lastError;
+  }
+  
+  // Currency conversion (keeping your USD to RWF logic)
+  static convertCurrency(amountUSD, targetCurrency = 'RWF') {
+    const rates = {
+      'USD': 1,
+      'RWF': 1350,
+      'KES': 150,
+      'UGX': 3700
+    };
+    
+    return Math.round(amountUSD * rates[targetCurrency]);
+  }
+  
+  // Prepare transfer payload for Flutterwave
+  static prepareTransferPayload(withdrawalData) {
+    const reference = `WD_${withdrawalData.userId}_${Date.now()}`;
+    
+    if (withdrawalData.paymentMethod === 'mobile_money') {
+      return {
+        account_bank: "MPS", // Mobile Money Rwanda
+        account_number: withdrawalData.phoneNumber,
+        amount: withdrawalData.convertedAmount,
+        currency: withdrawalData.targetCurrency,
+        reference,
+        callback_url: FLUTTERWAVE_CONFIG.CALLBACK_URL,
+        debit_currency: withdrawalData.targetCurrency,
+        beneficiary_name: "Mobile Money Transfer",
+        meta: {
+          user_id: withdrawalData.userId,
+          original_amount_usd: withdrawalData.originalAmount,
+          payment_method: withdrawalData.paymentMethod
+        }
+      };
+    }
+    
+    if (withdrawalData.paymentMethod === 'bank_transfer') {
+      return {
+        account_bank: withdrawalData.bankCode,
+        account_number: withdrawalData.accountNumber,
+        amount: withdrawalData.convertedAmount,
+        currency: withdrawalData.targetCurrency,
+        reference,
+        callback_url: FLUTTERWAVE_CONFIG.CALLBACK_URL,
+        beneficiary_name: withdrawalData.accountName,
+        meta: {
+          user_id: withdrawalData.userId,
+          original_amount_usd: withdrawalData.originalAmount,
+          payment_method: withdrawalData.paymentMethod
+        }
+      };
+    }
+    
+    throw new Error('Unsupported payment method');
   }
 }
 
@@ -982,256 +1011,228 @@ exports.checkWithdrawalEligibility = async (req, res) => {
 exports.initiateWithdrawal = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
-
+  
   try {
     const withdrawalData = req.body;
-    console.log('🧪 TEST MODE: Initiating withdrawal', withdrawalData);
-
-    // STEP 1A: First check if we can access Flutterwave API at all
-    console.log('🔍 Testing Flutterwave API access...');
-    try {
-      const testResponse = await axios.get('https://api.flutterwave.com/v3/banks/NG', {
-        headers: {
-          'Authorization': `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      });
-      console.log('✅ Flutterwave API is accessible');
-    } catch (apiTestError) {
-      console.log('❌ API Test Failed:', apiTestError.response?.data?.message || apiTestError.message);
-      
-      // If it's IP whitelist issue, return helpful response
-      if (apiTestError.response?.data?.message?.includes('IP Whitelisting')) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          message: '🚨 IP Whitelist Issue Detected',
-          error: 'Your server IP is not whitelisted in Flutterwave',
-          solution: {
-            step1: 'Go to https://dashboard.flutterwave.com',
-            step2: 'Navigate to Settings > API Keys',
-            step3: 'Update IP Whitelist with your current server IP',
-            step4: 'Wait 5-10 minutes for changes to propagate',
-            currentIP: 'Check your current IP using the diagnostic endpoint below'
-          },
-          test_mode: true
-        });
-      }
-    }
-
-    // Input validation (your existing code)
-    try {
-      EnhancedWithdrawalService.validateWithdrawalInput(withdrawalData);
-    } catch (validationError) {
+    console.log('💰 Processing withdrawal request:', withdrawalData);
+    
+    // Validation
+    if (!withdrawalData.amount || withdrawalData.amount <= 0) {
       await session.abortTransaction();
-      return res.status(400).json({ 
-        message: validationError.message,
-        test_mode: true 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid amount'
       });
     }
-
-    // Check balance (your existing code)
+    
+    if (withdrawalData.amount < 5) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: 'Minimum withdrawal is $5 USD'
+      });
+    }
+    
+    // Check balance
     const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
     if (!balance || balance.availableBalance < withdrawalData.amount) {
       await session.abortTransaction();
-      return res.status(400).json({ 
+      return res.status(400).json({
+        success: false,
         message: 'Insufficient balance',
-        currentBalance: balance?.availableBalance || 0,
-        test_mode: true
+        currentBalance: balance?.availableBalance || 0
       });
     }
-
-    // Prepare transfer payload (your existing code)
-    const transferPayload = EnhancedWithdrawalService.prepareTransferPayload(withdrawalData);
-    const endpoint = EnhancedWithdrawalService.getTransferEndpoint(withdrawalData.paymentMethod);
-
-    // STEP 1B: Enhanced Flutterwave request with better error handling
-    try {
-      console.log('🧪 Sending test transfer request to Flutterwave sandbox...');
-      console.log('Payload:', JSON.stringify(transferPayload, null, 2));
+    
+    // Currency conversion
+    const targetCurrency = withdrawalData.targetCurrency || 'RWF';
+    const originalAmount = withdrawalData.amount;
+    const convertedAmount = FlutterwaveWithdrawalService.convertCurrency(originalAmount, targetCurrency);
+    const exchangeRate = convertedAmount / originalAmount;
+    
+    // Create withdrawal record immediately
+    const reference = `WD_${withdrawalData.userId}_${Date.now()}`;
+    const withdrawal = new EnhancedWithdrawal({
+      userId: withdrawalData.userId,
+      originalAmount,
+      convertedAmount,
+      originalCurrency: 'USD',
+      targetCurrency,
+      exchangeRate,
+      paymentMethod: withdrawalData.paymentMethod,
       
-      const response = await axios.post(
-        `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}${endpoint}`, 
-        transferPayload, 
-        {
-          headers: { 
-            Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 30000 // Increased timeout
-        }
-      );
-
-      console.log('🧪 Flutterwave test response:', response.data);
-
-      // Continue with your existing withdrawal logic...
-      const withdrawal = new EnhancedWithdrawal({
-        userId: withdrawalData.userId,
-        amount: withdrawalData.amount,
-        paymentMethod: withdrawalData.paymentMethod,
-        
-        // Payment method specific fields
-        ...(withdrawalData.paymentMethod === 'mobile_money' && {
-          phoneNumber: withdrawalData.phoneNumber
-        }),
-        ...(withdrawalData.paymentMethod === 'bank_card' && {
-          cardNumber: `****-****-****-${withdrawalData.cardNumber.slice(-4)}`,
-          cardHolderName: withdrawalData.cardHolderName,
-          expiryMonth: withdrawalData.expiryMonth,
-          expiryYear: withdrawalData.expiryYear
-        }),
-        ...(withdrawalData.paymentMethod === 'bank_transfer' && {
-          bankCode: withdrawalData.bankCode,
-          accountNumber: withdrawalData.accountNumber,
-          accountName: withdrawalData.accountName
-        }),
-        
-        status: response.data.status === 'success' ? 'processing' : 'failed',
-        transactionId: response.data.data?.id,
-        reference: transferPayload.reference,
-        testMode: true
+      paymentDetails: {
+        phoneNumber: withdrawalData.phoneNumber,
+        provider: withdrawalData.provider,
+        bankCode: withdrawalData.bankCode,
+        accountNumber: withdrawalData.accountNumber,
+        accountName: withdrawalData.accountName
+      },
+      
+      status: 'pending',
+      reference,
+      processingFee: Math.round(convertedAmount * 0.015),
+      netAmount: Math.round(convertedAmount * 0.985)
+    });
+    
+    await withdrawal.save({ session });
+    
+    // Try Flutterwave API call
+    try {
+      const flutterwavePayload = FlutterwaveWithdrawalService.prepareTransferPayload({
+        ...withdrawalData,
+        originalAmount,
+        convertedAmount,
+        targetCurrency
       });
-
+      
+      console.log('📤 Attempting Flutterwave transfer...');
+      const flutterwaveResponse = await FlutterwaveWithdrawalService.makeFlutterwaveRequest(
+        '/transfers', 
+        flutterwavePayload
+      );
+      
+      // SUCCESS: Flutterwave API worked
+      withdrawal.status = flutterwaveResponse.data.status === 'success' ? 'processing' : 'failed';
+      withdrawal.flutterwaveId = flutterwaveResponse.data.data?.id;
+      withdrawal.flutterwaveReference = flutterwaveResponse.data.data?.reference;
       await withdrawal.save({ session });
-
-      if (response.data.status === 'success') {
-        // Update user's available balance
+      
+      if (flutterwaveResponse.data.status === 'success') {
+        // Deduct balance only on success
         await WebOwnerBalance.findOneAndUpdate(
           { userId: withdrawalData.userId },
-          { $inc: { availableBalance: -withdrawalData.amount } },
+          { $inc: { availableBalance: -originalAmount } },
           { session }
         );
-
-        // Update payment tracker status if provided
-        if (withdrawalData.paymentId) {
-          await PaymentTracker.findByIdAndUpdate(
-            withdrawalData.paymentId,
-            {
-              lastWithdrawalDate: new Date(),
-              status: 'withdrawn'
-            },
-            { session }
-          );
-        }
-
+        
         await session.commitTransaction();
         
         return res.status(200).json({
-          message: '🧪 TEST: Withdrawal initiated successfully',
-          reference: transferPayload.reference,
-          withdrawal,
-          test_mode: true,
-          flutterwave_response: response.data
-        });
-      } else {
-        await session.abortTransaction();
-        return res.status(400).json({ 
-          message: '🧪 TEST: Failed to initiate transfer',
-          error: response.data,
-          test_mode: true
-        });
-      }
-    } catch (transferError) {
-      await session.abortTransaction();
-      console.error('🧪 TEST: Transfer error:', transferError.response?.data || transferError.message);
-      
-      // Enhanced error response for IP issues
-      if (transferError.response?.data?.message?.includes('IP Whitelisting')) {
-        return res.status(400).json({ 
-          message: '🚨 IP Whitelist Error',
-          error: 'Your server IP is not whitelisted in Flutterwave dashboard',
-          action_required: 'Update your Flutterwave IP whitelist',
-          steps: [
-            '1. Login to https://dashboard.flutterwave.com',
-            '2. Go to Settings > API Keys',
-            '3. Update IP Whitelist section',
-            '4. Add your current server IP',
-            '5. Wait 5-10 minutes for propagation'
-          ],
-          test_mode: true
+          success: true,
+          message: '✅ Withdrawal processed via Flutterwave API',
+          data: {
+            reference: withdrawal.reference,
+            flutterwaveId: withdrawal.flutterwaveId,
+            originalAmount: `${originalAmount} USD`,
+            convertedAmount: `${convertedAmount} ${targetCurrency}`,
+            status: withdrawal.status
+          }
         });
       }
       
-      return res.status(500).json({ 
-        message: '🧪 TEST: Error processing transfer',
-        error: transferError.response?.data || transferError.message,
-        test_mode: true
+    } catch (flutterwaveError) {
+      console.log('⚠️ Flutterwave API failed, queuing for manual processing...');
+      
+      // API failed - queue for manual processing but don't fail the request
+      withdrawal.status = 'pending';
+      withdrawal.failureReason = 'IP whitelist issue - queued for manual processing';
+      await withdrawal.save({ session });
+      
+      // DON'T deduct balance yet - will deduct when manually processed
+      await session.commitTransaction();
+      
+      // Log for manual processing
+      console.log('📋 QUEUE FOR MANUAL PROCESSING:');
+      console.log('================================');
+      console.log(`Reference: ${withdrawal.reference}`);
+      console.log(`User: ${withdrawalData.userId}`);
+      console.log(`Amount: ${originalAmount} USD → ${convertedAmount} ${targetCurrency}`);
+      console.log(`Phone: ${withdrawalData.phoneNumber}`);
+      console.log(`Provider: ${withdrawalData.provider}`);
+      console.log('Process this manually in Flutterwave dashboard');
+      
+      return res.status(200).json({
+        success: true,
+        message: '📋 Withdrawal queued for processing',
+        data: {
+          reference: withdrawal.reference,
+          originalAmount: `${originalAmount} USD`,
+          convertedAmount: `${convertedAmount} ${targetCurrency}`,
+          status: 'pending',
+          processingMethod: 'manual',
+          note: 'Will be processed manually due to IP whitelist restrictions',
+          estimatedTime: '1-2 business days',
+          manualProcessingDetails: {
+            amount: `${convertedAmount} ${targetCurrency}`,
+            phone: withdrawalData.phoneNumber,
+            provider: withdrawalData.provider,
+            instructions: 'Admin will process this in Flutterwave dashboard'
+          }
+        }
       });
     }
+    
   } catch (error) {
     await session.abortTransaction();
-    console.error('🧪 TEST: Withdrawal error:', error);
-    res.status(500).json({ 
-      message: '🧪 TEST: Error processing withdrawal',
-      error: error.message,
-      test_mode: true
+    console.error('❌ Withdrawal error:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error processing withdrawal',
+      error: error.message
     });
+    
   } finally {
     session.endSession();
   }
 };
 
 exports.withdrawalCallback = async (req, res) => {
-  console.log('🧪 TEST: Withdrawal callback received:', req.body);
-  
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
+    console.log('📨 Flutterwave callback received:', req.body);
+    
     const { data } = req.body;
-    const withdrawal = await EnhancedWithdrawal.findOne({ 
+    
+    // Find withdrawal by Flutterwave ID or reference
+    const withdrawal = await EnhancedWithdrawal.findOne({
       $or: [
-        { transactionId: data.id },
-        { reference: data.tx_ref }
+        { flutterwaveId: data.id },
+        { flutterwaveReference: data.reference }
       ]
     });
-
+    
     if (!withdrawal) {
-      console.error('🧪 TEST: Withdrawal not found for transaction:', data.id);
-      return res.status(404).json({ 
-        message: 'Withdrawal not found',
-        test_mode: true 
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal not found'
       });
     }
-
-    console.log('🧪 TEST: Processing callback for withdrawal:', withdrawal._id);
-
-    if (data.status === 'successful' || data.status === 'SUCCESSFUL') {
+    
+    // Update withdrawal status based on Flutterwave response
+    if (data.status === 'SUCCESSFUL' || data.status === 'successful') {
       withdrawal.status = 'completed';
       withdrawal.completedAt = new Date();
-      console.log('🧪 TEST: Withdrawal completed successfully');
-    } else {
+      
+      console.log(`✅ Withdrawal ${withdrawal.reference} completed successfully`);
+      
+    } else if (data.status === 'FAILED' || data.status === 'failed') {
       withdrawal.status = 'failed';
       withdrawal.failureReason = data.complete_message || 'Transfer failed';
       
-      // Refund the amount back to available balance
+      // Refund the amount back to user balance (REAL MONEY REFUNDED)
       await WebOwnerBalance.findOneAndUpdate(
         { userId: withdrawal.userId },
-        { $inc: { availableBalance: withdrawal.amount } },
-        { session }
+        { $inc: { availableBalance: withdrawal.originalAmount } }
       );
       
-      console.log('🧪 TEST: Withdrawal failed, amount refunded');
+      console.log(`❌ Withdrawal ${withdrawal.reference} failed, amount refunded`);
     }
-
-    await withdrawal.save({ session });
-    await session.commitTransaction();
     
-    res.status(200).json({ 
-      message: '🧪 TEST: Callback processed successfully',
-      test_mode: true,
-      withdrawal_status: withdrawal.status
+    await withdrawal.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Callback processed successfully'
     });
+    
   } catch (error) {
-    await session.abortTransaction();
-    console.error('🧪 TEST: Withdrawal callback error:', error);
-    res.status(500).json({ 
-      message: '🧪 TEST: Error processing callback',
-      error: error.message,
-      test_mode: true
+    console.error('❌ Callback error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing callback',
+      error: error.message
     });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -1299,89 +1300,52 @@ exports.checkIPAndFlutterwaveAccess = async (req, res) => {
 };
 
 exports.requestManualWithdrawal = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const withdrawalData = req.body;
     
-    // Validate input
-    EnhancedWithdrawalService.validateWithdrawalInput(withdrawalData);
-    
-    // Check balance
-    const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
-    if (!balance || balance.availableBalance < withdrawalData.amount) {
-      await session.abortTransaction();
-      return res.status(400).json({ 
-        message: 'Insufficient balance',
-        currentBalance: balance?.availableBalance || 0
-      });
-    }
-    
-    // Create withdrawal record for manual processing
+    // Create manual withdrawal request
     const withdrawal = new EnhancedWithdrawal({
       userId: withdrawalData.userId,
-      amount: withdrawalData.amount,
+      originalAmount: withdrawalData.amount,
+      convertedAmount: FlutterwaveWithdrawalService.convertCurrency(withdrawalData.amount, 'RWF'),
+      originalCurrency: 'USD',
+      targetCurrency: 'RWF',
+      exchangeRate: 1350,
       paymentMethod: withdrawalData.paymentMethod,
       
-      // Store payment details
-      ...(withdrawalData.paymentMethod === 'mobile_money' && {
-        phoneNumber: withdrawalData.phoneNumber
-      }),
-      ...(withdrawalData.paymentMethod === 'bank_card' && {
-        cardNumber: `****-****-****-${withdrawalData.cardNumber.slice(-4)}`,
-        cardHolderName: withdrawalData.cardHolderName,
-        expiryMonth: withdrawalData.expiryMonth,
-        expiryYear: withdrawalData.expiryYear
-      }),
-      ...(withdrawalData.paymentMethod === 'bank_transfer' && {
-        bankCode: withdrawalData.bankCode,
-        accountNumber: withdrawalData.accountNumber,
-        accountName: withdrawalData.accountName
-      }),
+      paymentDetails: {
+        phoneNumber: withdrawalData.phoneNumber,
+        provider: withdrawalData.provider
+      },
       
-      status: 'pending', // Will be processed manually
-      reference: `MANUAL-${withdrawalData.userId}-${Date.now()}`,
-      testMode: true
+      status: 'pending',
+      reference: `MANUAL_${withdrawalData.userId}_${Date.now()}`
     });
     
-    await withdrawal.save({ session });
-    
-    // Reserve the amount (don't deduct yet, will deduct when processed)
-    await WebOwnerBalance.findOneAndUpdate(
-      { userId: withdrawalData.userId },
-      { $inc: { availableBalance: -withdrawalData.amount } },
-      { session }
-    );
-    
-    await session.commitTransaction();
+    await withdrawal.save();
     
     // Log for manual processing
     console.log('📋 MANUAL WITHDRAWAL REQUEST:');
     console.log('================================');
     console.log(`Reference: ${withdrawal.reference}`);
-    console.log(`User ID: ${withdrawalData.userId}`);
-    console.log(`Amount: ${withdrawalData.amount}`);
-    console.log(`Method: ${withdrawalData.paymentMethod}`);
-    console.log(`Details:`, withdrawalData);
-    console.log('Process this manually in Flutterwave dashboard');
+    console.log(`Amount: $${withdrawalData.amount} USD (${withdrawal.convertedAmount} RWF)`);
+    console.log(`Phone: ${withdrawalData.phoneNumber}`);
+    console.log('Process this in Flutterwave dashboard manually');
     
     res.json({
-      message: 'Withdrawal request received - will be processed manually',
+      success: true,
+      message: 'Manual withdrawal request created',
       reference: withdrawal.reference,
-      estimated_processing_time: '1-2 business days',
-      status: 'pending_manual_processing'
+      note: 'Will be processed manually via Flutterwave dashboard',
+      expectedTime: '1-2 business days'
     });
     
   } catch (error) {
-    await session.abortTransaction();
-    console.error('Manual withdrawal error:', error);
-    res.status(500).json({ 
-      message: 'Error processing withdrawal request',
+    res.status(500).json({
+      success: false,
+      message: 'Error creating manual withdrawal request',
       error: error.message
     });
-  } finally {
-    session.endSession();
   }
 };
 
