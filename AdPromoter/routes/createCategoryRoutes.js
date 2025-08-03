@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/createCategoryController');
+const WalletController = require('../controllers/WalletController');
 const authMiddleware = require('../../middleware/authMiddleware');
 
 router.use(authMiddleware);
@@ -16,6 +17,9 @@ router.get('/category/:categoryId', categoryController.getCategoryById);
 router.patch('/category/:categoryId/language', categoryController.updateCategoryLanguage);
 router.get('/pending/:ownerId', categoryController.getPendingAds);
 router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForWebsite);
+
+router.get('/wallet', authMiddleware, WalletController.getWallet);
+router.get('/wallet/transactions', authMiddleware, WalletController.getWalletTransactions);
 
 router.get('/check-eligibility/:payment', categoryController.checkWithdrawalEligibility);
 router.get('/balance/:userId', categoryController.getWebOwnerBalance);

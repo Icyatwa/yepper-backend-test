@@ -36,17 +36,6 @@ const upload = multer({
 
 exports.createImportAd = [upload.single('file'), async (req, res) => {
   try {
-    // Early validation of authentication
-    if (!req.user) {
-      console.error('Authentication failed: req.user is undefined');
-      return res.status(401).json({ 
-        error: 'Authentication Failed',
-        message: 'User authentication is required' 
-      });
-    }
-
-    console.log('req.user:', req.user); // Debug log
-
     const {
       adOwnerEmail,
       businessName,
@@ -57,22 +46,14 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       selectedCategories,
     } = req.body;
 
-    // Validate required fields
-    if (!selectedWebsites || !selectedCategories) {
-      return res.status(400).json({
-        error: 'Missing Required Fields',
-        message: 'selectedWebsites and selectedCategories are required'
-      });
-    }
-
     const websitesArray = JSON.parse(selectedWebsites);
     const categoriesArray = JSON.parse(selectedCategories);
 
+    // File upload logic (same as before)
     let imageUrl = '';
     let videoUrl = '';
     let pdfUrl = '';
 
-    // Handle file upload
     if (req.file) {
       const blob = bucket.file(`${Date.now()}-${req.file.originalname}`);
       const blobStream = blob.createWriteStream({
@@ -82,7 +63,6 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
 
       await new Promise((resolve, reject) => {
         blobStream.on('error', (err) => {
-          console.error('Upload error:', err);
           reject(new Error('Failed to upload file.'));
         });
 
@@ -100,7 +80,6 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
             }
             resolve();
           } catch (err) {
-            console.error('Error making file public:', err);
             reject(new Error('Failed to make file public.'));
           }
         });
@@ -109,12 +88,10 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       });
     }
 
-    // Fetch all selected categories to validate website associations
     const categories = await AdCategory.find({
       _id: { $in: categoriesArray }
     });
 
-    // Create a map of websiteId to its categories for efficient lookup
     const websiteCategoryMap = categories.reduce((map, category) => {
       const websiteId = category.websiteId.toString();
       if (!map.has(websiteId)) {
@@ -124,12 +101,8 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       return map;
     }, new Map());
 
-    // Create websiteSelections array with proper category associations
     const websiteSelections = websitesArray.map(websiteId => {
-      // Get categories that belong to this website
-      const websiteCategories = websiteCategoryMap.get(websiteId.toString()) || [];
-      
-      // Filter selected categories to only include ones that belong to this website
+      const websiteCategories = websiteCategoryMap.get(websiteId.toString()) || [];      
       const validCategories = categoriesArray.filter(categoryId => 
         websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
       );
@@ -138,11 +111,11 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
         websiteId,
         categories: validCategories,
         approved: false,
-        approvedAt: null
+        approvedAt: null,
+        status: 'pending_payment' // New status
       };
-    }).filter(selection => selection.categories.length > 0); // Only include websites that have matching categories
+    }).filter(selection => selection.categories.length > 0);
 
-    // Validate that we have at least one valid website-category combination
     if (websiteSelections.length === 0) {
       return res.status(400).json({
         error: 'Invalid Selection',
@@ -150,33 +123,13 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       });
     }
 
-    // Get userId from req.user with multiple fallbacks
     const ownerId = req.user.userId || req.user.id || req.user._id;
-
-    if (!ownerId) {
-      console.error('No userId found in req.user:', req.user);
-      return res.status(401).json({ 
-        error: 'Authentication Error',
-        message: 'User ID not found in authentication data' 
-      });
-    }
-
-    // Verify user exists in database
     const user = await User.findById(ownerId);
-    if (!user) {
-      console.error('User not found in database with ID:', ownerId);
-      return res.status(401).json({ 
-        error: 'User Not Found',
-        message: 'User not found in database' 
-      });
-    }
-
     const userId = user._id.toString();
 
-    // Create new ad entry with restructured data
     const newRequestAd = new ImportAd({
       userId,
-      adOwnerEmail: adOwnerEmail || user.email, // Fallback to user email
+      adOwnerEmail: adOwnerEmail || user.email,
       imageUrl,
       videoUrl,
       pdfUrl,
@@ -192,18 +145,35 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
 
     const savedRequestAd = await newRequestAd.save();
 
-    // Populate the saved ad with website and category details
     const populatedAd = await ImportAd.findById(savedRequestAd._id)
       .populate('websiteSelections.websiteId')
       .populate('websiteSelections.categories');
 
+    // Return ad with payment information for each selection
+    const adWithPaymentInfo = {
+      ...populatedAd.toObject(),
+      paymentRequired: true,
+      paymentSelections: websiteSelections.map(selection => {
+        const category = categories.find(cat => 
+          selection.categories.includes(cat._id) && 
+          cat.websiteId.toString() === selection.websiteId.toString()
+        );
+        return {
+          websiteId: selection.websiteId,
+          categoryId: selection.categories[0], // Assuming one category per selection
+          price: category ? category.price : 0,
+          categoryName: category ? category.categoryName : 'Unknown'
+        };
+      })
+    };
+
     res.status(201).json({
       success: true,
-      data: populatedAd
+      data: adWithPaymentInfo,
+      message: 'Ad created successfully. Please proceed with payment to publish.'
     });
 
   } catch (err) {
-    console.error('Error creating ad:', err);
     res.status(500).json({ 
       error: 'Internal Server Error',
       message: err.message,
@@ -211,6 +181,184 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     });
   }
 }];
+
+// exports.createImportAd = [upload.single('file'), async (req, res) => {
+//   try {
+//     // Early validation of authentication
+//     if (!req.user) {
+//       console.error('Authentication failed: req.user is undefined');
+//       return res.status(401).json({ 
+//         error: 'Authentication Failed',
+//         message: 'User authentication is required' 
+//       });
+//     }
+
+//     console.log('req.user:', req.user); // Debug log
+
+//     const {
+//       adOwnerEmail,
+//       businessName,
+//       businessLink,
+//       businessLocation,
+//       adDescription,
+//       selectedWebsites,
+//       selectedCategories,
+//     } = req.body;
+
+//     // Validate required fields
+//     if (!selectedWebsites || !selectedCategories) {
+//       return res.status(400).json({
+//         error: 'Missing Required Fields',
+//         message: 'selectedWebsites and selectedCategories are required'
+//       });
+//     }
+
+//     const websitesArray = JSON.parse(selectedWebsites);
+//     const categoriesArray = JSON.parse(selectedCategories);
+
+//     let imageUrl = '';
+//     let videoUrl = '';
+//     let pdfUrl = '';
+
+//     // Handle file upload
+//     if (req.file) {
+//       const blob = bucket.file(`${Date.now()}-${req.file.originalname}`);
+//       const blobStream = blob.createWriteStream({
+//         resumable: false,
+//         contentType: req.file.mimetype,
+//       });
+
+//       await new Promise((resolve, reject) => {
+//         blobStream.on('error', (err) => {
+//           console.error('Upload error:', err);
+//           reject(new Error('Failed to upload file.'));
+//         });
+
+//         blobStream.on('finish', async () => {
+//           try {
+//             await blob.makePublic();
+//             const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+            
+//             if (req.file.mimetype.startsWith('image')) {
+//               imageUrl = publicUrl;
+//             } else if (req.file.mimetype.startsWith('video')) {
+//               videoUrl = publicUrl;
+//             } else if (req.file.mimetype === 'application/pdf') {
+//               pdfUrl = publicUrl;
+//             }
+//             resolve();
+//           } catch (err) {
+//             console.error('Error making file public:', err);
+//             reject(new Error('Failed to make file public.'));
+//           }
+//         });
+
+//         blobStream.end(req.file.buffer);
+//       });
+//     }
+
+//     // Fetch all selected categories to validate website associations
+//     const categories = await AdCategory.find({
+//       _id: { $in: categoriesArray }
+//     });
+
+//     // Create a map of websiteId to its categories for efficient lookup
+//     const websiteCategoryMap = categories.reduce((map, category) => {
+//       const websiteId = category.websiteId.toString();
+//       if (!map.has(websiteId)) {
+//         map.set(websiteId, []);
+//       }
+//       map.get(websiteId).push(category._id);
+//       return map;
+//     }, new Map());
+
+//     // Create websiteSelections array with proper category associations
+//     const websiteSelections = websitesArray.map(websiteId => {
+//       // Get categories that belong to this website
+//       const websiteCategories = websiteCategoryMap.get(websiteId.toString()) || [];
+      
+//       // Filter selected categories to only include ones that belong to this website
+//       const validCategories = categoriesArray.filter(categoryId => 
+//         websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
+//       );
+
+//       return {
+//         websiteId,
+//         categories: validCategories,
+//         approved: false,
+//         approvedAt: null
+//       };
+//     }).filter(selection => selection.categories.length > 0); // Only include websites that have matching categories
+
+//     // Validate that we have at least one valid website-category combination
+//     if (websiteSelections.length === 0) {
+//       return res.status(400).json({
+//         error: 'Invalid Selection',
+//         message: 'No valid website and category combinations found'
+//       });
+//     }
+
+//     // Get userId from req.user with multiple fallbacks
+//     const ownerId = req.user.userId || req.user.id || req.user._id;
+
+//     if (!ownerId) {
+//       console.error('No userId found in req.user:', req.user);
+//       return res.status(401).json({ 
+//         error: 'Authentication Error',
+//         message: 'User ID not found in authentication data' 
+//       });
+//     }
+
+//     // Verify user exists in database
+//     const user = await User.findById(ownerId);
+//     if (!user) {
+//       console.error('User not found in database with ID:', ownerId);
+//       return res.status(401).json({ 
+//         error: 'User Not Found',
+//         message: 'User not found in database' 
+//       });
+//     }
+
+//     const userId = user._id.toString();
+
+//     // Create new ad entry with restructured data
+//     const newRequestAd = new ImportAd({
+//       userId,
+//       adOwnerEmail: adOwnerEmail || user.email, // Fallback to user email
+//       imageUrl,
+//       videoUrl,
+//       pdfUrl,
+//       businessName,
+//       businessLink,
+//       businessLocation,
+//       adDescription,
+//       websiteSelections,
+//       confirmed: false,
+//       clicks: 0,
+//       views: 0
+//     });
+
+//     const savedRequestAd = await newRequestAd.save();
+
+//     // Populate the saved ad with website and category details
+//     const populatedAd = await ImportAd.findById(savedRequestAd._id)
+//       .populate('websiteSelections.websiteId')
+//       .populate('websiteSelections.categories');
+
+//     res.status(201).json({
+//       success: true,
+//       data: populatedAd
+//     });
+
+//   } catch (err) {
+//     console.error('Error creating ad:', err);
+//     res.status(500).json({ 
+//       error: 'Internal Server Error',
+//       message: err.message,
+//       stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+//     });
+//   }
+// }];
 
 exports.getUserMixedAds = async (req, res) => {
   const { userId } = req.params;
