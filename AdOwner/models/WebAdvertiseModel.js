@@ -1,4 +1,4 @@
-// Updated WebAdvertiseModel.js (modified sections)
+// WebAdvertiseModel.js
 const mongoose = require('mongoose');
 
 const importAdSchema = new mongoose.Schema({
@@ -16,14 +16,18 @@ const importAdSchema = new mongoose.Schema({
     categories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'AdCategory' }],
     approved: { type: Boolean, default: false },
     approvedAt: { type: Date },
-    paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' }, // New field
-    status: { 
-      type: String, 
-      enum: ['pending_payment', 'paid', 'active', 'paused', 'expired'],
-      default: 'pending_payment'
-    }, // New field
-    publishedAt: { type: Date } // New field
+    // ADD THESE NEW FIELDS:
+    rejectionDeadline: { type: Date },
+    rejectedAt: { type: Date },
+    rejectedBy: { type: String },
+    rejectionReason: { type: String },
+    isRejected: { type: Boolean, default: false },
+    status: { type: String, enum: ['pending', 'active', 'rejected'], default: 'pending' },
+    paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+    publishedAt: { type: Date }
   }],
+  // ADD THESE NEW FIELDS AT ROOT LEVEL:
+  availableForReassignment: { type: Boolean, default: false },
   confirmed: { type: Boolean, default: false },
   clicks: { type: Number, default: 0 },
   views: { type: Number, default: 0 },
@@ -33,7 +37,6 @@ const importAdSchema = new mongoose.Schema({
 importAdSchema.index({ userId: 1, 'websiteSelections.websiteId': 1 });
 
 module.exports = mongoose.model('ImportAd', importAdSchema);
-
 
 
 

@@ -3,108 +3,6 @@ const AdCategory = require('../models/CreateCategoryModel');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
 
-exports.displayAd = async (req, res) => {
-  try {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    
-    const { categoryId } = req.query;
-    
-    const adCategory = await AdCategory.findById(categoryId);
-    
-    // Only show ads that are paid and active
-    const ads = await ImportAd.find({
-      _id: { $in: adCategory.selectedAds },
-      'websiteSelections': {
-        $elemMatch: {
-          websiteId: adCategory.websiteId,
-          categories: categoryId,
-          status: 'active', // Changed from approved: true
-          approved: true
-        }
-      },
-      'confirmed': true
-    });
-
-    if (!ads || ads.length === 0) {
-      return res.json({ html: getNoAdsHtml() });
-    }
-
-    const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
-
-    // Rest of the display logic remains the same...
-    const adsHtml = adsToShow
-      .map((ad) => {
-        if (!ad) return '';
-
-        try {
-          const websiteSelection = ad.websiteSelections.find(
-            sel => sel.websiteId.toString() === adCategory.websiteId.toString() &&
-                  sel.approved && sel.status === 'active'
-          );
-
-          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/600x300';
-          const targetUrl = ad.businessLink.startsWith('http') ? 
-            ad.businessLink : `https://${ad.businessLink}`;
-          
-          const description = ad.businessDescription || 
-                            ad.productDescription || 
-                            `Visit ${ad.businessName} for great products and services.`;
-          
-          const shortDescription = description.length > 80 ? 
-            description.substring(0, 80) + '...' : description;
-
-          return `
-            <div class="yepper-ad-item" 
-                  data-ad-id="${ad._id}"
-                  data-category-id="${categoryId}"
-                  data-website-id="${adCategory.websiteId}">
-              <div class="yepper-ad-header">
-                <span class="yepper-ad-header-logo">Yepper Ad</span>
-                <span class="yepper-ad-header-badge">Sponsored</span>
-              </div>
-              
-              <a href="${targetUrl}" 
-                  class="yepper-ad-link" 
-                  target="_blank" 
-                  rel="noopener"
-                  data-tracking="true">
-                <div class="yepper-ad-content">
-                  <div class="yepper-ad-image-wrapper">
-                    <img class="yepper-ad-image" src="${imageUrl}" alt="${ad.businessName}" loading="lazy">
-                  </div>
-                  
-                  <h3 class="yepper-ad-business-name">${ad.businessName}</h3>
-                  
-                  <p class="yepper-ad-description">${shortDescription}</p>
-                  
-                  <div class="yepper-ad-cta">
-                    Learn More →
-                  </div>
-                </div>
-              </a>
-              
-              <div class="yepper-ad-footer">
-                <span class="yepper-ad-footer-brand">Powered by Yepper</span>
-                <span class="yepper-ad-footer-business">by ${ad.businessName}</span>
-              </div>
-            </div>
-          `;
-        } catch (error) {
-          return '';
-        }
-      })
-      .filter(html => html)
-      .join('');
-
-    const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
-    return res.json({ html: finalHtml });
-  } catch (error) {
-    return res.json({ html: getNoAdsHtml() });
-  }
-};
-
 // exports.displayAd = async (req, res) => {
 //   try {
 //     res.header('Access-Control-Allow-Origin', '*');
@@ -114,17 +12,16 @@ exports.displayAd = async (req, res) => {
 //     const { categoryId } = req.query;
     
 //     const adCategory = await AdCategory.findById(categoryId);
-//     if (!adCategory) {
-//       return res.json({ html: getNoAdsHtml() });
-//     }
     
+//     // Only show ads that are approved and active (not pending_approval or rejected)
 //     const ads = await ImportAd.find({
 //       _id: { $in: adCategory.selectedAds },
 //       'websiteSelections': {
 //         $elemMatch: {
 //           websiteId: adCategory.websiteId,
 //           categories: categoryId,
-//           approved: true
+//           status: 'active', // Must be active
+//           approved: true    // Must be approved
 //         }
 //       },
 //       'confirmed': true
@@ -136,6 +33,7 @@ exports.displayAd = async (req, res) => {
 
 //     const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
 
+//     // Rest of the display logic remains the same...
 //     const adsHtml = adsToShow
 //       .map((ad) => {
 //         if (!ad) return '';
@@ -143,23 +41,22 @@ exports.displayAd = async (req, res) => {
 //         try {
 //           const websiteSelection = ad.websiteSelections.find(
 //             sel => sel.websiteId.toString() === adCategory.websiteId.toString() &&
-//                   sel.approved
+//                   sel.approved && sel.status === 'active'
 //           );
+
+//           if (!websiteSelection) return ''; // Double check
 
 //           const imageUrl = ad.imageUrl || 'https://via.placeholder.com/600x300';
 //           const targetUrl = ad.businessLink.startsWith('http') ? 
 //             ad.businessLink : `https://${ad.businessLink}`;
           
-//           // Generate description from available data
 //           const description = ad.businessDescription || 
 //                             ad.productDescription || 
 //                             `Visit ${ad.businessName} for great products and services.`;
           
-//           // Truncate description based on container size - more aggressive for small spaces
 //           const shortDescription = description.length > 80 ? 
 //             description.substring(0, 80) + '...' : description;
 
-//           // Add data attributes for tracking with new design
 //           return `
 //             <div class="yepper-ad-item" 
 //                   data-ad-id="${ad._id}"
@@ -197,7 +94,6 @@ exports.displayAd = async (req, res) => {
 //             </div>
 //           `;
 //         } catch (error) {
-//           console.error('Error generating ad HTML:', error);
 //           return '';
 //         }
 //       })
@@ -207,10 +103,116 @@ exports.displayAd = async (req, res) => {
 //     const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
 //     return res.json({ html: finalHtml });
 //   } catch (error) {
-//     console.error('Error displaying ad:', error);
 //     return res.json({ html: getNoAdsHtml() });
 //   }
 // };
+
+exports.displayAd = async (req, res) => {
+  try {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    
+    const { categoryId } = req.query;
+    
+    const adCategory = await AdCategory.findById(categoryId);
+    if (!adCategory) {
+      return res.json({ html: getNoAdsHtml() });
+    }
+    
+    const ads = await ImportAd.find({
+      _id: { $in: adCategory.selectedAds },
+      'websiteSelections': {
+        $elemMatch: {
+          websiteId: adCategory.websiteId,
+          categories: categoryId,
+          approved: true
+        }
+      },
+      'confirmed': true
+    });
+
+    if (!ads || ads.length === 0) {
+      return res.json({ html: getNoAdsHtml() });
+    }
+
+    const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
+
+    const adsHtml = adsToShow
+      .map((ad) => {
+        if (!ad) return '';
+
+        try {
+          const websiteSelection = ad.websiteSelections.find(
+            sel => sel.websiteId.toString() === adCategory.websiteId.toString() &&
+                  sel.approved
+          );
+
+          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/600x300';
+          const targetUrl = ad.businessLink.startsWith('http') ? 
+            ad.businessLink : `https://${ad.businessLink}`;
+          
+          // Generate description from available data
+          const description = ad.businessDescription || 
+                            ad.productDescription || 
+                            `Visit ${ad.businessName} for great products and services.`;
+          
+          // Truncate description based on container size - more aggressive for small spaces
+          const shortDescription = description.length > 80 ? 
+            description.substring(0, 80) + '...' : description;
+
+          // Add data attributes for tracking with new design
+          return `
+            <div class="yepper-ad-item" 
+                  data-ad-id="${ad._id}"
+                  data-category-id="${categoryId}"
+                  data-website-id="${adCategory.websiteId}">
+              <div class="yepper-ad-header">
+                <span class="yepper-ad-header-logo">Yepper Ad</span>
+                <span class="yepper-ad-header-badge">Sponsored</span>
+              </div>
+              
+              <a href="${targetUrl}" 
+                  class="yepper-ad-link" 
+                  target="_blank" 
+                  rel="noopener"
+                  data-tracking="true">
+                <div class="yepper-ad-content">
+                  <div class="yepper-ad-image-wrapper">
+                    <img class="yepper-ad-image" src="${imageUrl}" alt="${ad.businessName}" loading="lazy">
+                  </div>
+                  
+                  <h3 class="yepper-ad-business-name">${ad.businessName}</h3>
+                  
+                  <p class="yepper-ad-description">${shortDescription}</p>
+                  
+                  <div class="yepper-ad-cta">
+                    Learn More →
+                  </div>
+                </div>
+              </a>
+              
+              <div class="yepper-ad-footer">
+                <span class="yepper-ad-footer-brand">Powered by Yepper</span>
+                <span class="yepper-ad-footer-business">by ${ad.businessName}</span>
+              </div>
+            </div>
+          `;
+        } catch (error) {
+          console.error('Error generating ad HTML:', error);
+          return '';
+        }
+      })
+      .filter(html => html)
+      .join('');
+
+    const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
+    return res.json({ html: finalHtml });
+  } catch (error) {
+    console.error('Error displaying ad:', error);
+    return res.json({ html: getNoAdsHtml() });
+  }
+};
 
 function getNoAdsHtml() {
   return `

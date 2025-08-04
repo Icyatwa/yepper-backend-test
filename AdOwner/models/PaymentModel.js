@@ -1,9 +1,9 @@
-// models/PaymentModel.js
+// PaymentModel.js
 const mongoose = require('mongoose');
 
 const paymentSchema = new mongoose.Schema({
-  paymentId: { type: String, required: true, unique: true }, // Flutterwave transaction ID
-  tx_ref: { type: String, required: true, unique: true }, // Transaction reference from payment initiation
+  paymentId: { type: String, required: true, unique: true },
+  tx_ref: { type: String, required: true, unique: true },
   adId: { type: mongoose.Schema.Types.ObjectId, ref: 'ImportAd', required: true },
   advertiserId: { type: String, required: true },
   webOwnerId: { type: String, required: true },
@@ -13,12 +13,15 @@ const paymentSchema = new mongoose.Schema({
   currency: { type: String, default: 'USD' },
   status: { 
     type: String, 
-    enum: ['pending', 'successful', 'failed', 'cancelled'],
+    enum: ['pending', 'successful', 'failed', 'cancelled', 'refunded'], // ADD 'refunded'
     default: 'pending'
   },
   flutterwaveData: { type: Map, of: mongoose.Schema.Types.Mixed },
   createdAt: { type: Date, default: Date.now },
-  paidAt: { type: Date }
+  paidAt: { type: Date },
+  // ADD THESE NEW FIELDS:
+  refundedAt: { type: Date },
+  refundReason: { type: String }
 });
 
 module.exports = mongoose.model('Payment', paymentSchema);

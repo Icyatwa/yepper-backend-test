@@ -12,17 +12,17 @@ const sendEmailNotification = require('../../controllers/emailService');
 const Payment = require('../models/PaymentModel');
 const PaymentTracker = require('../models/PaymentTracker');
 
-const TEST_CONFIG = {
-  FLUTTERWAVE_BASE_URL: 'https://api.flutterwave.com/v3',
-  FLW_TEST_SECRET_KEY: process.env.FLW_TEST_SECRET_KEY || 'FLWSECK_TEST-9504b813dd9d045d78c6b9d42302bd5a-X',
-  FLW_TEST_PUBLIC_KEY: process.env.FLW_TEST_PUBLIC_KEY || 'FLWPUBK_TEST-fcfc9f220a306b8ff7924aa9042cf2ec-X',
-  REDIRECT_URL: process.env.TEST_REDIRECT_URL || 'http://localhost:5000/api/web-advertise/callback',
-  TEST_CUSTOMER: {
-    email: 'test@flutterwave.com',
-    phone_number: '+2348012345678',
-    name: 'Test Customer'
-  }
-};
+// const TEST_CONFIG = {
+//   FLUTTERWAVE_BASE_URL: 'https://api.flutterwave.com/v3',
+//   FLW_TEST_SECRET_KEY: process.env.FLW_TEST_SECRET_KEY || 'FLWSECK_TEST-9504b813dd9d045d78c6b9d42302bd5a-X',
+//   FLW_TEST_PUBLIC_KEY: process.env.FLW_TEST_PUBLIC_KEY || 'FLWPUBK_TEST-fcfc9f220a306b8ff7924aa9042cf2ec-X',
+//   REDIRECT_URL: process.env.TEST_REDIRECT_URL || 'http://localhost:5000/api/web-advertise/callback',
+//   TEST_CUSTOMER: {
+//     email: 'test@flutterwave.com',
+//     phone_number: '+2348012345678',
+//     name: 'Test Customer'
+//   }
+// };
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -36,6 +36,11 @@ const upload = multer({
 
 exports.createImportAd = [upload.single('file'), async (req, res) => {
   try {
+    console.log('Starting ad creation process...');
+    console.log('Request body:', req.body);
+    console.log('File:', req.file ? req.file.originalname : 'No file');
+
+    // Validate required fields
     const {
       adOwnerEmail,
       businessName,
@@ -46,52 +51,124 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       selectedCategories,
     } = req.body;
 
-    const websitesArray = JSON.parse(selectedWebsites);
-    const categoriesArray = JSON.parse(selectedCategories);
+    if (!businessName || !selectedWebsites || !selectedCategories) {
+      return res.status(400).json({
+        error: 'Missing Required Fields',
+        message: 'businessName, selectedWebsites, and selectedCategories are required'
+      });
+    }
 
-    // File upload logic (same as before)
+    // Parse arrays with error handling
+    let websitesArray, categoriesArray;
+    try {
+      websitesArray = typeof selectedWebsites === 'string' 
+        ? JSON.parse(selectedWebsites) 
+        : selectedWebsites;
+      categoriesArray = typeof selectedCategories === 'string' 
+        ? JSON.parse(selectedCategories) 
+        : selectedCategories;
+    } catch (parseError) {
+      console.error('JSON parsing error:', parseError);
+      return res.status(400).json({
+        error: 'Invalid Data Format',
+        message: 'selectedWebsites and selectedCategories must be valid JSON arrays'
+      });
+    }
+
+    // Validate arrays
+    if (!Array.isArray(websitesArray) || !Array.isArray(categoriesArray)) {
+      return res.status(400).json({
+        error: 'Invalid Data Type',
+        message: 'selectedWebsites and selectedCategories must be arrays'
+      });
+    }
+
+    if (websitesArray.length === 0 || categoriesArray.length === 0) {
+      return res.status(400).json({
+        error: 'Empty Selection',
+        message: 'At least one website and one category must be selected'
+      });
+    }
+
+    console.log('Parsed arrays:', { websitesArray, categoriesArray });
+
+    // File upload logic with better error handling
     let imageUrl = '';
     let videoUrl = '';
     let pdfUrl = '';
 
     if (req.file) {
-      const blob = bucket.file(`${Date.now()}-${req.file.originalname}`);
-      const blobStream = blob.createWriteStream({
-        resumable: false,
-        contentType: req.file.mimetype,
-      });
-
-      await new Promise((resolve, reject) => {
-        blobStream.on('error', (err) => {
-          reject(new Error('Failed to upload file.'));
+      console.log('Processing file upload...');
+      try {
+        const blob = bucket.file(`${Date.now()}-${req.file.originalname}`);
+        const blobStream = blob.createWriteStream({
+          resumable: false,
+          contentType: req.file.mimetype,
         });
 
-        blobStream.on('finish', async () => {
-          try {
-            await blob.makePublic();
-            const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
-            
-            if (req.file.mimetype.startsWith('image')) {
-              imageUrl = publicUrl;
-            } else if (req.file.mimetype.startsWith('video')) {
-              videoUrl = publicUrl;
-            } else if (req.file.mimetype === 'application/pdf') {
-              pdfUrl = publicUrl;
+        await new Promise((resolve, reject) => {
+          blobStream.on('error', (err) => {
+            console.error('Blob stream error:', err);
+            reject(new Error(`Failed to upload file: ${err.message}`));
+          });
+
+          blobStream.on('finish', async () => {
+            try {
+              await blob.makePublic();
+              const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+              
+              if (req.file.mimetype.startsWith('image')) {
+                imageUrl = publicUrl;
+              } else if (req.file.mimetype.startsWith('video')) {
+                videoUrl = publicUrl;
+              } else if (req.file.mimetype === 'application/pdf') {
+                pdfUrl = publicUrl;
+              }
+              
+              console.log('File uploaded successfully:', publicUrl);
+              resolve();
+            } catch (err) {
+              console.error('Make public error:', err);
+              reject(new Error(`Failed to make file public: ${err.message}`));
             }
-            resolve();
-          } catch (err) {
-            reject(new Error('Failed to make file public.'));
-          }
-        });
+          });
 
-        blobStream.end(req.file.buffer);
+          blobStream.end(req.file.buffer);
+        });
+      } catch (uploadError) {
+        console.error('File upload error:', uploadError);
+        return res.status(500).json({
+          error: 'File Upload Failed',
+          message: uploadError.message
+        });
+      }
+    }
+
+    // Fetch categories with error handling
+    console.log('Fetching categories...');
+    let categories;
+    try {
+      categories = await AdCategory.find({
+        _id: { $in: categoriesArray }
+      });
+      
+      if (categories.length === 0) {
+        return res.status(404).json({
+          error: 'Categories Not Found',
+          message: 'No valid categories found for the provided IDs'
+        });
+      }
+      
+      console.log(`Found ${categories.length} categories`);
+    } catch (categoryError) {
+      console.error('Category fetch error:', categoryError);
+      return res.status(500).json({
+        error: 'Database Error',
+        message: 'Failed to fetch categories'
       });
     }
 
-    const categories = await AdCategory.find({
-      _id: { $in: categoriesArray }
-    });
-
+    // Create website-category mapping
     const websiteCategoryMap = categories.reduce((map, category) => {
       const websiteId = category.websiteId.toString();
       if (!map.has(websiteId)) {
@@ -101,32 +178,66 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       return map;
     }, new Map());
 
+    console.log('Website-category mapping:', Object.fromEntries(websiteCategoryMap));
+
+    // Create website selections with validation - FIXED STATUS VALUE
     const websiteSelections = websitesArray.map(websiteId => {
-      const websiteCategories = websiteCategoryMap.get(websiteId.toString()) || [];      
+      // Ensure websiteId is a string for comparison
+      const websiteIdStr = websiteId.toString();
+      const websiteCategories = websiteCategoryMap.get(websiteIdStr) || [];
+      
       const validCategories = categoriesArray.filter(categoryId => 
         websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
       );
 
       return {
-        websiteId,
+        websiteId: websiteId, // Keep original type (ObjectId or string)
         categories: validCategories,
         approved: false,
         approvedAt: null,
-        status: 'pending_payment' // New status
+        status: 'pending' // CHANGED FROM 'pending_payment' to 'pending'
       };
     }).filter(selection => selection.categories.length > 0);
 
     if (websiteSelections.length === 0) {
       return res.status(400).json({
         error: 'Invalid Selection',
-        message: 'No valid website and category combinations found'
+        message: 'No valid website and category combinations found. Please ensure the selected categories belong to the selected websites.'
       });
     }
 
-    const ownerId = req.user.userId || req.user.id || req.user._id;
-    const user = await User.findById(ownerId);
-    const userId = user._id.toString();
+    console.log('Valid website selections:', websiteSelections);
 
+    // Get user information with better error handling
+    const ownerId = req.user?.userId || req.user?.id || req.user?._id;
+    if (!ownerId) {
+      return res.status(401).json({
+        error: 'Authentication Required',
+        message: 'User not authenticated'
+      });
+    }
+
+    let user;
+    try {
+      user = await User.findById(ownerId);
+      if (!user) {
+        return res.status(404).json({
+          error: 'User Not Found',
+          message: 'Authenticated user not found in database'
+        });
+      }
+    } catch (userError) {
+      console.error('User fetch error:', userError);
+      return res.status(500).json({
+        error: 'Database Error',
+        message: 'Failed to fetch user information'
+      });
+    }
+
+    const userId = user._id.toString();
+    console.log('Creating ad for user:', userId);
+
+    // Create new ad
     const newRequestAd = new ImportAd({
       userId,
       adOwnerEmail: adOwnerEmail || user.email,
@@ -143,13 +254,36 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       views: 0
     });
 
-    const savedRequestAd = await newRequestAd.save();
+    // Save ad with error handling
+    let savedRequestAd;
+    try {
+      savedRequestAd = await newRequestAd.save();
+      console.log('Ad saved successfully:', savedRequestAd._id);
+    } catch (saveError) {
+      console.error('Ad save error:', saveError);
+      return res.status(500).json({
+        error: 'Database Error',
+        message: `Failed to save ad: ${saveError.message}`
+      });
+    }
 
-    const populatedAd = await ImportAd.findById(savedRequestAd._id)
-      .populate('websiteSelections.websiteId')
-      .populate('websiteSelections.categories');
+    // Populate ad data with error handling
+    let populatedAd;
+    try {
+      populatedAd = await ImportAd.findById(savedRequestAd._id)
+        .populate('websiteSelections.websiteId')
+        .populate('websiteSelections.categories');
+      
+      if (!populatedAd) {
+        throw new Error('Failed to retrieve saved ad');
+      }
+    } catch (populateError) {
+      console.error('Population error:', populateError);
+      // Continue without population if it fails
+      populatedAd = savedRequestAd;
+    }
 
-    // Return ad with payment information for each selection
+    // Create payment information
     const adWithPaymentInfo = {
       ...populatedAd.toObject(),
       paymentRequired: true,
@@ -162,11 +296,16 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
           websiteId: selection.websiteId,
           categoryId: selection.categories[0], // Assuming one category per selection
           price: category ? category.price : 0,
-          categoryName: category ? category.categoryName : 'Unknown'
+          categoryName: category ? category.categoryName : 'Unknown',
+          websiteName: populatedAd.websiteSelections?.find(ws => 
+            ws.websiteId.toString() === selection.websiteId.toString()
+          )?.websiteId?.websiteName || 'Unknown'
         };
       })
     };
 
+    console.log('Ad creation completed successfully');
+    
     res.status(201).json({
       success: true,
       data: adWithPaymentInfo,
@@ -174,6 +313,7 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     });
 
   } catch (err) {
+    console.error('Unexpected error in createImportAd:', err);
     res.status(500).json({ 
       error: 'Internal Server Error',
       message: err.message,
@@ -181,6 +321,205 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     });
   }
 }];
+
+// exports.createImportAd = [upload.single('file'), async (req, res) => {
+//   try {
+//     const {
+//       adOwnerEmail,
+//       businessName,
+//       businessLink,
+//       businessLocation,
+//       adDescription,
+//       selectedWebsites,
+//       selectedCategories,
+//     } = req.body;
+
+//     const websitesArray = JSON.parse(selectedWebsites);
+//     const categoriesArray = JSON.parse(selectedCategories);
+
+//     // File upload logic (same as before)
+//     let imageUrl = '';
+//     let videoUrl = '';
+//     let pdfUrl = '';
+
+//     if (req.file) {
+//       const blob = bucket.file(`${Date.now()}-${req.file.originalname}`);
+//       const blobStream = blob.createWriteStream({
+//         resumable: false,
+//         contentType: req.file.mimetype,
+//       });
+
+//       await new Promise((resolve, reject) => {
+//         blobStream.on('error', (err) => {
+//           reject(new Error('Failed to upload file.'));
+//         });
+
+//         blobStream.on('finish', async () => {
+//           try {
+//             await blob.makePublic();
+//             const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+            
+//             if (req.file.mimetype.startsWith('image')) {
+//               imageUrl = publicUrl;
+//             } else if (req.file.mimetype.startsWith('video')) {
+//               videoUrl = publicUrl;
+//             } else if (req.file.mimetype === 'application/pdf') {
+//               pdfUrl = publicUrl;
+//             }
+//             resolve();
+//           } catch (err) {
+//             reject(new Error('Failed to make file public.'));
+//           }
+//         });
+
+//         blobStream.end(req.file.buffer);
+//       });
+//     }
+
+//     const categories = await AdCategory.find({
+//       _id: { $in: categoriesArray }
+//     });
+
+//     const websiteCategoryMap = categories.reduce((map, category) => {
+//       const websiteId = category.websiteId.toString();
+//       if (!map.has(websiteId)) {
+//         map.set(websiteId, []);
+//       }
+//       map.get(websiteId).push(category._id);
+//       return map;
+//     }, new Map());
+
+//     const websiteSelections = websitesArray.map(websiteId => {
+//       const websiteCategories = websiteCategoryMap.get(websiteId.toString()) || [];      
+//       const validCategories = categoriesArray.filter(categoryId => 
+//         websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
+//       );
+
+//       return {
+//         websiteId,
+//         categories: validCategories,
+//         approved: false,
+//         approvedAt: null,
+//         status: 'pending_payment' // New status
+//       };
+//     }).filter(selection => selection.categories.length > 0);
+
+//     if (websiteSelections.length === 0) {
+//       return res.status(400).json({
+//         error: 'Invalid Selection',
+//         message: 'No valid website and category combinations found'
+//       });
+//     }
+
+//     const ownerId = req.user.userId || req.user.id || req.user._id;
+//     const user = await User.findById(ownerId);
+//     const userId = user._id.toString();
+
+//     const newRequestAd = new ImportAd({
+//       userId,
+//       adOwnerEmail: adOwnerEmail || user.email,
+//       imageUrl,
+//       videoUrl,
+//       pdfUrl,
+//       businessName,
+//       businessLink,
+//       businessLocation,
+//       adDescription,
+//       websiteSelections,
+//       confirmed: false,
+//       clicks: 0,
+//       views: 0
+//     });
+
+//     const savedRequestAd = await newRequestAd.save();
+
+//     const populatedAd = await ImportAd.findById(savedRequestAd._id)
+//       .populate('websiteSelections.websiteId')
+//       .populate('websiteSelections.categories');
+
+//     // Return ad with payment information for each selection
+//     const adWithPaymentInfo = {
+//       ...populatedAd.toObject(),
+//       paymentRequired: true,
+//       paymentSelections: websiteSelections.map(selection => {
+//         const category = categories.find(cat => 
+//           selection.categories.includes(cat._id) && 
+//           cat.websiteId.toString() === selection.websiteId.toString()
+//         );
+//         return {
+//           websiteId: selection.websiteId,
+//           categoryId: selection.categories[0], // Assuming one category per selection
+//           price: category ? category.price : 0,
+//           categoryName: category ? category.categoryName : 'Unknown'
+//         };
+//       })
+//     };
+
+//     res.status(201).json({
+//       success: true,
+//       data: adWithPaymentInfo,
+//       message: 'Ad created successfully. Please proceed with payment to publish.'
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ 
+//       error: 'Internal Server Error',
+//       message: err.message,
+//       stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+//     });
+//   }
+// }];
+
+exports.getMyAds = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user.id || req.user._id;
+    
+    const ads = await ImportAd.find({ userId: userId })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      ads: ads
+    });
+
+  } catch (error) {
+    console.error('Error fetching user ads:', error);
+    res.status(500).json({ error: 'Failed to fetch ads' });
+  }
+};
+
+exports.getAdBudget = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user.id || req.user._id;
+    
+    // Calculate budget from payments
+    const payments = await Payment.find({ advertiserId: userId });
+    
+    const spent = payments
+      .filter(p => p.status === 'successful')
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    const refunded = payments
+      .filter(p => p.status === 'refunded')
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    // Simple available budget calculation (you can make this more sophisticated)
+    const available = 1000; // Placeholder - implement your budget logic
+
+    res.status(200).json({
+      success: true,
+      budget: {
+        available,
+        spent,
+        refunded
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching ad budget:', error);
+    res.status(500).json({ error: 'Failed to fetch budget' });
+  }
+};
 
 // exports.createImportAd = [upload.single('file'), async (req, res) => {
 //   try {
@@ -446,460 +785,460 @@ exports.getAdDetails = async (req, res) => {
   }
 };
 
-exports.confirmWebsiteAd = async (req, res) => {
-  try {
-    const { adId, websiteId } = req.params;
+// exports.confirmWebsiteAd = async (req, res) => {
+//   try {
+//     const { adId, websiteId } = req.params;
 
-    // Find the ad and update the specific website selection
-    const updatedAd = await ImportAd.findOneAndUpdate(
-      { 
-        _id: adId,
-        'websiteSelections.websiteId': websiteId,
-        'websiteSelections.approved': true // Only allow confirmation if approved
-      },
-      { 
-        $set: { 
-          'websiteSelections.$.confirmed': true,
-          'websiteSelections.$.confirmedAt': new Date()
-        }
-      },
-      { new: true }
-    );
+//     // Find the ad and update the specific website selection
+//     const updatedAd = await ImportAd.findOneAndUpdate(
+//       { 
+//         _id: adId,
+//         'websiteSelections.websiteId': websiteId,
+//         'websiteSelections.approved': true // Only allow confirmation if approved
+//       },
+//       { 
+//         $set: { 
+//           'websiteSelections.$.confirmed': true,
+//           'websiteSelections.$.confirmedAt': new Date()
+//         }
+//       },
+//       { new: true }
+//     );
 
-    if (!updatedAd) {
-      return res.status(404).json({ 
-        message: 'Ad not found or website not approved for confirmation' 
-      });
-    }
+//     if (!updatedAd) {
+//       return res.status(404).json({ 
+//         message: 'Ad not found or website not approved for confirmation' 
+//       });
+//     }
 
-    // Find the relevant website selection
-    const websiteSelection = updatedAd.websiteSelections.find(
-      selection => selection.websiteId.toString() === websiteId
-    );
+//     // Find the relevant website selection
+//     const websiteSelection = updatedAd.websiteSelections.find(
+//       selection => selection.websiteId.toString() === websiteId
+//     );
 
-    // Update the ad categories for this website
-    if (websiteSelection) {
-      await AdCategory.updateMany(
-        { _id: { $in: websiteSelection.categories } },
-        { $addToSet: { selectedAds: updatedAd._id } }
-      );
-    }
+//     // Update the ad categories for this website
+//     if (websiteSelection) {
+//       await AdCategory.updateMany(
+//         { _id: { $in: websiteSelection.categories } },
+//         { $addToSet: { selectedAds: updatedAd._id } }
+//       );
+//     }
 
-    res.status(200).json({ 
-      message: 'Ad confirmed for selected website',
-      ad: updatedAd
-    });
+//     res.status(200).json({ 
+//       message: 'Ad confirmed for selected website',
+//       ad: updatedAd
+//     });
 
-  } catch (error) {
-    console.error('Error confirming website ad:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
-};
+//   } catch (error) {
+//     console.error('Error confirming website ad:', error);
+//     res.status(500).json({ message: 'Internal Server Error' });
+//   }
+// };
 
-exports.initiateAdPayment = async (req, res) => {
-  try {
-    const { adId, websiteId, amount, email, phoneNumber, userId } = req.body;
+// exports.initiateAdPayment = async (req, res) => {
+//   try {
+//     const { adId, websiteId, amount, email, phoneNumber, userId } = req.body;
 
-    console.log('🧪 TEST MODE: Initiating ad payment', { adId, websiteId, amount, userId });
+//     console.log('🧪 TEST MODE: Initiating ad payment', { adId, websiteId, amount, userId });
 
-    // Enhanced validation
-    if (!adId || !websiteId || !userId) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Missing required fields: adId, websiteId, or userId',
-        test_mode: true 
-      });
-    }
+//     // Enhanced validation
+//     if (!adId || !websiteId || !userId) {
+//       return res.status(400).json({ 
+//         success: false,
+//         message: 'Missing required fields: adId, websiteId, or userId',
+//         test_mode: true 
+//       });
+//     }
 
-    // Validate ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(adId) || !mongoose.Types.ObjectId.isValid(websiteId)) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid adId or websiteId format',
-        test_mode: true 
-      });
-    }
+//     // Validate ObjectId format
+//     if (!mongoose.Types.ObjectId.isValid(adId) || !mongoose.Types.ObjectId.isValid(websiteId)) {
+//       return res.status(400).json({ 
+//         success: false,
+//         message: 'Invalid adId or websiteId format',
+//         test_mode: true 
+//       });
+//     }
 
-    // Validate amount
-    const numericAmount = Number(amount);
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid amount provided',
-        test_mode: true 
-      });
-    }
+//     // Validate amount
+//     const numericAmount = Number(amount);
+//     if (isNaN(numericAmount) || numericAmount <= 0) {
+//       return res.status(400).json({ 
+//         success: false,
+//         message: 'Invalid amount provided',
+//         test_mode: true 
+//       });
+//     }
 
-    // FIX: Only check for successful payments, not failed ones
-    const existingSuccessfulPayment = await Payment.findOne({
-      adId,
-      websiteId,
-      userId,
-      status: 'successful' // Only block if payment was successful
-    });
+//     // FIX: Only check for successful payments, not failed ones
+//     const existingSuccessfulPayment = await Payment.findOne({
+//       adId,
+//       websiteId,
+//       userId,
+//       status: 'successful' // Only block if payment was successful
+//     });
 
-    if (existingSuccessfulPayment) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment already completed successfully for this ad and website',
-        test_mode: true
-      });
-    }
+//     if (existingSuccessfulPayment) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Payment already completed successfully for this ad and website',
+//         test_mode: true
+//       });
+//     }
 
-    // FIX: Clean up any failed payment records for this combination
-    await Payment.deleteMany({
-      adId,
-      websiteId,
-      userId,
-      status: { $in: ['failed', 'pending'] } // Clean up failed/pending payments
-    });
+//     // FIX: Clean up any failed payment records for this combination
+//     await Payment.deleteMany({
+//       adId,
+//       websiteId,
+//       userId,
+//       status: { $in: ['failed', 'pending'] } // Clean up failed/pending payments
+//     });
 
-    // Find ad and verify it exists
-    const ad = await ImportAd.findById(adId);
-    if (!ad) {
-      return res.status(404).json({
-        success: false,
-        message: 'Advertisement not found',
-        test_mode: true
-      });
-    }
+//     // Find ad and verify it exists
+//     const ad = await ImportAd.findById(adId);
+//     if (!ad) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Advertisement not found',
+//         test_mode: true
+//       });
+//     }
 
-    // Get website selection and verify it exists and is approved
-    const websiteSelection = ad.websiteSelections.find(
-      selection => selection.websiteId.toString() === websiteId.toString()
-    );
+//     // Get website selection and verify it exists and is approved
+//     const websiteSelection = ad.websiteSelections.find(
+//       selection => selection.websiteId.toString() === websiteId.toString()
+//     );
 
-    if (!websiteSelection) {
-      return res.status(400).json({
-        success: false,
-        message: 'Website selection not found for this ad',
-        test_mode: true
-      });
-    }
+//     if (!websiteSelection) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Website selection not found for this ad',
+//         test_mode: true
+//       });
+//     }
 
-    if (!websiteSelection.approved) {
-      return res.status(400).json({
-        success: false,
-        message: 'Ad is not approved for this website',
-        test_mode: true
-      });
-    }
+//     if (!websiteSelection.approved) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Ad is not approved for this website',
+//         test_mode: true
+//       });
+//     }
 
-    if (websiteSelection.confirmed) {
-      return res.status(400).json({
-        success: false,
-        message: 'Ad is already confirmed for this website',
-        test_mode: true
-      });
-    }
+//     if (websiteSelection.confirmed) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Ad is already confirmed for this website',
+//         test_mode: true
+//       });
+//     }
 
-    // Verify categories exist
-    const categories = await AdCategory.find({
-      _id: { $in: websiteSelection.categories },
-      websiteId: websiteId
-    });
+//     // Verify categories exist
+//     const categories = await AdCategory.find({
+//       _id: { $in: websiteSelection.categories },
+//       websiteId: websiteId
+//     });
 
-    if (!categories.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid categories found for this website',
-        test_mode: true
-      });
-    }
+//     if (!categories.length) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'No valid categories found for this website',
+//         test_mode: true
+//       });
+//     }
 
-    const tx_ref = `TEST-AD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+//     const tx_ref = `TEST-AD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    // Create payment record
-    const payment = new Payment({
-      tx_ref,
-      amount: numericAmount,
-      currency: 'USD',
-      email: email || TEST_CONFIG.TEST_CUSTOMER.email,
-      userId,
-      adId,
-      websiteId,
-      webOwnerId: categories[0].ownerId,
-      status: 'pending',
-      testMode: true
-    });
+//     // Create payment record
+//     const payment = new Payment({
+//       tx_ref,
+//       amount: numericAmount,
+//       currency: 'USD',
+//       email: email || TEST_CONFIG.TEST_CUSTOMER.email,
+//       userId,
+//       adId,
+//       websiteId,
+//       webOwnerId: categories[0].ownerId,
+//       status: 'pending',
+//       testMode: true
+//     });
 
-    await payment.save();
+//     await payment.save();
 
-    // Updated test payment payload with proper test configuration
-    const paymentPayload = {
-      tx_ref,
-      amount: numericAmount,
-      currency: 'USD',
-      redirect_url: TEST_CONFIG.REDIRECT_URL,
-      payment_options: 'card,banktransfer,ussd',
-      meta: {
-        adId: adId.toString(),
-        websiteId: websiteId.toString(),
-        userId: userId.toString(),
-        test_mode: true
-      },
-      customer: {
-        email: TEST_CONFIG.TEST_CUSTOMER.email,
-        name: ad.businessName || TEST_CONFIG.TEST_CUSTOMER.name,
-        phone_number: TEST_CONFIG.TEST_CUSTOMER.phone_number
-      },
-      customizations: {
-        title: '🧪 TEST: Ad Space Payment',
-        description: `TEST: Payment for ad space - ${ad.businessName}`,
-        logo: process.env.COMPANY_LOGO_URL || ''
-      },
-      payment_plan: null,
-      subaccounts: [],
-      integrity_hash: null
-    };
+//     // Updated test payment payload with proper test configuration
+//     const paymentPayload = {
+//       tx_ref,
+//       amount: numericAmount,
+//       currency: 'USD',
+//       redirect_url: TEST_CONFIG.REDIRECT_URL,
+//       payment_options: 'card,banktransfer,ussd',
+//       meta: {
+//         adId: adId.toString(),
+//         websiteId: websiteId.toString(),
+//         userId: userId.toString(),
+//         test_mode: true
+//       },
+//       customer: {
+//         email: TEST_CONFIG.TEST_CUSTOMER.email,
+//         name: ad.businessName || TEST_CONFIG.TEST_CUSTOMER.name,
+//         phone_number: TEST_CONFIG.TEST_CUSTOMER.phone_number
+//       },
+//       customizations: {
+//         title: '🧪 TEST: Ad Space Payment',
+//         description: `TEST: Payment for ad space - ${ad.businessName}`,
+//         logo: process.env.COMPANY_LOGO_URL || ''
+//       },
+//       payment_plan: null,
+//       subaccounts: [],
+//       integrity_hash: null
+//     };
 
-    // Make request to Flutterwave TEST API
-    const response = await axios.post(
-      `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/payments`, 
-      paymentPayload, 
-      {
-        headers: { 
-          Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
-      }
-    );
+//     // Make request to Flutterwave TEST API
+//     const response = await axios.post(
+//       `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/payments`, 
+//       paymentPayload, 
+//       {
+//         headers: { 
+//           Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
+//           'Content-Type': 'application/json'
+//         },
+//         timeout: 30000
+//       }
+//     );
 
-    if (response.data?.status === 'success' && response.data?.data?.link) {
-      res.status(200).json({ 
-        success: true,
-        paymentLink: response.data.data.link,
-        tx_ref,
-        message: '🧪 TEST: Payment link generated successfully',
-        test_mode: true,
-        test_instructions: {
-          message: 'This is TEST MODE. Use these test cards:',
-          successful_cards: [
-            {
-              number: '5531886652142950',
-              cvv: '564',
-              expiry: '09/32',
-              pin: '3310',
-              otp: '12345',
-              description: 'Mastercard - Successful transaction'
-            },
-            {
-              number: '4187427415564246',
-              cvv: '828',
-              expiry: '09/32',
-              pin: '3310',
-              otp: '12345',
-              description: 'Visa - Successful transaction'
-            }
-          ],
-          failed_cards: [
-            {
-              number: '5060666666666666666',
-              cvv: '123',
-              expiry: '09/32',
-              description: 'Insufficient funds'
-            },
-            {
-              number: '4000000000000069',
-              cvv: '123',
-              expiry: '09/32',
-              description: 'Declined card'
-            }
-          ]
-        }
-      });
-    } else {
-      // Clean up failed payment record
-      await Payment.findOneAndDelete({ tx_ref });
+//     if (response.data?.status === 'success' && response.data?.data?.link) {
+//       res.status(200).json({ 
+//         success: true,
+//         paymentLink: response.data.data.link,
+//         tx_ref,
+//         message: '🧪 TEST: Payment link generated successfully',
+//         test_mode: true,
+//         test_instructions: {
+//           message: 'This is TEST MODE. Use these test cards:',
+//           successful_cards: [
+//             {
+//               number: '5531886652142950',
+//               cvv: '564',
+//               expiry: '09/32',
+//               pin: '3310',
+//               otp: '12345',
+//               description: 'Mastercard - Successful transaction'
+//             },
+//             {
+//               number: '4187427415564246',
+//               cvv: '828',
+//               expiry: '09/32',
+//               pin: '3310',
+//               otp: '12345',
+//               description: 'Visa - Successful transaction'
+//             }
+//           ],
+//           failed_cards: [
+//             {
+//               number: '5060666666666666666',
+//               cvv: '123',
+//               expiry: '09/32',
+//               description: 'Insufficient funds'
+//             },
+//             {
+//               number: '4000000000000069',
+//               cvv: '123',
+//               expiry: '09/32',
+//               description: 'Declined card'
+//             }
+//           ]
+//         }
+//       });
+//     } else {
+//       // Clean up failed payment record
+//       await Payment.findOneAndDelete({ tx_ref });
       
-      throw new Error(`Invalid payment response: ${JSON.stringify(response.data)}`);
-    }
+//       throw new Error(`Invalid payment response: ${JSON.stringify(response.data)}`);
+//     }
 
-  } catch (error) {
-    // Clean up failed payment record if tx_ref was created
-    if (req.body.tx_ref) {
-      try {
-        await Payment.findOneAndDelete({ tx_ref: req.body.tx_ref });
-      } catch (deleteError) {
-        console.error('🧪 TEST: Error deleting failed payment record:', deleteError.message);
-      }
-    }
+//   } catch (error) {
+//     // Clean up failed payment record if tx_ref was created
+//     if (req.body.tx_ref) {
+//       try {
+//         await Payment.findOneAndDelete({ tx_ref: req.body.tx_ref });
+//       } catch (deleteError) {
+//         console.error('🧪 TEST: Error deleting failed payment record:', deleteError.message);
+//       }
+//     }
 
-    // Return specific error messages
-    let errorMessage = '🧪 TEST: Error initiating payment';
-    let statusCode = 500;
+//     // Return specific error messages
+//     let errorMessage = '🧪 TEST: Error initiating payment';
+//     let statusCode = 500;
 
-    if (error.response?.status === 400) {
-      errorMessage = `🧪 TEST: Invalid payment data - ${error.response.data?.message || 'Bad request'}`;
-      statusCode = 400;
-    } else if (error.response?.status === 401) {
-      errorMessage = '🧪 TEST: Payment service authentication failed - check your test API key';
-      statusCode = 401;
-    } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      errorMessage = '🧪 TEST: Payment service temporarily unavailable';
-      statusCode = 503;
-    }
+//     if (error.response?.status === 400) {
+//       errorMessage = `🧪 TEST: Invalid payment data - ${error.response.data?.message || 'Bad request'}`;
+//       statusCode = 400;
+//     } else if (error.response?.status === 401) {
+//       errorMessage = '🧪 TEST: Payment service authentication failed - check your test API key';
+//       statusCode = 401;
+//     } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+//       errorMessage = '🧪 TEST: Payment service temporarily unavailable';
+//       statusCode = 503;
+//     }
 
-    res.status(statusCode).json({ 
-      success: false,
-      message: errorMessage,
-      test_mode: true,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      flutterwave_error: error.response?.data
-    });
-  }
-};
+//     res.status(statusCode).json({ 
+//       success: false,
+//       message: errorMessage,
+//       test_mode: true,
+//       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+//       flutterwave_error: error.response?.data
+//     });
+//   }
+// };
 
-exports.adPaymentCallback = async (req, res) => {
-  const session = await mongoose.startSession();
-  let transactionStarted = false;
+// exports.adPaymentCallback = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   let transactionStarted = false;
 
-  try {
-    const { tx_ref, transaction_id, status: queryStatus } = req.query;
+//   try {
+//     const { tx_ref, transaction_id, status: queryStatus } = req.query;
     
-    if (!tx_ref || !transaction_id) {
-      console.error('🧪 TEST: Missing required callback parameters');
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=invalid-params&test=true`);
-    }
+//     if (!tx_ref || !transaction_id) {
+//       console.error('🧪 TEST: Missing required callback parameters');
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=invalid-params&test=true`);
+//     }
 
-    const payment = await Payment.findOne({ tx_ref });
-    if (!payment) {
-      console.error('🧪 TEST: Payment record not found for tx_ref:', tx_ref);
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=payment-not-found&test=true`);
-    }
+//     const payment = await Payment.findOne({ tx_ref });
+//     if (!payment) {
+//       console.error('🧪 TEST: Payment record not found for tx_ref:', tx_ref);
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=payment-not-found&test=true`);
+//     }
 
-    const transactionVerification = await axios.get(
-      `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/transactions/${transaction_id}/verify`,
-      {
-        headers: {
-          Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
-      }
-    );
+//     const transactionVerification = await axios.get(
+//       `${TEST_CONFIG.FLUTTERWAVE_BASE_URL}/transactions/${transaction_id}/verify`,
+//       {
+//         headers: {
+//           Authorization: `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
+//           'Content-Type': 'application/json'
+//         },
+//         timeout: 30000
+//       }
+//     );
 
-    const transactionData = transactionVerification.data.data;
-    const { status, amount, currency, tx_ref: verifiedTxRef } = transactionData;
+//     const transactionData = transactionVerification.data.data;
+//     const { status, amount, currency, tx_ref: verifiedTxRef } = transactionData;
 
-    if (verifiedTxRef !== tx_ref) {
-      console.error('🧪 TEST: Transaction reference mismatch');
-      payment.status = 'failed';
-      await payment.save();
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=tx-ref-mismatch&test=true`);
-    }
+//     if (verifiedTxRef !== tx_ref) {
+//       console.error('🧪 TEST: Transaction reference mismatch');
+//       payment.status = 'failed';
+//       await payment.save();
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=tx-ref-mismatch&test=true`);
+//     }
 
-    if (Math.abs(payment.amount - amount) > 0.01 || payment.currency !== currency) {
-      console.error('🧪 TEST: Payment amount or currency mismatch:', {
-        expected: { amount: payment.amount, currency: payment.currency },
-        received: { amount, currency }
-      });
-      payment.status = 'failed';
-      await payment.save();
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=amount-mismatch&test=true`);
-    }
+//     if (Math.abs(payment.amount - amount) > 0.01 || payment.currency !== currency) {
+//       console.error('🧪 TEST: Payment amount or currency mismatch:', {
+//         expected: { amount: payment.amount, currency: payment.currency },
+//         received: { amount, currency }
+//       });
+//       payment.status = 'failed';
+//       await payment.save();
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=amount-mismatch&test=true`);
+//     }
 
-    if (status === 'successful') {
-      await session.startTransaction();
-      transactionStarted = true;
-      await processSuccessfulPayment(payment, session);
+//     if (status === 'successful') {
+//       await session.startTransaction();
+//       transactionStarted = true;
+//       await processSuccessfulPayment(payment, session);
     
-      payment.status = 'successful';
-      payment.processedAt = new Date();
-      await payment.save({ session });
+//       payment.status = 'successful';
+//       payment.processedAt = new Date();
+//       await payment.save({ session });
 
-      await session.commitTransaction();
-      transactionStarted = false;
+//       await session.commitTransaction();
+//       transactionStarted = false;
 
-      console.log('🧪 TEST: Payment processed successfully for tx_ref:', tx_ref);
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=success&test=true`);
+//       console.log('🧪 TEST: Payment processed successfully for tx_ref:', tx_ref);
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=success&test=true`);
       
-    } else {
-      payment.status = 'failed';
-      payment.failureReason = transactionData.processor_response || 'Payment failed';
-      await payment.save();
+//     } else {
+//       payment.status = 'failed';
+//       payment.failureReason = transactionData.processor_response || 'Payment failed';
+//       await payment.save();
       
-      console.log('🧪 TEST: Payment failed for tx_ref:', tx_ref, 'Status:', status);
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=failed&test=true`);
-    }
+//       console.log('🧪 TEST: Payment failed for tx_ref:', tx_ref, 'Status:', status);
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=failed&test=true`);
+//     }
 
-  } catch (error) {
-    console.error('🧪 TEST: Payment callback error:', error.message);
+//   } catch (error) {
+//     console.error('🧪 TEST: Payment callback error:', error.message);
     
-    if (transactionStarted) {
-      await session.abortTransaction();
-    }
+//     if (transactionStarted) {
+//       await session.abortTransaction();
+//     }
     
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=error&test=true`);
-  } finally {
-    await session.endSession();
-  }
-};
+//     return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/approved-ads?status=error&test=true`);
+//   } finally {
+//     await session.endSession();
+//   }
+// };
 
-async function processSuccessfulPayment(payment, session) {
-  const ad = await ImportAd.findOne({ _id: payment.adId }).session(session);
-  const websiteSelection = ad.websiteSelections.find(
-    sel => sel.websiteId.toString() === payment.websiteId.toString()
-  );
+// async function processSuccessfulPayment(payment, session) {
+//   const ad = await ImportAd.findOne({ _id: payment.adId }).session(session);
+//   const websiteSelection = ad.websiteSelections.find(
+//     sel => sel.websiteId.toString() === payment.websiteId.toString()
+//   );
   
-  const updatedAd = await ImportAd.findOneAndUpdate(
-    { 
-      _id: payment.adId,
-      'websiteSelections': {
-        $elemMatch: {
-          websiteId: payment.websiteId,
-          approved: true,
-          confirmed: { $ne: true }
-        }
-      }
-    },
-    { 
-      $set: { 
-        'websiteSelections.$.confirmed': true,
-        'websiteSelections.$.confirmedAt': new Date()
-      }
-    },
-    { new: true, session }
-  );
+//   const updatedAd = await ImportAd.findOneAndUpdate(
+//     { 
+//       _id: payment.adId,
+//       'websiteSelections': {
+//         $elemMatch: {
+//           websiteId: payment.websiteId,
+//           approved: true,
+//           confirmed: { $ne: true }
+//         }
+//       }
+//     },
+//     { 
+//       $set: { 
+//         'websiteSelections.$.confirmed': true,
+//         'websiteSelections.$.confirmedAt': new Date()
+//       }
+//     },
+//     { new: true, session }
+//   );
 
-  const categories = await AdCategory.find({
-    _id: { $in: websiteSelection.categories },
-    websiteId: payment.websiteId
-  }).session(session);
+//   const categories = await AdCategory.find({
+//     _id: { $in: websiteSelection.categories },
+//     websiteId: payment.websiteId
+//   }).session(session);
 
-  await AdCategory.updateMany(
-    { 
-      _id: { $in: websiteSelection.categories },
-      websiteId: payment.websiteId
-    },
-    { $addToSet: { selectedAds: updatedAd._id } },
-    { session }
-  );
+//   await AdCategory.updateMany(
+//     { 
+//       _id: { $in: websiteSelection.categories },
+//       websiteId: payment.websiteId
+//     },
+//     { $addToSet: { selectedAds: updatedAd._id } },
+//     { session }
+//   );
 
-  await WebOwnerBalance.findOneAndUpdate(
-    { userId: payment.webOwnerId },
-    {
-      $inc: {
-        totalEarnings: payment.amount,
-        availableBalance: payment.amount
-      }
-    },
-    { upsert: true, session }
-  );
+//   await WebOwnerBalance.findOneAndUpdate(
+//     { userId: payment.webOwnerId },
+//     {
+//       $inc: {
+//         totalEarnings: payment.amount,
+//         availableBalance: payment.amount
+//       }
+//     },
+//     { upsert: true, session }
+//   );
 
-  const paymentTrackers = categories.map(category => ({
-    userId: payment.webOwnerId,
-    adId: ad._id,
-    categoryId: category._id,
-    paymentDate: new Date(),
-    amount: payment.amount / categories.length,
-    viewsRequired: category.visitorRange?.max || 1000,
-    currentViews: 0,
-    status: 'pending',
-    paymentReference: payment.tx_ref,
-    testMode: true
-  }));
+//   const paymentTrackers = categories.map(category => ({
+//     userId: payment.webOwnerId,
+//     adId: ad._id,
+//     categoryId: category._id,
+//     paymentDate: new Date(),
+//     amount: payment.amount / categories.length,
+//     viewsRequired: category.visitorRange?.max || 1000,
+//     currentViews: 0,
+//     status: 'pending',
+//     paymentReference: payment.tx_ref,
+//     testMode: true
+//   }));
 
-  await PaymentTracker.insertMany(paymentTrackers, { session });
-}
+//   await PaymentTracker.insertMany(paymentTrackers, { session });
+// }

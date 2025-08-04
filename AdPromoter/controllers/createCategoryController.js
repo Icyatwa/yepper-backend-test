@@ -1,6 +1,7 @@
 // createCategoryController.js
 const mongoose = require('mongoose');
 const AdCategory = require('../models/CreateCategoryModel');
+const { Wallet, WalletTransaction } = require('../models/WalletModel');
 const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
@@ -9,208 +10,208 @@ const Payment = require('../../AdOwner/models/PaymentModel');
 const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
 const axios = require('axios');
 
-const FLUTTERWAVE_CONFIG = {
-  BASE_URL: 'https://api.flutterwave.com/v3',
-  SECRET_KEY: process.env.FLW_TEST_SECRET_KEY,
+// const FLUTTERWAVE_CONFIG = {
+//   BASE_URL: 'https://api.flutterwave.com/v3',
+//   SECRET_KEY: process.env.FLW_TEST_SECRET_KEY,
   
-  // Multiple IP solutions
-  IP_SOLUTIONS: {
-    // Solution 1: Use proxy service
-    USE_PROXY: true,
-    PROXY_URL: 'https://cors-anywhere.herokuapp.com/', // or your own proxy
+//   // Multiple IP solutions
+//   IP_SOLUTIONS: {
+//     // Solution 1: Use proxy service
+//     USE_PROXY: true,
+//     PROXY_URL: 'https://cors-anywhere.herokuapp.com/', // or your own proxy
     
-    // Solution 2: Server-side only (never from browser)
-    SERVER_ONLY: true,
+//     // Solution 2: Server-side only (never from browser)
+//     SERVER_ONLY: true,
     
-    // Solution 3: Use Flutterwave's direct bank transfer (different endpoint)
-    USE_DIRECT_TRANSFER: true
-  },
+//     // Solution 3: Use Flutterwave's direct bank transfer (different endpoint)
+//     USE_DIRECT_TRANSFER: true
+//   },
   
-  CALLBACK_URL: process.env.CALLBACK_URL || "https://your-domain.com/api/withdrawal/callback"
-};
+//   CALLBACK_URL: process.env.CALLBACK_URL || "https://your-domain.com/api/withdrawal/callback"
+// };
 
 // Enhanced Withdrawal Schema (keeping the currency conversion logic)
-const enhancedWithdrawalSchema = new mongoose.Schema({
-  userId: { type: String, required: true, index: true },
-  originalAmount: { type: Number, required: true }, // Amount in USD
-  convertedAmount: { type: Number, required: true }, // Amount in local currency
-  originalCurrency: { type: String, default: 'USD' },
-  targetCurrency: { type: String, required: true },
-  exchangeRate: { type: Number, required: true },
+// const enhancedWithdrawalSchema = new mongoose.Schema({
+//   userId: { type: String, required: true, index: true },
+//   originalAmount: { type: Number, required: true }, // Amount in USD
+//   convertedAmount: { type: Number, required: true }, // Amount in local currency
+//   originalCurrency: { type: String, default: 'USD' },
+//   targetCurrency: { type: String, required: true },
+//   exchangeRate: { type: Number, required: true },
   
-  paymentMethod: { 
-    type: String, 
-    enum: ['mobile_money', 'bank_transfer'],
-    required: true
-  },
+//   paymentMethod: { 
+//     type: String, 
+//     enum: ['mobile_money', 'bank_transfer'],
+//     required: true
+//   },
   
-  // Payment details
-  paymentDetails: {
-    phoneNumber: String,
-    provider: String,
-    bankCode: String,
-    accountNumber: String,
-    accountName: String,
-  },
+//   // Payment details
+//   paymentDetails: {
+//     phoneNumber: String,
+//     provider: String,
+//     bankCode: String,
+//     accountNumber: String,
+//     accountName: String,
+//   },
   
-  // Flutterwave transaction details
-  status: { 
-    type: String, 
-    enum: ['pending', 'processing', 'completed', 'failed'],
-    default: 'pending'
-  },
-  flutterwaveId: String,
-  flutterwaveReference: String,
-  reference: { type: String, unique: true },
+//   // Flutterwave transaction details
+//   status: { 
+//     type: String, 
+//     enum: ['pending', 'processing', 'completed', 'failed'],
+//     default: 'pending'
+//   },
+//   flutterwaveId: String,
+//   flutterwaveReference: String,
+//   reference: { type: String, unique: true },
   
-  // Fees
-  processingFee: { type: Number, default: 0 },
-  netAmount: { type: Number },
+//   // Fees
+//   processingFee: { type: Number, default: 0 },
+//   netAmount: { type: Number },
   
-  initiatedAt: { type: Date, default: Date.now },
-  completedAt: Date,
-  failureReason: String,
+//   initiatedAt: { type: Date, default: Date.now },
+//   completedAt: Date,
+//   failureReason: String,
   
-}, { timestamps: true });
+// }, { timestamps: true });
 
-const EnhancedWithdrawal = mongoose.models.EnhancedWithdrawal || 
-  mongoose.model('EnhancedWithdrawal', enhancedWithdrawalSchema);
+// const EnhancedWithdrawal = mongoose.models.EnhancedWithdrawal || 
+//   mongoose.model('EnhancedWithdrawal', enhancedWithdrawalSchema);
 
-class FlutterwaveWithdrawalService {
+// class FlutterwaveWithdrawalService {
   
-  // Solution 1: Make request with different user agents and headers
-  static async makeFlutterwaveRequest(endpoint, data, method = 'POST') {
-    const headers = {
-      'Authorization': `Bearer ${FLUTTERWAVE_CONFIG.SECRET_KEY}`,
-      'Content-Type': 'application/json',
-      // Try different user agents to bypass some restrictions
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'application/json',
-      'Origin': 'https://dashboard.flutterwave.com',
-      'Referer': 'https://dashboard.flutterwave.com/',
-      'X-Forwarded-For': '102.22.140.7', // Use the whitelisted IP
-    };
+//   // Solution 1: Make request with different user agents and headers
+//   static async makeFlutterwaveRequest(endpoint, data, method = 'POST') {
+//     const headers = {
+//       'Authorization': `Bearer ${FLUTTERWAVE_CONFIG.SECRET_KEY}`,
+//       'Content-Type': 'application/json',
+//       // Try different user agents to bypass some restrictions
+//       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+//       'Accept': 'application/json',
+//       'Origin': 'https://dashboard.flutterwave.com',
+//       'Referer': 'https://dashboard.flutterwave.com/',
+//       'X-Forwarded-For': '102.22.140.7', // Use the whitelisted IP
+//     };
 
-    const config = {
-      method,
-      url: `${FLUTTERWAVE_CONFIG.BASE_URL}${endpoint}`,
-      headers,
-      timeout: 30000,
-      data: method === 'POST' ? data : undefined
-    };
+//     const config = {
+//       method,
+//       url: `${FLUTTERWAVE_CONFIG.BASE_URL}${endpoint}`,
+//       headers,
+//       timeout: 30000,
+//       data: method === 'POST' ? data : undefined
+//     };
 
-    // Try multiple approaches
-    const attempts = [
-      // Attempt 1: Direct request
-      () => axios(config),
+//     // Try multiple approaches
+//     const attempts = [
+//       // Attempt 1: Direct request
+//       () => axios(config),
       
-      // Attempt 2: With proxy (if available)
-      () => {
-        if (FLUTTERWAVE_CONFIG.IP_SOLUTIONS.USE_PROXY) {
-          return axios({
-            ...config,
-            url: `${FLUTTERWAVE_CONFIG.IP_SOLUTIONS.PROXY_URL}${config.url}`,
-            headers: {
-              ...headers,
-              'X-Requested-With': 'XMLHttpRequest'
-            }
-          });
-        }
-        throw new Error('Proxy not configured');
-      },
+//       // Attempt 2: With proxy (if available)
+//       () => {
+//         if (FLUTTERWAVE_CONFIG.IP_SOLUTIONS.USE_PROXY) {
+//           return axios({
+//             ...config,
+//             url: `${FLUTTERWAVE_CONFIG.IP_SOLUTIONS.PROXY_URL}${config.url}`,
+//             headers: {
+//               ...headers,
+//               'X-Requested-With': 'XMLHttpRequest'
+//             }
+//           });
+//         }
+//         throw new Error('Proxy not configured');
+//       },
       
-      // Attempt 3: Different endpoint for transfers
-      () => {
-        if (endpoint === '/transfers' && FLUTTERWAVE_CONFIG.IP_SOLUTIONS.USE_DIRECT_TRANSFER) {
-          return axios({
-            ...config,
-            url: `${FLUTTERWAVE_CONFIG.BASE_URL}/transfers/bank`,
-            headers: {
-              ...headers,
-              'X-API-Version': '2',
-            }
-          });
-        }
-        throw new Error('Direct transfer not applicable');
-      }
-    ];
+//       // Attempt 3: Different endpoint for transfers
+//       () => {
+//         if (endpoint === '/transfers' && FLUTTERWAVE_CONFIG.IP_SOLUTIONS.USE_DIRECT_TRANSFER) {
+//           return axios({
+//             ...config,
+//             url: `${FLUTTERWAVE_CONFIG.BASE_URL}/transfers/bank`,
+//             headers: {
+//               ...headers,
+//               'X-API-Version': '2',
+//             }
+//           });
+//         }
+//         throw new Error('Direct transfer not applicable');
+//       }
+//     ];
 
-    let lastError;
+//     let lastError;
     
-    for (let i = 0; i < attempts.length; i++) {
-      try {
-        console.log(`🔄 Flutterwave attempt ${i + 1}...`);
-        const response = await attempts[i]();
-        console.log(`✅ Flutterwave request succeeded on attempt ${i + 1}`);
-        return response;
-      } catch (error) {
-        console.log(`❌ Attempt ${i + 1} failed:`, error.response?.data?.message || error.message);
-        lastError = error;
+//     for (let i = 0; i < attempts.length; i++) {
+//       try {
+//         console.log(`🔄 Flutterwave attempt ${i + 1}...`);
+//         const response = await attempts[i]();
+//         console.log(`✅ Flutterwave request succeeded on attempt ${i + 1}`);
+//         return response;
+//       } catch (error) {
+//         console.log(`❌ Attempt ${i + 1} failed:`, error.response?.data?.message || error.message);
+//         lastError = error;
         
-        // If it's not an IP whitelist error, don't retry
-        if (!error.response?.data?.message?.includes('IP Whitelisting')) {
-          throw error;
-        }
-      }
-    }
+//         // If it's not an IP whitelist error, don't retry
+//         if (!error.response?.data?.message?.includes('IP Whitelisting')) {
+//           throw error;
+//         }
+//       }
+//     }
     
-    throw lastError;
-  }
+//     throw lastError;
+//   }
   
-  // Currency conversion (keeping your USD to RWF logic)
-  static convertCurrency(amountUSD, targetCurrency = 'RWF') {
-    const rates = {
-      'USD': 1,
-      'RWF': 1350,
-      'KES': 150,
-      'UGX': 3700
-    };
+//   // Currency conversion (keeping your USD to RWF logic)
+//   static convertCurrency(amountUSD, targetCurrency = 'RWF') {
+//     const rates = {
+//       'USD': 1,
+//       'RWF': 1350,
+//       'KES': 150,
+//       'UGX': 3700
+//     };
     
-    return Math.round(amountUSD * rates[targetCurrency]);
-  }
+//     return Math.round(amountUSD * rates[targetCurrency]);
+//   }
   
-  // Prepare transfer payload for Flutterwave
-  static prepareTransferPayload(withdrawalData) {
-    const reference = `WD_${withdrawalData.userId}_${Date.now()}`;
+//   // Prepare transfer payload for Flutterwave
+//   static prepareTransferPayload(withdrawalData) {
+//     const reference = `WD_${withdrawalData.userId}_${Date.now()}`;
     
-    if (withdrawalData.paymentMethod === 'mobile_money') {
-      return {
-        account_bank: "MPS", // Mobile Money Rwanda
-        account_number: withdrawalData.phoneNumber,
-        amount: withdrawalData.convertedAmount,
-        currency: withdrawalData.targetCurrency,
-        reference,
-        callback_url: FLUTTERWAVE_CONFIG.CALLBACK_URL,
-        debit_currency: withdrawalData.targetCurrency,
-        beneficiary_name: "Mobile Money Transfer",
-        meta: {
-          user_id: withdrawalData.userId,
-          original_amount_usd: withdrawalData.originalAmount,
-          payment_method: withdrawalData.paymentMethod
-        }
-      };
-    }
+//     if (withdrawalData.paymentMethod === 'mobile_money') {
+//       return {
+//         account_bank: "MPS", // Mobile Money Rwanda
+//         account_number: withdrawalData.phoneNumber,
+//         amount: withdrawalData.convertedAmount,
+//         currency: withdrawalData.targetCurrency,
+//         reference,
+//         callback_url: FLUTTERWAVE_CONFIG.CALLBACK_URL,
+//         debit_currency: withdrawalData.targetCurrency,
+//         beneficiary_name: "Mobile Money Transfer",
+//         meta: {
+//           user_id: withdrawalData.userId,
+//           original_amount_usd: withdrawalData.originalAmount,
+//           payment_method: withdrawalData.paymentMethod
+//         }
+//       };
+//     }
     
-    if (withdrawalData.paymentMethod === 'bank_transfer') {
-      return {
-        account_bank: withdrawalData.bankCode,
-        account_number: withdrawalData.accountNumber,
-        amount: withdrawalData.convertedAmount,
-        currency: withdrawalData.targetCurrency,
-        reference,
-        callback_url: FLUTTERWAVE_CONFIG.CALLBACK_URL,
-        beneficiary_name: withdrawalData.accountName,
-        meta: {
-          user_id: withdrawalData.userId,
-          original_amount_usd: withdrawalData.originalAmount,
-          payment_method: withdrawalData.paymentMethod
-        }
-      };
-    }
+//     if (withdrawalData.paymentMethod === 'bank_transfer') {
+//       return {
+//         account_bank: withdrawalData.bankCode,
+//         account_number: withdrawalData.accountNumber,
+//         amount: withdrawalData.convertedAmount,
+//         currency: withdrawalData.targetCurrency,
+//         reference,
+//         callback_url: FLUTTERWAVE_CONFIG.CALLBACK_URL,
+//         beneficiary_name: withdrawalData.accountName,
+//         meta: {
+//           user_id: withdrawalData.userId,
+//           original_amount_usd: withdrawalData.originalAmount,
+//           payment_method: withdrawalData.paymentMethod
+//         }
+//       };
+//     }
     
-    throw new Error('Unsupported payment method');
-  }
-}
+//     throw new Error('Unsupported payment method');
+//   }
+// }
 
 const generateScriptTag = (categoryId) => {
   return {
@@ -330,6 +331,187 @@ exports.createCategory = async (req, res) => {
     });
   }
 };
+
+exports.getActiveAds = async (req, res) => {
+  try {
+    const webOwnerId = req.user.userId || req.user.id || req.user._id;
+    
+    // Find categories owned by this web owner
+    const categories = await AdCategory.find({ ownerId: webOwnerId });
+    const categoryIds = categories.map(cat => cat._id);
+
+    // Find active ads
+    const activeAds = await ImportAd.find({
+      'websiteSelections': {
+        $elemMatch: {
+          categories: { $in: categoryIds },
+          approved: true,
+          isRejected: false,
+          status: 'active'
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      activeAds: activeAds
+    });
+
+  } catch (error) {
+    console.error('Error fetching active ads:', error);
+    res.status(500).json({ error: 'Failed to fetch active ads' });
+  }
+};
+
+exports.getPendingRejections = async (req, res) => {
+  try {
+    const webOwnerId = req.user.userId || req.user.id || req.user._id;
+    const now = new Date();
+
+    // Find categories owned by this web owner
+    const categories = await AdCategory.find({ ownerId: webOwnerId });
+    const categoryIds = categories.map(cat => cat._id);
+
+    // Find ads with pending rejection windows
+    const pendingAds = await ImportAd.find({
+      'websiteSelections': {
+        $elemMatch: {
+          categories: { $in: categoryIds },
+          approved: true,
+          isRejected: false,
+          rejectionDeadline: { $gt: now }
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      pendingAds: pendingAds
+    });
+
+  } catch (error) {
+    console.error('Error fetching pending rejections:', error);
+    res.status(500).json({ error: 'Failed to fetch pending rejections' });
+  }
+};
+
+exports.rejectAd = async (req, res) => {
+  const session = await mongoose.startSession();
+  
+  try {
+    const { adId, websiteId, categoryId } = req.params;
+    const { rejectionReason } = req.body;
+    const webOwnerId = req.user.userId || req.user.id || req.user._id;
+
+    await session.withTransaction(async () => {
+      // Find the ad
+      const ad = await ImportAd.findById(adId).session(session);
+      if (!ad) {
+        throw new Error('Ad not found');
+      }
+
+      // Find the specific website selection
+      const selectionIndex = ad.websiteSelections.findIndex(
+        sel => sel.websiteId.toString() === websiteId && 
+               sel.categories.includes(categoryId) &&
+               sel.approved === true &&
+               !sel.isRejected
+      );
+
+      if (selectionIndex === -1) {
+        throw new Error('Ad selection not found or already processed');
+      }
+
+      const selection = ad.websiteSelections[selectionIndex];
+
+      // Check if rejection window is still open (2 minutes)
+      const now = new Date();
+      if (selection.rejectionDeadline && now > selection.rejectionDeadline) {
+        throw new Error('Rejection window has expired');
+      }
+
+      // Verify web owner owns this website/category
+      const category = await AdCategory.findById(categoryId).session(session);
+      if (!category || category.ownerId !== webOwnerId) {
+        throw new Error('Unauthorized: You do not own this ad space');
+      }
+
+      // Find the payment record
+      const payment = await Payment.findOne({
+        adId: adId,
+        websiteId: websiteId,
+        categoryId: categoryId,
+        status: 'successful'
+      }).session(session);
+
+      if (!payment) {
+        throw new Error('Payment record not found');
+      }
+
+      // Update ad selection status
+      ad.websiteSelections[selectionIndex].isRejected = true;
+      ad.websiteSelections[selectionIndex].rejectedAt = now;
+      ad.websiteSelections[selectionIndex].rejectedBy = webOwnerId;
+      ad.websiteSelections[selectionIndex].rejectionReason = rejectionReason || 'No reason provided';
+      ad.websiteSelections[selectionIndex].approved = false;
+      ad.websiteSelections[selectionIndex].status = 'rejected';
+
+      // Make ad available for reassignment
+      ad.availableForReassignment = true;
+
+      await ad.save({ session });
+
+      // Remove ad from category's selectedAds
+      await AdCategory.findByIdAndUpdate(
+        categoryId,
+        { $pull: { selectedAds: adId } },
+        { session }
+      );
+
+      // Reverse wallet transaction for web owner
+      const webOwnerWallet = await Wallet.findOne({ ownerId: webOwnerId }).session(session);
+      if (webOwnerWallet) {
+        webOwnerWallet.balance -= payment.amount;
+        webOwnerWallet.totalEarned -= payment.amount;
+        webOwnerWallet.lastUpdated = now;
+        await webOwnerWallet.save({ session });
+
+        // Create reversal transaction record
+        const reversalTransaction = new WalletTransaction({
+          walletId: webOwnerWallet._id,
+          paymentId: payment._id,
+          adId: adId,
+          amount: -payment.amount,
+          type: 'debit',
+          description: `Refund for rejected ad: ${ad.businessName} from category: ${categoryId}`
+        });
+        await reversalTransaction.save({ session });
+      }
+
+      // Update payment status
+      payment.status = 'refunded';
+      payment.refundedAt = now;
+      payment.refundReason = 'Ad rejected by web owner';
+      await payment.save({ session });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Ad rejected successfully and refund processed'
+    });
+
+  } catch (error) {
+    console.error('Ad rejection error:', error);
+    res.status(400).json({ 
+      error: error.message || 'Failed to reject ad' 
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
+
+
 
 exports.resetUserCount = async (req, res) => {
   try {
@@ -917,466 +1099,466 @@ exports.getDetailedEarnings = async (req, res) => {
   }
 };
 
-exports.checkWithdrawalEligibility = async (req, res) => {
-  try {
-    const { payment } = req.params;
-    console.log('Received payment parameter:', payment);
+// exports.checkWithdrawalEligibility = async (req, res) => {
+//   try {
+//     const { payment } = req.params;
+//     console.log('Received payment parameter:', payment);
     
-    let paymentTracker;
-    try {
-      paymentTracker = await PaymentTracker.findOne({
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
-          { paymentReference: payment }
-        ]
-      });
-    } catch (findError) {
-      console.error('Error finding payment tracker:', findError);
-      throw findError;
-    }
+//     let paymentTracker;
+//     try {
+//       paymentTracker = await PaymentTracker.findOne({
+//         $or: [
+//           { _id: mongoose.Types.ObjectId.isValid(payment) ? new mongoose.Types.ObjectId(payment) : null },
+//           { paymentReference: payment }
+//         ]
+//       });
+//     } catch (findError) {
+//       console.error('Error finding payment tracker:', findError);
+//       throw findError;
+//     }
 
-    if (!paymentTracker) {
-      const paymentParts = payment.split('-');
-      if (paymentParts.length < 3) {
-        return res.status(400).json({
-          eligible: false,
-          message: 'Invalid payment reference format',
-          details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
-        });
-      }
+//     if (!paymentTracker) {
+//       const paymentParts = payment.split('-');
+//       if (paymentParts.length < 3) {
+//         return res.status(400).json({
+//           eligible: false,
+//           message: 'Invalid payment reference format',
+//           details: `Expected format: USER-AD-CATEGORY, got: ${payment}`
+//         });
+//       }
 
-      const userId = paymentParts[1];
-      const adId = paymentParts[2];
-      const categoryId = paymentParts[3];
+//       const userId = paymentParts[1];
+//       const adId = paymentParts[2];
+//       const categoryId = paymentParts[3];
 
-      try {
-        const newPaymentTracker = new PaymentTracker({
-          userId,
-          adId: adId,
-          categoryId: categoryId,
-          paymentDate: new Date(),
-          amount: 0,
-          viewsRequired: 1000,
-          currentViews: 0,
-          status: 'pending',
-          paymentReference: payment
-        });
+//       try {
+//         const newPaymentTracker = new PaymentTracker({
+//           userId,
+//           adId: adId,
+//           categoryId: categoryId,
+//           paymentDate: new Date(),
+//           amount: 0,
+//           viewsRequired: 1000,
+//           currentViews: 0,
+//           status: 'pending',
+//           paymentReference: payment
+//         });
 
-        await newPaymentTracker.save();
-        paymentTracker = newPaymentTracker;
-      } catch (createError) {
-        return res.status(500).json({
-          eligible: false,
-          message: 'Error creating payment tracker',
-          error: createError.message
-        });
-      }
-    }
+//         await newPaymentTracker.save();
+//         paymentTracker = newPaymentTracker;
+//       } catch (createError) {
+//         return res.status(500).json({
+//           eligible: false,
+//           message: 'Error creating payment tracker',
+//           error: createError.message
+//         });
+//       }
+//     }
 
-    let populatedPayment;
-    try {
-      populatedPayment = await PaymentTracker.findById(paymentTracker._id)
-        .populate({
-          path: 'adId',
-          select: 'businessName businessLocation businessLink'
-        })
-        .populate({
-          path: 'categoryId',
-          select: 'categoryName visitorRange'
-        });
-    } catch (populateError) {
-      throw populateError;
-    }
+//     let populatedPayment;
+//     try {
+//       populatedPayment = await PaymentTracker.findById(paymentTracker._id)
+//         .populate({
+//           path: 'adId',
+//           select: 'businessName businessLocation businessLink'
+//         })
+//         .populate({
+//           path: 'categoryId',
+//           select: 'categoryName visitorRange'
+//         });
+//     } catch (populateError) {
+//       throw populateError;
+//     }
 
-    const paymentData = populatedPayment.toObject();
+//     const paymentData = populatedPayment.toObject();
 
-    console.log('🧪 TEST MODE: Skipping restrictions for testing');
-    return res.status(200).json({ 
-      eligible: true,
-      message: '🧪 TEST MODE: Eligible for withdrawal (restrictions bypassed)',
-      payment: paymentData,
-      test_mode: true
-    });
+//     console.log('🧪 TEST MODE: Skipping restrictions for testing');
+//     return res.status(200).json({ 
+//       eligible: true,
+//       message: '🧪 TEST MODE: Eligible for withdrawal (restrictions bypassed)',
+//       payment: paymentData,
+//       test_mode: true
+//     });
 
-  } catch (error) {
-    console.error('Withdrawal eligibility check error:', error);
-    return res.status(500).json({ 
-      eligible: false,
-      message: 'Error checking withdrawal eligibility',
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     console.error('Withdrawal eligibility check error:', error);
+//     return res.status(500).json({ 
+//       eligible: false,
+//       message: 'Error checking withdrawal eligibility',
+//       error: error.message
+//     });
+//   }
+// };
 
-exports.initiateWithdrawal = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+// exports.initiateWithdrawal = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
   
-  try {
-    const withdrawalData = req.body;
-    console.log('💰 Processing withdrawal request:', withdrawalData);
+//   try {
+//     const withdrawalData = req.body;
+//     console.log('💰 Processing withdrawal request:', withdrawalData);
     
-    // Validation
-    if (!withdrawalData.amount || withdrawalData.amount <= 0) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid amount'
-      });
-    }
+//     // Validation
+//     if (!withdrawalData.amount || withdrawalData.amount <= 0) {
+//       await session.abortTransaction();
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid amount'
+//       });
+//     }
     
-    if (withdrawalData.amount < 5) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: 'Minimum withdrawal is $5 USD'
-      });
-    }
+//     if (withdrawalData.amount < 5) {
+//       await session.abortTransaction();
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Minimum withdrawal is $5 USD'
+//       });
+//     }
     
-    // Check balance
-    const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
-    if (!balance || balance.availableBalance < withdrawalData.amount) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient balance',
-        currentBalance: balance?.availableBalance || 0
-      });
-    }
+//     // Check balance
+//     const balance = await WebOwnerBalance.findOne({ userId: withdrawalData.userId });
+//     if (!balance || balance.availableBalance < withdrawalData.amount) {
+//       await session.abortTransaction();
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Insufficient balance',
+//         currentBalance: balance?.availableBalance || 0
+//       });
+//     }
     
-    // Currency conversion
-    const targetCurrency = withdrawalData.targetCurrency || 'RWF';
-    const originalAmount = withdrawalData.amount;
-    const convertedAmount = FlutterwaveWithdrawalService.convertCurrency(originalAmount, targetCurrency);
-    const exchangeRate = convertedAmount / originalAmount;
+//     // Currency conversion
+//     const targetCurrency = withdrawalData.targetCurrency || 'RWF';
+//     const originalAmount = withdrawalData.amount;
+//     const convertedAmount = FlutterwaveWithdrawalService.convertCurrency(originalAmount, targetCurrency);
+//     const exchangeRate = convertedAmount / originalAmount;
     
-    // Create withdrawal record immediately
-    const reference = `WD_${withdrawalData.userId}_${Date.now()}`;
-    const withdrawal = new EnhancedWithdrawal({
-      userId: withdrawalData.userId,
-      originalAmount,
-      convertedAmount,
-      originalCurrency: 'USD',
-      targetCurrency,
-      exchangeRate,
-      paymentMethod: withdrawalData.paymentMethod,
+//     // Create withdrawal record immediately
+//     const reference = `WD_${withdrawalData.userId}_${Date.now()}`;
+//     const withdrawal = new EnhancedWithdrawal({
+//       userId: withdrawalData.userId,
+//       originalAmount,
+//       convertedAmount,
+//       originalCurrency: 'USD',
+//       targetCurrency,
+//       exchangeRate,
+//       paymentMethod: withdrawalData.paymentMethod,
       
-      paymentDetails: {
-        phoneNumber: withdrawalData.phoneNumber,
-        provider: withdrawalData.provider,
-        bankCode: withdrawalData.bankCode,
-        accountNumber: withdrawalData.accountNumber,
-        accountName: withdrawalData.accountName
-      },
+//       paymentDetails: {
+//         phoneNumber: withdrawalData.phoneNumber,
+//         provider: withdrawalData.provider,
+//         bankCode: withdrawalData.bankCode,
+//         accountNumber: withdrawalData.accountNumber,
+//         accountName: withdrawalData.accountName
+//       },
       
-      status: 'pending',
-      reference,
-      processingFee: Math.round(convertedAmount * 0.015),
-      netAmount: Math.round(convertedAmount * 0.985)
-    });
+//       status: 'pending',
+//       reference,
+//       processingFee: Math.round(convertedAmount * 0.015),
+//       netAmount: Math.round(convertedAmount * 0.985)
+//     });
     
-    await withdrawal.save({ session });
+//     await withdrawal.save({ session });
     
-    // Try Flutterwave API call
-    try {
-      const flutterwavePayload = FlutterwaveWithdrawalService.prepareTransferPayload({
-        ...withdrawalData,
-        originalAmount,
-        convertedAmount,
-        targetCurrency
-      });
+//     // Try Flutterwave API call
+//     try {
+//       const flutterwavePayload = FlutterwaveWithdrawalService.prepareTransferPayload({
+//         ...withdrawalData,
+//         originalAmount,
+//         convertedAmount,
+//         targetCurrency
+//       });
       
-      console.log('📤 Attempting Flutterwave transfer...');
-      const flutterwaveResponse = await FlutterwaveWithdrawalService.makeFlutterwaveRequest(
-        '/transfers', 
-        flutterwavePayload
-      );
+//       console.log('📤 Attempting Flutterwave transfer...');
+//       const flutterwaveResponse = await FlutterwaveWithdrawalService.makeFlutterwaveRequest(
+//         '/transfers', 
+//         flutterwavePayload
+//       );
       
-      // SUCCESS: Flutterwave API worked
-      withdrawal.status = flutterwaveResponse.data.status === 'success' ? 'processing' : 'failed';
-      withdrawal.flutterwaveId = flutterwaveResponse.data.data?.id;
-      withdrawal.flutterwaveReference = flutterwaveResponse.data.data?.reference;
-      await withdrawal.save({ session });
+//       // SUCCESS: Flutterwave API worked
+//       withdrawal.status = flutterwaveResponse.data.status === 'success' ? 'processing' : 'failed';
+//       withdrawal.flutterwaveId = flutterwaveResponse.data.data?.id;
+//       withdrawal.flutterwaveReference = flutterwaveResponse.data.data?.reference;
+//       await withdrawal.save({ session });
       
-      if (flutterwaveResponse.data.status === 'success') {
-        // Deduct balance only on success
-        await WebOwnerBalance.findOneAndUpdate(
-          { userId: withdrawalData.userId },
-          { $inc: { availableBalance: -originalAmount } },
-          { session }
-        );
+//       if (flutterwaveResponse.data.status === 'success') {
+//         // Deduct balance only on success
+//         await WebOwnerBalance.findOneAndUpdate(
+//           { userId: withdrawalData.userId },
+//           { $inc: { availableBalance: -originalAmount } },
+//           { session }
+//         );
         
-        await session.commitTransaction();
+//         await session.commitTransaction();
         
-        return res.status(200).json({
-          success: true,
-          message: '✅ Withdrawal processed via Flutterwave API',
-          data: {
-            reference: withdrawal.reference,
-            flutterwaveId: withdrawal.flutterwaveId,
-            originalAmount: `${originalAmount} USD`,
-            convertedAmount: `${convertedAmount} ${targetCurrency}`,
-            status: withdrawal.status
-          }
-        });
-      }
+//         return res.status(200).json({
+//           success: true,
+//           message: '✅ Withdrawal processed via Flutterwave API',
+//           data: {
+//             reference: withdrawal.reference,
+//             flutterwaveId: withdrawal.flutterwaveId,
+//             originalAmount: `${originalAmount} USD`,
+//             convertedAmount: `${convertedAmount} ${targetCurrency}`,
+//             status: withdrawal.status
+//           }
+//         });
+//       }
       
-    } catch (flutterwaveError) {
-      console.log('⚠️ Flutterwave API failed, queuing for manual processing...');
+//     } catch (flutterwaveError) {
+//       console.log('⚠️ Flutterwave API failed, queuing for manual processing...');
       
-      // API failed - queue for manual processing but don't fail the request
-      withdrawal.status = 'pending';
-      withdrawal.failureReason = 'IP whitelist issue - queued for manual processing';
-      await withdrawal.save({ session });
+//       // API failed - queue for manual processing but don't fail the request
+//       withdrawal.status = 'pending';
+//       withdrawal.failureReason = 'IP whitelist issue - queued for manual processing';
+//       await withdrawal.save({ session });
       
-      // DON'T deduct balance yet - will deduct when manually processed
-      await session.commitTransaction();
+//       // DON'T deduct balance yet - will deduct when manually processed
+//       await session.commitTransaction();
       
-      // Log for manual processing
-      console.log('📋 QUEUE FOR MANUAL PROCESSING:');
-      console.log('================================');
-      console.log(`Reference: ${withdrawal.reference}`);
-      console.log(`User: ${withdrawalData.userId}`);
-      console.log(`Amount: ${originalAmount} USD → ${convertedAmount} ${targetCurrency}`);
-      console.log(`Phone: ${withdrawalData.phoneNumber}`);
-      console.log(`Provider: ${withdrawalData.provider}`);
-      console.log('Process this manually in Flutterwave dashboard');
+//       // Log for manual processing
+//       console.log('📋 QUEUE FOR MANUAL PROCESSING:');
+//       console.log('================================');
+//       console.log(`Reference: ${withdrawal.reference}`);
+//       console.log(`User: ${withdrawalData.userId}`);
+//       console.log(`Amount: ${originalAmount} USD → ${convertedAmount} ${targetCurrency}`);
+//       console.log(`Phone: ${withdrawalData.phoneNumber}`);
+//       console.log(`Provider: ${withdrawalData.provider}`);
+//       console.log('Process this manually in Flutterwave dashboard');
       
-      return res.status(200).json({
-        success: true,
-        message: '📋 Withdrawal queued for processing',
-        data: {
-          reference: withdrawal.reference,
-          originalAmount: `${originalAmount} USD`,
-          convertedAmount: `${convertedAmount} ${targetCurrency}`,
-          status: 'pending',
-          processingMethod: 'manual',
-          note: 'Will be processed manually due to IP whitelist restrictions',
-          estimatedTime: '1-2 business days',
-          manualProcessingDetails: {
-            amount: `${convertedAmount} ${targetCurrency}`,
-            phone: withdrawalData.phoneNumber,
-            provider: withdrawalData.provider,
-            instructions: 'Admin will process this in Flutterwave dashboard'
-          }
-        }
-      });
-    }
+//       return res.status(200).json({
+//         success: true,
+//         message: '📋 Withdrawal queued for processing',
+//         data: {
+//           reference: withdrawal.reference,
+//           originalAmount: `${originalAmount} USD`,
+//           convertedAmount: `${convertedAmount} ${targetCurrency}`,
+//           status: 'pending',
+//           processingMethod: 'manual',
+//           note: 'Will be processed manually due to IP whitelist restrictions',
+//           estimatedTime: '1-2 business days',
+//           manualProcessingDetails: {
+//             amount: `${convertedAmount} ${targetCurrency}`,
+//             phone: withdrawalData.phoneNumber,
+//             provider: withdrawalData.provider,
+//             instructions: 'Admin will process this in Flutterwave dashboard'
+//           }
+//         }
+//       });
+//     }
     
-  } catch (error) {
-    await session.abortTransaction();
-    console.error('❌ Withdrawal error:', error);
+//   } catch (error) {
+//     await session.abortTransaction();
+//     console.error('❌ Withdrawal error:', error);
     
-    return res.status(500).json({
-      success: false,
-      message: 'Error processing withdrawal',
-      error: error.message
-    });
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Error processing withdrawal',
+//       error: error.message
+//     });
     
-  } finally {
-    session.endSession();
-  }
-};
+//   } finally {
+//     session.endSession();
+//   }
+// };
 
-exports.withdrawalCallback = async (req, res) => {
-  try {
-    console.log('📨 Flutterwave callback received:', req.body);
+// exports.withdrawalCallback = async (req, res) => {
+//   try {
+//     console.log('📨 Flutterwave callback received:', req.body);
     
-    const { data } = req.body;
+//     const { data } = req.body;
     
-    // Find withdrawal by Flutterwave ID or reference
-    const withdrawal = await EnhancedWithdrawal.findOne({
-      $or: [
-        { flutterwaveId: data.id },
-        { flutterwaveReference: data.reference }
-      ]
-    });
+//     // Find withdrawal by Flutterwave ID or reference
+//     const withdrawal = await EnhancedWithdrawal.findOne({
+//       $or: [
+//         { flutterwaveId: data.id },
+//         { flutterwaveReference: data.reference }
+//       ]
+//     });
     
-    if (!withdrawal) {
-      return res.status(404).json({
-        success: false,
-        message: 'Withdrawal not found'
-      });
-    }
+//     if (!withdrawal) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Withdrawal not found'
+//       });
+//     }
     
-    // Update withdrawal status based on Flutterwave response
-    if (data.status === 'SUCCESSFUL' || data.status === 'successful') {
-      withdrawal.status = 'completed';
-      withdrawal.completedAt = new Date();
+//     // Update withdrawal status based on Flutterwave response
+//     if (data.status === 'SUCCESSFUL' || data.status === 'successful') {
+//       withdrawal.status = 'completed';
+//       withdrawal.completedAt = new Date();
       
-      console.log(`✅ Withdrawal ${withdrawal.reference} completed successfully`);
+//       console.log(`✅ Withdrawal ${withdrawal.reference} completed successfully`);
       
-    } else if (data.status === 'FAILED' || data.status === 'failed') {
-      withdrawal.status = 'failed';
-      withdrawal.failureReason = data.complete_message || 'Transfer failed';
+//     } else if (data.status === 'FAILED' || data.status === 'failed') {
+//       withdrawal.status = 'failed';
+//       withdrawal.failureReason = data.complete_message || 'Transfer failed';
       
-      // Refund the amount back to user balance (REAL MONEY REFUNDED)
-      await WebOwnerBalance.findOneAndUpdate(
-        { userId: withdrawal.userId },
-        { $inc: { availableBalance: withdrawal.originalAmount } }
-      );
+//       // Refund the amount back to user balance (REAL MONEY REFUNDED)
+//       await WebOwnerBalance.findOneAndUpdate(
+//         { userId: withdrawal.userId },
+//         { $inc: { availableBalance: withdrawal.originalAmount } }
+//       );
       
-      console.log(`❌ Withdrawal ${withdrawal.reference} failed, amount refunded`);
-    }
+//       console.log(`❌ Withdrawal ${withdrawal.reference} failed, amount refunded`);
+//     }
     
-    await withdrawal.save();
+//     await withdrawal.save();
     
-    res.status(200).json({
-      success: true,
-      message: 'Callback processed successfully'
-    });
+//     res.status(200).json({
+//       success: true,
+//       message: 'Callback processed successfully'
+//     });
     
-  } catch (error) {
-    console.error('❌ Callback error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error processing callback',
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     console.error('❌ Callback error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Error processing callback',
+//       error: error.message
+//     });
+//   }
+// };
 
-exports.checkIPAndFlutterwaveAccess = async (req, res) => {
-  try {
-    console.log('🔍 Running comprehensive diagnostic...');
+// exports.checkIPAndFlutterwaveAccess = async (req, res) => {
+//   try {
+//     console.log('🔍 Running comprehensive diagnostic...');
     
-    // Get current IP
-    let currentIP = 'unknown';
-    try {
-      const ipResponse = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
-      currentIP = ipResponse.data.ip;
-    } catch (ipError) {
-      console.log('Could not determine IP:', ipError.message);
-    }
+//     // Get current IP
+//     let currentIP = 'unknown';
+//     try {
+//       const ipResponse = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+//       currentIP = ipResponse.data.ip;
+//     } catch (ipError) {
+//       console.log('Could not determine IP:', ipError.message);
+//     }
     
-    // Test Flutterwave API access
-    let flutterwaveAccess = false;
-    let flutterwaveError = '';
+//     // Test Flutterwave API access
+//     let flutterwaveAccess = false;
+//     let flutterwaveError = '';
     
-    try {
-      await axios.get('https://api.flutterwave.com/v3/banks/NG', {
-        headers: {
-          'Authorization': `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      });
-      flutterwaveAccess = true;
-    } catch (fwError) {
-      flutterwaveError = fwError.response?.data?.message || fwError.message;
-    }
+//     try {
+//       await axios.get('https://api.flutterwave.com/v3/banks/NG', {
+//         headers: {
+//           'Authorization': `Bearer ${TEST_CONFIG.FLW_TEST_SECRET_KEY}`,
+//           'Content-Type': 'application/json'
+//         },
+//         timeout: 10000
+//       });
+//       flutterwaveAccess = true;
+//     } catch (fwError) {
+//       flutterwaveError = fwError.response?.data?.message || fwError.message;
+//     }
     
-    // Generate response
-    const diagnostic = {
-      server_ip: currentIP,
-      flutterwave_whitelisted_ip: '102.22.140.7',
-      ip_match: currentIP === '102.22.140.7',
-      flutterwave_api_accessible: flutterwaveAccess,
-      flutterwave_error: flutterwaveError,
+//     // Generate response
+//     const diagnostic = {
+//       server_ip: currentIP,
+//       flutterwave_whitelisted_ip: '102.22.140.7',
+//       ip_match: currentIP === '102.22.140.7',
+//       flutterwave_api_accessible: flutterwaveAccess,
+//       flutterwave_error: flutterwaveError,
       
-      status: flutterwaveAccess ? 'READY' : 'NEEDS_ATTENTION',
+//       status: flutterwaveAccess ? 'READY' : 'NEEDS_ATTENTION',
       
-      next_steps: flutterwaveAccess ? 
-        ['✅ Everything looks good! Withdrawals should work.'] :
-        [
-          '🚨 Action required: IP whitelist issue detected',
-          '1. Go to https://dashboard.flutterwave.com',
-          '2. Navigate to Settings > API Keys',
-          '3. Find "IP Whitelisting" section',
-          `4. Add your current IP: ${currentIP}`,
-          '5. Save changes and wait 5-10 minutes',
-          '6. Test this endpoint again'
-        ]
-    };
+//       next_steps: flutterwaveAccess ? 
+//         ['✅ Everything looks good! Withdrawals should work.'] :
+//         [
+//           '🚨 Action required: IP whitelist issue detected',
+//           '1. Go to https://dashboard.flutterwave.com',
+//           '2. Navigate to Settings > API Keys',
+//           '3. Find "IP Whitelisting" section',
+//           `4. Add your current IP: ${currentIP}`,
+//           '5. Save changes and wait 5-10 minutes',
+//           '6. Test this endpoint again'
+//         ]
+//     };
     
-    res.json(diagnostic);
+//     res.json(diagnostic);
     
-  } catch (error) {
-    res.status(500).json({
-      message: 'Diagnostic failed',
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     res.status(500).json({
+//       message: 'Diagnostic failed',
+//       error: error.message
+//     });
+//   }
+// };
 
-exports.requestManualWithdrawal = async (req, res) => {
-  try {
-    const withdrawalData = req.body;
+// exports.requestManualWithdrawal = async (req, res) => {
+//   try {
+//     const withdrawalData = req.body;
     
-    // Create manual withdrawal request
-    const withdrawal = new EnhancedWithdrawal({
-      userId: withdrawalData.userId,
-      originalAmount: withdrawalData.amount,
-      convertedAmount: FlutterwaveWithdrawalService.convertCurrency(withdrawalData.amount, 'RWF'),
-      originalCurrency: 'USD',
-      targetCurrency: 'RWF',
-      exchangeRate: 1350,
-      paymentMethod: withdrawalData.paymentMethod,
+//     // Create manual withdrawal request
+//     const withdrawal = new EnhancedWithdrawal({
+//       userId: withdrawalData.userId,
+//       originalAmount: withdrawalData.amount,
+//       convertedAmount: FlutterwaveWithdrawalService.convertCurrency(withdrawalData.amount, 'RWF'),
+//       originalCurrency: 'USD',
+//       targetCurrency: 'RWF',
+//       exchangeRate: 1350,
+//       paymentMethod: withdrawalData.paymentMethod,
       
-      paymentDetails: {
-        phoneNumber: withdrawalData.phoneNumber,
-        provider: withdrawalData.provider
-      },
+//       paymentDetails: {
+//         phoneNumber: withdrawalData.phoneNumber,
+//         provider: withdrawalData.provider
+//       },
       
-      status: 'pending',
-      reference: `MANUAL_${withdrawalData.userId}_${Date.now()}`
-    });
+//       status: 'pending',
+//       reference: `MANUAL_${withdrawalData.userId}_${Date.now()}`
+//     });
     
-    await withdrawal.save();
+//     await withdrawal.save();
     
-    // Log for manual processing
-    console.log('📋 MANUAL WITHDRAWAL REQUEST:');
-    console.log('================================');
-    console.log(`Reference: ${withdrawal.reference}`);
-    console.log(`Amount: $${withdrawalData.amount} USD (${withdrawal.convertedAmount} RWF)`);
-    console.log(`Phone: ${withdrawalData.phoneNumber}`);
-    console.log('Process this in Flutterwave dashboard manually');
+//     // Log for manual processing
+//     console.log('📋 MANUAL WITHDRAWAL REQUEST:');
+//     console.log('================================');
+//     console.log(`Reference: ${withdrawal.reference}`);
+//     console.log(`Amount: $${withdrawalData.amount} USD (${withdrawal.convertedAmount} RWF)`);
+//     console.log(`Phone: ${withdrawalData.phoneNumber}`);
+//     console.log('Process this in Flutterwave dashboard manually');
     
-    res.json({
-      success: true,
-      message: 'Manual withdrawal request created',
-      reference: withdrawal.reference,
-      note: 'Will be processed manually via Flutterwave dashboard',
-      expectedTime: '1-2 business days'
-    });
+//     res.json({
+//       success: true,
+//       message: 'Manual withdrawal request created',
+//       reference: withdrawal.reference,
+//       note: 'Will be processed manually via Flutterwave dashboard',
+//       expectedTime: '1-2 business days'
+//     });
     
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error creating manual withdrawal request',
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       message: 'Error creating manual withdrawal request',
+//       error: error.message
+//     });
+//   }
+// };
 
-exports.getManualWithdrawals = async (req, res) => {
-  try {
-    const { status = 'pending', limit = 50, page = 1 } = req.query;
+// exports.getManualWithdrawals = async (req, res) => {
+//   try {
+//     const { status = 'pending', limit = 50, page = 1 } = req.query;
     
-    const manualWithdrawals = await EnhancedWithdrawal.find({
-      status: status,
-      // Optional: filter by recent requests only
-      createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
-    })
-    .sort({ createdAt: -1 })
-    .limit(parseInt(limit))
-    .skip((parseInt(page) - 1) * parseInt(limit));
+//     const manualWithdrawals = await EnhancedWithdrawal.find({
+//       status: status,
+//       // Optional: filter by recent requests only
+//       createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
+//     })
+//     .sort({ createdAt: -1 })
+//     .limit(parseInt(limit))
+//     .skip((parseInt(page) - 1) * parseInt(limit));
     
-    console.log(`📋 Found ${manualWithdrawals.length} manual withdrawal requests`);
+//     console.log(`📋 Found ${manualWithdrawals.length} manual withdrawal requests`);
     
-    res.json({
-      message: 'Manual withdrawal requests retrieved',
-      withdrawals: manualWithdrawals,
-      count: manualWithdrawals.length,
-      page: parseInt(page),
-      status: status
-    });
+//     res.json({
+//       message: 'Manual withdrawal requests retrieved',
+//       withdrawals: manualWithdrawals,
+//       count: manualWithdrawals.length,
+//       page: parseInt(page),
+//       status: status
+//     });
     
-  } catch (error) {
-    console.error('Error fetching manual withdrawals:', error);
-    res.status(500).json({
-      message: 'Error fetching manual withdrawals',
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     console.error('Error fetching manual withdrawals:', error);
+//     res.status(500).json({
+//       message: 'Error fetching manual withdrawals',
+//       error: error.message
+//     });
+//   }
+// };
