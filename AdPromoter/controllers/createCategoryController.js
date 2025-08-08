@@ -1,5 +1,6 @@
 // createCategoryController.js
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const AdCategory = require('../models/CreateCategoryModel');
 const { Wallet, WalletTransaction } = require('../models/WalletModel');
 const User = require('../../models/User');
@@ -219,6 +220,274 @@ const generateScriptTag = (categoryId) => {
   };
 };
 
+function generateSecureHash(paymentId, timestamp, transactionType, userId) {
+  const data = `${paymentId}_${timestamp}_${transactionType}_${userId}_${process.env.INTERNAL_REFUND_SECRET}`;
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
+
+// async function processInternalRefund({
+//   session,
+//   payment,
+//   webOwnerId,
+//   advertiserId,
+//   amount,
+//   adId,
+//   categoryId,
+//   rejectionReason
+// }) {
+//   try {
+//     const timestamp = Date.now();
+    
+//     // Check if this is a self-rejection (same user is both web owner and advertiser)
+//     const isSelfRejection = webOwnerId === advertiserId;
+    
+//     if (isSelfRejection) {
+//       // For self-rejection, we just need to update payment status
+//       // No wallet transfers needed since it's the same person
+//       payment.internalRefundProcessed = true;
+//       payment.refundedAt = new Date();
+//       payment.refundReason = `Self-rejection: ${rejectionReason}`;
+//       payment.status = 'internally_refunded';
+//       await payment.save({ session });
+
+//       return {
+//         success: true,
+//         message: 'Self-rejection processed - no wallet transfer needed',
+//         selfRejection: true
+//       };
+//     }
+
+//     // Normal case: different users
+//     // Generate unique transaction hashes with user-specific data
+//     const webOwnerTransactionHash = generateSecureHash(payment._id, timestamp, 'refund_debit', webOwnerId);
+//     const advertiserTransactionHash = generateSecureHash(payment._id, timestamp + 1, 'refund_credit', advertiserId);
+
+//     // Get or create web owner wallet
+//     let webOwnerWallet = await Wallet.findOne({ 
+//       ownerId: webOwnerId,
+//       ownerType: 'webOwner'
+//     }).session(session);
+
+//     if (!webOwnerWallet) {
+//       throw new Error('Web owner wallet not found');
+//     }
+
+//     // Verify web owner has sufficient balance
+//     if (webOwnerWallet.balance < amount) {
+//       throw new Error('Insufficient balance in web owner wallet');
+//     }
+
+//     // Get or create advertiser wallet
+//     let advertiserWallet = await Wallet.findOne({ 
+//       ownerId: advertiserId,
+//       ownerType: 'advertiser'
+//     }).session(session);
+
+//     if (!advertiserWallet) {
+//       const advertiser = await User.findById(advertiserId).session(session);
+//       if (!advertiser) {
+//         throw new Error('Advertiser not found');
+//       }
+
+//       advertiserWallet = new Wallet({
+//         ownerId: advertiserId,
+//         ownerEmail: advertiser.email,
+//         ownerType: 'advertiser',
+//         balance: 0,
+//         totalEarned: 0,
+//         totalSpent: 0,
+//         totalRefunded: 0
+//       });
+//     }
+
+//     // Process web owner debit
+//     webOwnerWallet.balance -= amount;
+//     webOwnerWallet.totalEarned -= amount;
+//     webOwnerWallet.lastUpdated = new Date();
+//     await webOwnerWallet.save({ session });
+
+//     // Process advertiser credit
+//     advertiserWallet.balance += amount;
+//     advertiserWallet.totalRefunded += amount;
+//     advertiserWallet.lastUpdated = new Date();
+//     await advertiserWallet.save({ session });
+
+//     // Create web owner debit transaction
+//     const webOwnerTransaction = new WalletTransaction({
+//       walletId: webOwnerWallet._id,
+//       paymentId: payment._id,
+//       adId: adId,
+//       amount: -amount,
+//       type: 'refund_debit',
+//       description: `Internal refund debit for rejected ad: ${rejectionReason}`,
+//       status: 'completed',
+//       transactionHash: webOwnerTransactionHash
+//     });
+//     await webOwnerTransaction.save({ session });
+
+//     // Create advertiser credit transaction
+//     const advertiserTransaction = new WalletTransaction({
+//       walletId: advertiserWallet._id,
+//       paymentId: payment._id,
+//       adId: adId,
+//       relatedTransactionId: webOwnerTransaction._id,
+//       amount: amount,
+//       type: 'refund_credit',
+//       description: `Internal refund credit for rejected ad: ${rejectionReason}`,
+//       status: 'completed',
+//       transactionHash: advertiserTransactionHash
+//     });
+//     await advertiserTransaction.save({ session });
+
+//     // Link transactions
+//     webOwnerTransaction.relatedTransactionId = advertiserTransaction._id;
+//     await webOwnerTransaction.save({ session });
+
+//     // Update payment record
+//     payment.internalRefundProcessed = true;
+//     payment.refundedAt = new Date();
+//     payment.refundReason = `Internal refund: ${rejectionReason}`;
+//     payment.refundTransactionIds = [webOwnerTransaction._id, advertiserTransaction._id];
+//     payment.status = 'internally_refunded';
+//     await payment.save({ session });
+
+//     return {
+//       success: true,
+//       webOwnerTransaction: webOwnerTransaction._id,
+//       advertiserTransaction: advertiserTransaction._id
+//     };
+
+//   } catch (error) {
+//     console.error('Internal refund processing error:', error);
+//     throw new Error(`Internal refund failed: ${error.message}`);
+//   }
+// }
+
+async function processInternalRefund({
+  session,
+  payment,
+  webOwnerId,
+  advertiserId,
+  amount,
+  adId,
+  categoryId,
+  rejectionReason
+}) {
+  try {
+    const timestamp = Date.now();
+    const isSelfRejection = webOwnerId === advertiserId;
+    
+    if (isSelfRejection) {
+      // ENHANCED: For self-rejection, create refund but no wallet transfer
+      payment.internalRefundProcessed = true;
+      payment.refundedAt = new Date();
+      payment.refundReason = `Self-rejection: ${rejectionReason}`;
+      payment.status = 'internally_refunded';
+      await payment.save({ session });
+
+      return {
+        success: true,
+        message: 'Self-rejection processed - refund created for future use',
+        selfRejection: true,
+        refundAmount: amount
+      };
+    }
+
+    // ENHANCED: For normal rejections, transfer money from web owner back to advertiser
+    
+    // Find web owner's wallet
+    let webOwnerWallet = await Wallet.findOne({ 
+      ownerId: webOwnerId, 
+      ownerType: 'webOwner' 
+    }).session(session);
+    
+    if (!webOwnerWallet) {
+      throw new Error('Web owner wallet not found');
+    }
+
+    // Check if web owner has sufficient balance
+    if (webOwnerWallet.balance < amount) {
+      throw new Error(`Insufficient balance in web owner wallet. Required: $${amount}, Available: $${webOwnerWallet.balance}`);
+    }
+
+    // Find or create advertiser's wallet
+    let advertiserWallet = await Wallet.findOne({ 
+      ownerId: advertiserId, 
+      ownerType: 'advertiser' 
+    }).session(session);
+    
+    if (!advertiserWallet) {
+      // Get advertiser email from the ad
+      const ad = await ImportAd.findById(adId).session(session);
+      advertiserWallet = new Wallet({
+        ownerId: advertiserId,
+        ownerEmail: ad.adOwnerEmail,
+        ownerType: 'advertiser',
+        balance: 0,
+        totalEarned: 0
+      });
+    }
+
+    // ENHANCED: Transfer funds between wallets
+    webOwnerWallet.balance -= amount;
+    webOwnerWallet.lastUpdated = new Date();
+    await webOwnerWallet.save({ session });
+
+    advertiserWallet.balance += amount;
+    advertiserWallet.totalRefunded = (advertiserWallet.totalRefunded || 0) + amount;
+    advertiserWallet.lastUpdated = new Date();
+    await advertiserWallet.save({ session });
+
+    // ENHANCED: Create wallet transactions for both parties
+    const webOwnerTransaction = new WalletTransaction({
+      walletId: webOwnerWallet._id,
+      paymentId: payment._id,
+      adId: adId,
+      amount: -amount, // Negative for debit
+      type: 'refund_debit',
+      description: `Refund processed - Ad rejected: ${rejectionReason}`,
+      status: 'completed'
+    });
+
+    const advertiserTransaction = new WalletTransaction({
+      walletId: advertiserWallet._id,
+      paymentId: payment._id,
+      adId: adId,
+      relatedTransactionId: webOwnerTransaction._id,
+      amount: amount,
+      type: 'refund_credit',
+      description: `Refund received - Ad rejected by web owner: ${rejectionReason}`,
+      status: 'completed'
+    });
+
+    await webOwnerTransaction.save({ session });
+    await advertiserTransaction.save({ session });
+
+    // ENHANCED: Update payment status to refunded
+    payment.internalRefundProcessed = true;
+    payment.refundedAt = new Date();
+    payment.refundReason = rejectionReason;
+    payment.status = 'refunded'; // This makes it available for future use
+    payment.refundTransactionIds = [webOwnerTransaction._id, advertiserTransaction._id];
+    await payment.save({ session });
+
+    return {
+      success: true,
+      message: 'Internal refund processed successfully',
+      selfRejection: false,
+      refundAmount: amount,
+      webOwnerNewBalance: webOwnerWallet.balance,
+      advertiserNewBalance: advertiserWallet.balance
+    };
+
+  } catch (error) {
+    console.error('Internal refund processing error:', error);
+    throw new Error(`Refund processing failed: ${error.message}`);
+  }
+}
+
+
+
 exports.createCategory = async (req, res) => {
   try {
     // Add debugging to see what's in req.user
@@ -395,6 +664,106 @@ exports.getPendingRejections = async (req, res) => {
   }
 };
 
+// exports.rejectAd = async (req, res) => {
+//   const session = await mongoose.startSession();
+  
+//   try {
+//     const { adId, websiteId, categoryId } = req.params;
+//     const { rejectionReason } = req.body;
+//     const webOwnerId = req.user.userId || req.user.id || req.user._id;
+
+//     await session.withTransaction(async () => {
+//       // Fetch all required documents
+//       const ad = await ImportAd.findById(adId).session(session);
+//       const category = await AdCategory.findById(categoryId).session(session);
+//       const payment = await Payment.findOne({
+//         adId: adId,
+//         websiteId: websiteId,
+//         categoryId: categoryId,
+//         status: 'successful'
+//       }).session(session);
+
+//       if (!ad || !category || !payment) {
+//         throw new Error('Required documents not found');
+//       }
+
+//       // Verify rejection eligibility
+//       const selectionIndex = ad.websiteSelections.findIndex(
+//         sel => sel.websiteId.toString() === websiteId && 
+//                sel.categories.includes(categoryId) &&
+//                sel.approved === true &&
+//                !sel.isRejected
+//       );
+
+//       if (selectionIndex === -1) {
+//         throw new Error('Ad selection not found or already processed');
+//       }
+
+//       const selection = ad.websiteSelections[selectionIndex];
+//       const now = new Date();
+
+//       // Check rejection deadline
+//       if (selection.rejectionDeadline && now > selection.rejectionDeadline) {
+//         throw new Error('Rejection window has expired');
+//       }
+
+//       // Prevent double processing
+//       if (payment.internalRefundProcessed) {
+//         throw new Error('Refund already processed');
+//       }
+
+//       // Update ad status
+//       ad.websiteSelections[selectionIndex].isRejected = true;
+//       ad.websiteSelections[selectionIndex].rejectedAt = now;
+//       ad.websiteSelections[selectionIndex].rejectedBy = webOwnerId;
+//       ad.websiteSelections[selectionIndex].rejectionReason = rejectionReason || 'No reason provided';
+//       ad.websiteSelections[selectionIndex].approved = false;
+//       ad.websiteSelections[selectionIndex].status = 'rejected';
+//       ad.availableForReassignment = true;
+
+//       await ad.save({ session });
+
+//       // Remove ad from category
+//       await AdCategory.findByIdAndUpdate(
+//         categoryId,
+//         { $pull: { selectedAds: adId } },
+//         { session }
+//       );
+
+//       // Process internal wallet reassignment
+//       const refundResult = await processInternalRefund({
+//         session,
+//         payment,
+//         webOwnerId,
+//         advertiserId: payment.advertiserId,
+//         amount: payment.amount,
+//         adId,
+//         categoryId,
+//         rejectionReason: rejectionReason || 'No reason provided'
+//       });
+
+//       // Add self-rejection info to response if applicable
+//       if (refundResult.selfRejection) {
+//         console.log('Self-rejection detected - no wallet transfer performed');
+//       }
+
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Ad rejected and refund processed internally'
+//     });
+
+//   } catch (error) {
+//     console.error('Reject ad error:', error);
+//     res.status(400).json({ 
+//       error: error.message || 'Failed to reject ad' 
+//     });
+//   } finally {
+//     await session.endSession();
+//   }
+// };
+
 exports.rejectAd = async (req, res) => {
   const session = await mongoose.startSession();
   
@@ -403,14 +772,32 @@ exports.rejectAd = async (req, res) => {
     const { rejectionReason } = req.body;
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
 
+    // ENHANCED: Validate rejection reason
+    if (!rejectionReason || rejectionReason.trim().length < 10) {
+      return res.status(400).json({ 
+        error: 'Rejection reason is required and must be at least 10 characters long' 
+      });
+    }
+
     await session.withTransaction(async () => {
-      // Find the ad
       const ad = await ImportAd.findById(adId).session(session);
-      if (!ad) {
-        throw new Error('Ad not found');
+      const category = await AdCategory.findById(categoryId).session(session);
+      const payment = await Payment.findOne({
+        adId: adId,
+        websiteId: websiteId,
+        categoryId: categoryId,
+        status: 'successful'
+      }).session(session);
+
+      if (!ad || !category || !payment) {
+        throw new Error('Required documents not found');
       }
 
-      // Find the specific website selection
+      // ENHANCED: Verify web owner owns the category
+      if (category.ownerId !== webOwnerId) {
+        throw new Error('Unauthorized: You can only reject ads on your own categories');
+      }
+
       const selectionIndex = ad.websiteSelections.findIndex(
         sel => sel.websiteId.toString() === websiteId && 
                sel.categories.includes(categoryId) &&
@@ -423,85 +810,75 @@ exports.rejectAd = async (req, res) => {
       }
 
       const selection = ad.websiteSelections[selectionIndex];
-
-      // Check if rejection window is still open (2 minutes)
       const now = new Date();
+
+      // ENHANCED: Check rejection deadline with grace period
       if (selection.rejectionDeadline && now > selection.rejectionDeadline) {
-        throw new Error('Rejection window has expired');
+        const gracePeriod = 5 * 60 * 1000; // 5 minutes grace period
+        const deadlineWithGrace = new Date(selection.rejectionDeadline.getTime() + gracePeriod);
+        
+        if (now > deadlineWithGrace) {
+          throw new Error('Rejection window has expired. You can no longer reject this ad.');
+        }
       }
 
-      // Verify web owner owns this website/category
-      const category = await AdCategory.findById(categoryId).session(session);
-      if (!category || category.ownerId !== webOwnerId) {
-        throw new Error('Unauthorized: You do not own this ad space');
+      // Prevent double processing
+      if (payment.internalRefundProcessed) {
+        throw new Error('Refund already processed');
       }
 
-      // Find the payment record
-      const payment = await Payment.findOne({
-        adId: adId,
-        websiteId: websiteId,
-        categoryId: categoryId,
-        status: 'successful'
-      }).session(session);
-
-      if (!payment) {
-        throw new Error('Payment record not found');
-      }
-
-      // Update ad selection status
+      // ENHANCED: Update ad status with more detailed information
       ad.websiteSelections[selectionIndex].isRejected = true;
       ad.websiteSelections[selectionIndex].rejectedAt = now;
       ad.websiteSelections[selectionIndex].rejectedBy = webOwnerId;
-      ad.websiteSelections[selectionIndex].rejectionReason = rejectionReason || 'No reason provided';
+      ad.websiteSelections[selectionIndex].rejectionReason = rejectionReason.trim();
       ad.websiteSelections[selectionIndex].approved = false;
       ad.websiteSelections[selectionIndex].status = 'rejected';
-
-      // Make ad available for reassignment
-      ad.availableForReassignment = true;
+      
+      // ENHANCED: Mark ad as available for reassignment only if it has rejected selections
+      const hasActiveSelections = ad.websiteSelections.some(ws => 
+        ws.status === 'active' && !ws.isRejected
+      );
+      ad.availableForReassignment = !hasActiveSelections; // Only available if no active selections
 
       await ad.save({ session });
 
-      // Remove ad from category's selectedAds
-      await AdCategory.findByIdAndUpdate(
+      // ENHANCED: Remove ad from category and update counters
+      const updateResult = await AdCategory.findByIdAndUpdate(
         categoryId,
-        { $pull: { selectedAds: adId } },
-        { session }
+        { 
+          $pull: { selectedAds: adId },
+          $inc: { userCount: -1 } // Decrease counter to free up space
+        },
+        { session, new: true }
       );
 
-      // Reverse wallet transaction for web owner
-      const webOwnerWallet = await Wallet.findOne({ ownerId: webOwnerId }).session(session);
-      if (webOwnerWallet) {
-        webOwnerWallet.balance -= payment.amount;
-        webOwnerWallet.totalEarned -= payment.amount;
-        webOwnerWallet.lastUpdated = now;
-        await webOwnerWallet.save({ session });
+      console.log(`Category ${categoryId} now has ${updateResult.selectedAds.length} ads`);
 
-        // Create reversal transaction record
-        const reversalTransaction = new WalletTransaction({
-          walletId: webOwnerWallet._id,
-          paymentId: payment._id,
-          adId: adId,
-          amount: -payment.amount,
-          type: 'debit',
-          description: `Refund for rejected ad: ${ad.businessName} from category: ${categoryId}`
-        });
-        await reversalTransaction.save({ session });
-      }
+      // ENHANCED: Process internal wallet reassignment with detailed logging
+      const refundResult = await processInternalRefund({
+        session,
+        payment,
+        webOwnerId,
+        advertiserId: payment.advertiserId,
+        amount: payment.amount,
+        adId,
+        categoryId,
+        rejectionReason: rejectionReason.trim()
+      });
 
-      // Update payment status
-      payment.status = 'refunded';
-      payment.refundedAt = now;
-      payment.refundReason = 'Ad rejected by web owner';
-      await payment.save({ session });
+      console.log('Refund processing result:', refundResult);
     });
 
     res.status(200).json({
       success: true,
-      message: 'Ad rejected successfully and refund processed'
+      message: 'Ad rejected and refund processed successfully',
+      rejectionReason: rejectionReason.trim(),
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Ad rejection error:', error);
+    console.error('Reject ad error:', error);
     res.status(400).json({ 
       error: error.message || 'Failed to reject ad' 
     });
@@ -510,8 +887,43 @@ exports.rejectAd = async (req, res) => {
   }
 };
 
-
-
+exports.getCategoryBookingStatus = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    
+    const category = await AdCategory.findById(categoryId)
+      .populate('selectedAds', 'businessName createdAt')
+      .populate('websiteId', 'websiteName');
+    
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    const maxSlots = category.userCount || 10;
+    const currentSlots = category.selectedAds ? category.selectedAds.length : 0;
+    const availableSlots = Math.max(0, maxSlots - currentSlots);
+    const isFullyBooked = currentSlots >= maxSlots;
+    
+    res.status(200).json({
+      success: true,
+      category: {
+        id: category._id,
+        name: category.categoryName,
+        price: category.price,
+        websiteName: category.websiteId?.websiteName,
+        maxSlots: maxSlots,
+        currentSlots: currentSlots,
+        availableSlots: availableSlots,
+        isFullyBooked: isFullyBooked,
+        occupancyRate: maxSlots > 0 ? ((currentSlots / maxSlots) * 100).toFixed(1) : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error getting category booking status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
 
 exports.resetUserCount = async (req, res) => {
   try {

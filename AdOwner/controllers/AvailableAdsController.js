@@ -1,7 +1,10 @@
-// Create new file: AvailableAdsController.js
+// AvailableAdsController.js
+const mongoose = require('mongoose');
 const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const Website = require('../../AdPromoter/models/CreateWebsiteModel');
+const Payment = require('../../AdOwner/models/PaymentModel');
+const { Wallet, WalletTransaction } = require('../../AdPromoter/models/WalletModel');
 
 exports.getAvailableAds = async (req, res) => {
   try {
@@ -46,13 +49,32 @@ exports.getAvailableAds = async (req, res) => {
       query.businessCategories = { $in: matchingCategories };
     }
 
+    // Get available ads with payment information
     const availableAds = await ImportAd.find(query)
       .sort({ createdAt: -1 })
       .limit(50); // Limit for performance
 
+    // Enrich ads with payment information
+    const adsWithPaymentInfo = await Promise.all(
+      availableAds.map(async (ad) => {
+        // Find the most recent payment for this ad and category combination
+        const payment = await Payment.findOne({
+          adId: ad._id,
+          categoryId: categoryId,
+          status: { $in: ['successful', 'refunded'] }
+        }).sort({ createdAt: -1 });
+
+        return {
+          ...ad.toObject(),
+          potentialEarning: payment ? payment.amount : category.price,
+          paymentInfo: payment
+        };
+      })
+    );
+
     res.status(200).json({
       success: true,
-      availableAds: availableAds,
+      availableAds: adsWithPaymentInfo,
       category: category
     });
 
@@ -62,7 +84,7 @@ exports.getAvailableAds = async (req, res) => {
   }
 };
 
-exports.assignAdToCategory = async (req, res) => {
+exports.assignAdToCategoryWithPayment = async (req, res) => {
   const session = await mongoose.startSession();
   
   try {
@@ -83,21 +105,67 @@ exports.assignAdToCategory = async (req, res) => {
       }
 
       // Check if ad is available
-      const existingSelection = ad.websiteSelections.find(
+      const existingActiveSelection = ad.websiteSelections.find(
         sel => sel.websiteId.toString() === websiteId &&
                sel.categories.includes(categoryId) &&
                sel.approved === true &&
                !sel.isRejected
       );
 
-      if (existingSelection) {
+      if (existingActiveSelection) {
         throw new Error('Ad is already assigned to this category');
       }
 
-      // Add new website selection (free assignment for available ads)
+      // Find the most recent payment for this ad (could be from previous assignment)
+      let payment = await Payment.findOne({
+        adId: adId,
+        status: { $in: ['successful', 'refunded'] }
+      }).sort({ createdAt: -1 }).session(session);
+
+      let earningAmount = category.price; // Default to category price
+
+      // If there's a previous payment, use that amount
+      if (payment) {
+        earningAmount = payment.amount;
+        
+        // Create a new payment record for this assignment
+        const newPayment = new Payment({
+          adId: adId,
+          websiteId: websiteId,
+          categoryId: categoryId,
+          amount: earningAmount,
+          status: 'successful',
+          paymentMethod: 'reassignment',
+          description: `Payment for reassigned ad: ${ad.businessName}`,
+          adOwnerEmail: ad.adOwnerEmail,
+          webOwnerEmail: category.webOwnerEmail,
+          createdAt: new Date()
+        });
+        
+        payment = await newPayment.save({ session });
+      } else {
+        // Create new payment record
+        payment = new Payment({
+          adId: adId,
+          websiteId: websiteId,
+          categoryId: categoryId,
+          amount: earningAmount,
+          status: 'successful',
+          paymentMethod: 'reassignment',
+          description: `Payment for assigned ad: ${ad.businessName}`,
+          adOwnerEmail: ad.adOwnerEmail,
+          webOwnerEmail: category.webOwnerEmail,
+          createdAt: new Date()
+        });
+        
+        payment = await payment.save({ session });
+      }
+
+      // Set up rejection deadline (2 minutes from now)
       const rejectionDeadline = new Date();
       rejectionDeadline.setMinutes(rejectionDeadline.getMinutes() + 2);
 
+      // Add new website selection
       ad.websiteSelections.push({
         websiteId: websiteId,
         categories: [categoryId],
@@ -105,7 +173,8 @@ exports.assignAdToCategory = async (req, res) => {
         approvedAt: new Date(),
         publishedAt: new Date(),
         rejectionDeadline: rejectionDeadline,
-        status: 'active'
+        status: 'active',
+        paymentId: payment._id
       });
 
       ad.availableForReassignment = false; // No longer available for reassignment
@@ -117,17 +186,65 @@ exports.assignAdToCategory = async (req, res) => {
         { $addToSet: { selectedAds: adId } },
         { session }
       );
-    });
 
-    res.status(200).json({
-      success: true,
-      message: 'Ad assigned successfully'
+      // Handle wallet payment to web owner
+      let webOwnerWallet = await Wallet.findOne({ ownerId: webOwnerId }).session(session);
+      
+      if (!webOwnerWallet) {
+        // Create wallet if it doesn't exist
+        webOwnerWallet = new Wallet({
+          ownerId: webOwnerId,
+          balance: 0,
+          totalEarned: 0,
+          totalWithdrawn: 0,
+          lastUpdated: new Date()
+        });
+      }
+
+      // Add earnings to wallet
+      webOwnerWallet.balance += earningAmount;
+      webOwnerWallet.totalEarned += earningAmount;
+      webOwnerWallet.lastUpdated = new Date();
+      await webOwnerWallet.save({ session });
+
+      // Create wallet transaction record
+      const walletTransaction = new WalletTransaction({
+        walletId: webOwnerWallet._id,
+        paymentId: payment._id,
+        adId: adId,
+        amount: earningAmount,
+        type: 'credit',
+        status: 'completed',
+        description: `Earnings from ad assignment: ${ad.businessName} - Category: ${category.categoryName}`,
+        createdAt: new Date()
+      });
+      
+      await walletTransaction.save({ session });
+
+      // Return success with payment details
+      res.status(200).json({
+        success: true,
+        message: 'Ad assigned successfully and payment credited to wallet',
+        paymentDetails: {
+          amount: earningAmount,
+          paymentId: payment._id,
+          walletBalance: webOwnerWallet.balance
+        },
+        adDetails: {
+          adId: adId,
+          businessName: ad.businessName,
+          rejectionDeadline: rejectionDeadline
+        }
+      });
     });
 
   } catch (error) {
-    console.error('Error assigning ad:', error);
+    console.error('Error assigning ad with payment:', error);
     res.status(400).json({ error: error.message || 'Failed to assign ad' });
   } finally {
     await session.endSession();
   }
 };
+
+// Keep the original method for backward compatibility
+exports.assignAdToCategory = exports.assignAdToCategoryWithPayment;

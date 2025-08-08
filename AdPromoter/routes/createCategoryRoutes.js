@@ -26,6 +26,9 @@ router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForW
 router.get('/wallet', authMiddleware, WalletController.getWallet);
 router.get('/wallet/transactions', authMiddleware, WalletController.getWalletTransactions);
 
+router.get('/wallet/:ownerType/balance', authMiddleware, WalletController.getWalletBalance);
+router.get('/wallet/:ownerType/transactions', authMiddleware, WalletController.getTransactionHistory);
+
 router.post('/reject/:adId/:websiteId/:categoryId', authMiddleware, adRejectionController.rejectAd);
 router.get('/pending-rejections', authMiddleware, adRejectionController.getPendingRejections);
 
