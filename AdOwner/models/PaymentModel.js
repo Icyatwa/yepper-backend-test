@@ -47,6 +47,9 @@ const paymentSchema = new mongoose.Schema({
   refundUsed: { type: Boolean, default: false }, // Whether this refund has been used
   refundUsedAt: { type: Date }, // When the refund was used
   refundUsedForPayment: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' }, // Which payment used this refund
+  notes: {
+    type: String
+  },
   refundUsageAmount: { type: Number, default: 0 }, // How much of this refund was used (for partial usage)
   
   // ENHANCED: Refund source tracking (for payments that used refunds)

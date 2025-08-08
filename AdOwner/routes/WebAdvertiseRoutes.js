@@ -35,7 +35,7 @@ router.post('/:adId/reassign', authMiddleware, WebAdvertiseController.reassignAd
 router.post('/payment/initiate-with-refund', authMiddleware, PaymentController.initiatePaymentWithRefund);
 router.post('/payment/verify-with-refund', authMiddleware, PaymentController.verifyPaymentWithRefund);
 router.post('/payment/refund-only', authMiddleware, PaymentController.processRefundOnlyPayment);
-
+router.get('/payment/refund-balance', authMiddleware, PaymentController.getAdvertiserRefundBalance);
 
 router.get('/available', authMiddleware, availableAdsController.getAvailableAds);
 router.post('/assign', authMiddleware, availableAdsController.assignAdToCategoryWithPayment);

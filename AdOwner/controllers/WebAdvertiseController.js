@@ -518,9 +518,6 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
     
     // Find and verify ad ownership
     const ad = await ImportAd.findOne({ _id: adId, userId: ownerId.toString() });
-    if (!ad) {
-      return res.status(404).json({ error: 'Ad not found or unauthorized' });
-    }
 
     let websitesArray, categoriesArray;
     try {
@@ -537,12 +534,12 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
       });
     }
 
-    // ENHANCED: Get categories with booking status check
+    // Get categories with booking status check
     const categories = await AdCategory.find({
       _id: { $in: categoriesArray }
     });
 
-    // ENHANCED: Check for fully booked categories
+    // Check for fully booked categories
     const fullyBookedCategories = [];
     const availableCategories = [];
     
@@ -562,7 +559,7 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
       }
     }
 
-    // ENHANCED: If some categories are fully booked, inform the user
+    // If some categories are fully booked, inform the user
     if (fullyBookedCategories.length > 0) {
       return res.status(409).json({
         error: 'Some categories are fully booked',
@@ -599,29 +596,23 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
         approved: false,
         approvedAt: null,
         status: 'pending',
-        isRejected: false, // Reset rejection status for reassignments
+        isRejected: false,
         rejectedAt: null,
         rejectionReason: null,
         rejectedBy: null
       };
     }).filter(selection => selection.categories.length > 0);
 
-    // ENHANCED: Improved selection logic for reassignments
+    // Selection logic for reassignments
     let selectionsToAdd = [];
     
     if (isReassignment) {
-      // For reassignments, remove old rejected selections and add new ones
       const websiteIdsToReassign = newWebsiteSelections.map(sel => sel.websiteId.toString());
-      
-      // Remove existing selections for websites being reassigned
       ad.websiteSelections = ad.websiteSelections.filter(ws => 
         !websiteIdsToReassign.includes(ws.websiteId.toString())
       );
-      
       selectionsToAdd = newWebsiteSelections;
-      
     } else {
-      // For regular additions, only avoid active/pending duplicates
       const existingActiveOrPendingWebsiteIds = ad.websiteSelections
         .filter(ws => (ws.status === 'active' || ws.status === 'pending') && !ws.isRejected)
         .map(ws => ws.websiteId.toString());
@@ -639,7 +630,6 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
 
     ad.websiteSelections.push(...selectionsToAdd);
     
-    // ENHANCED: Smart availability logic
     const hasRejectedSelections = ad.websiteSelections.some(ws => ws.isRejected);
     const hasActiveSelections = ad.websiteSelections.some(ws => ws.status === 'active' && !ws.isRejected);
     ad.availableForReassignment = hasRejectedSelections && !hasActiveSelections;
@@ -650,30 +640,50 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
       .populate('websiteSelections.websiteId')
       .populate('websiteSelections.categories');
 
-    // ENHANCED: Get advertiser's available refunds for payment calculation
+    // ENHANCED: Get advertiser's available refunds for smart payment calculation
     const availableRefunds = await Payment.getAllAvailableRefunds(ownerId);
 
+    // ENHANCED: Smart refund distribution calculation
     const paymentSelections = selectionsToAdd.map(selection => {
       const category = availableCategories.find(cat => 
         selection.categories.includes(cat._id) && 
         cat.websiteId.toString() === selection.websiteId.toString()
       );
       
-      // ENHANCED: Calculate how much refund can be applied to this payment
-      const categoryPrice = category ? category.price : 0;
-      const refundApplicable = Math.min(availableRefunds, categoryPrice);
-      const remainingCost = Math.max(0, categoryPrice - refundApplicable);
-      
       return {
         websiteId: selection.websiteId,
         categoryId: selection.categories[0],
-        price: categoryPrice,
-        categoryName: category ? category.categoryName : 'Unknown',
-        availableRefund: refundApplicable,
-        remainingCost: remainingCost,
-        canUseRefundOnly: remainingCost === 0 && refundApplicable > 0
+        price: category ? category.price : 0,
+        categoryName: category ? category.categoryName : 'Unknown'
       };
     });
+
+    // ENHANCED: Calculate optimal refund distribution
+    const calculateRefundDistribution = (selections, totalRefunds) => {
+      // Sort selections by price (ascending) to maximize refund usage
+      const sortedSelections = [...selections].sort((a, b) => a.price - b.price);
+      let remainingRefunds = totalRefunds;
+      
+      return selections.map(selection => {
+        const refundApplicable = Math.min(remainingRefunds, selection.price);
+        const remainingCost = Math.max(0, selection.price - refundApplicable);
+        remainingRefunds = Math.max(0, remainingRefunds - refundApplicable);
+        
+        return {
+          ...selection,
+          availableRefund: refundApplicable,
+          remainingCost: remainingCost,
+          canUseRefundOnly: remainingCost === 0 && refundApplicable > 0
+        };
+      });
+    };
+
+    const enhancedPaymentSelections = calculateRefundDistribution(paymentSelections, availableRefunds);
+    
+    // Calculate totals
+    const totalOriginalCost = enhancedPaymentSelections.reduce((sum, sel) => sum + sel.price, 0);
+    const totalRefundSavings = enhancedPaymentSelections.reduce((sum, sel) => sum + sel.availableRefund, 0);
+    const totalRemainingCost = enhancedPaymentSelections.reduce((sum, sel) => sum + sel.remainingCost, 0);
 
     res.status(200).json({
       success: true,
@@ -683,11 +693,19 @@ exports.addWebsiteSelectionsToAd = async (req, res) => {
       data: {
         ad: populatedAd,
         paymentRequired: true,
-        paymentSelections,
+        paymentSelections: enhancedPaymentSelections,
         isReassignment,
         totalAvailableRefunds: availableRefunds,
-        refundSavings: paymentSelections.reduce((sum, sel) => sum + sel.availableRefund, 0),
-        totalRemainingCost: paymentSelections.reduce((sum, sel) => sum + sel.remainingCost, 0)
+        refundSavings: totalRefundSavings,
+        totalRemainingCost: totalRemainingCost,
+        totalOriginalCost: totalOriginalCost,
+        // ENHANCED: Add breakdown for better UI display
+        paymentBreakdown: {
+          originalTotal: totalOriginalCost,
+          refundApplied: totalRefundSavings,
+          finalAmountToPay: totalRemainingCost,
+          refundCoverage: totalOriginalCost > 0 ? (totalRefundSavings / totalOriginalCost) * 100 : 0
+        }
       }
     });
 

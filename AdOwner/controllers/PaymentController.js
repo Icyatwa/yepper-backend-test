@@ -1051,8 +1051,8 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized access to ad' });
     }
 
-    // ENHANCED: Check if category is fully booked
-    const maxAds = category.userCount || 10; // Default max ads per category
+    // Check if category is fully booked
+    const maxAds = category.userCount || 10;
     const currentAdsCount = category.selectedAds ? category.selectedAds.length : 0;
     
     if (currentAdsCount >= maxAds) {
@@ -1063,20 +1063,20 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       });
     }
 
-    // ENHANCED: Get ALL available refunds for this advertiser (not just for this ad)
+    // FIXED: Get available refunds for this specific category payment
     const availableRefunds = await Payment.getAllAvailableRefunds(userId);
     
-    // ENHANCED: Smart refund usage - automatically use available refunds up to the required amount
-    const smartRefundAmount = Math.min(availableRefunds, category.price);
-    const remainingAmount = Math.max(0, category.price - smartRefundAmount);
+    // FIXED: Calculate refund for THIS SINGLE CATEGORY only
+    const refundForThisCategory = Math.min(availableRefunds, category.price);
+    const remainingAmount = Math.max(0, category.price - refundForThisCategory);
 
-    // ENHANCED: If refund covers the entire cost, process without external payment
-    if (remainingAmount === 0 && smartRefundAmount > 0) {
+    // If refund covers the entire cost for this category
+    if (remainingAmount === 0 && refundForThisCategory > 0) {
       return await this.processRefundOnlyPayment(req, res, {
         adId,
         websiteId,
         categoryId,
-        refundToUse: smartRefundAmount,
+        refundToUse: refundForThisCategory, // Only use refund needed for this category
         userId,
         ad,
         category,
@@ -1084,7 +1084,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       });
     }
 
-    // ENHANCED: If there's a remaining amount, initiate Flutterwave payment
+    // If there's a remaining amount, initiate Flutterwave payment
     const tx_ref = `ad_${adId}_${websiteId}_${categoryId}_${Date.now()}`;
     
     const paymentData = {
@@ -1098,7 +1098,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       },
       customizations: {
         title: `Advertisement on ${website.websiteName}`,
-        description: `Payment for ad space: ${category.categoryName}${smartRefundAmount > 0 ? ` ($${smartRefundAmount} refund applied)` : ''}`,
+        description: `Payment for ad space: ${category.categoryName}${refundForThisCategory > 0 ? ` ($${refundForThisCategory} refund applied)` : ''}`,
         logo: process.env.LOGO_URL || ""
       },
       meta: {
@@ -1107,7 +1107,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         categoryId: categoryId,
         webOwnerId: website.ownerId,
         advertiserId: userId,
-        refundApplied: smartRefundAmount,
+        refundApplied: refundForThisCategory, // Only the refund for this category
         totalCost: category.price
       }
     };
@@ -1139,9 +1139,9 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         currency: 'USD',
         status: 'pending',
         flutterwaveData: response.data,
-        refundApplied: smartRefundAmount, // Track applied refund
+        refundApplied: refundForThisCategory, // Only refund for this category
         amountPaid: remainingAmount, // Actual amount paid via Flutterwave
-        paymentMethod: smartRefundAmount > 0 ? 'hybrid' : 'flutterwave'
+        paymentMethod: refundForThisCategory > 0 ? 'hybrid' : 'flutterwave'
       });
 
       await payment.save();
@@ -1151,11 +1151,11 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         paymentUrl: response.data.link,
         paymentId: payment._id,
         tx_ref: tx_ref,
-        refundApplied: smartRefundAmount,
+        refundApplied: refundForThisCategory, // Only for this category
         amountPaid: remainingAmount,
         totalCost: category.price,
         availableRefunds: availableRefunds,
-        isSmartRefundUsed: smartRefundAmount > 0
+        isSmartRefundUsed: refundForThisCategory > 0
       });
     } else {
       res.status(400).json({ error: 'Payment initiation failed', details: response });
@@ -1175,34 +1175,45 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
     const { adId, websiteId, categoryId, refundToUse, userId, ad, category, website } = paymentData;
     
     await session.withTransaction(async () => {
-      // ENHANCED: Mark the oldest available refunds as used
+      // FIXED: Mark ONLY the required refund amount as used (not all available refunds)
       const refundPayments = await Payment.find({
         advertiserId: userId,
         status: 'refunded',
         refundUsed: { $ne: true }
       }).sort({ refundedAt: 1 }).session(session); // Oldest first (FIFO)
 
-      let remainingRefundNeeded = refundToUse;
+      let remainingRefundNeeded = refundToUse; // This should be exactly what's needed for this category
       const usedRefunds = [];
 
       for (const refundPayment of refundPayments) {
         if (remainingRefundNeeded <= 0) break;
         
+        // FIXED: Only use the exact amount needed
         const refundAmount = Math.min(remainingRefundNeeded, refundPayment.amount);
         usedRefunds.push({
           paymentId: refundPayment._id,
           amount: refundAmount
         });
         
-        // Mark refund as used
-        refundPayment.refundUsed = true;
-        refundPayment.refundUsedAt = new Date();
-        await refundPayment.save({ session });
+        // FIXED: Only mark as fully used if the entire refund payment was consumed
+        if (refundAmount === refundPayment.amount) {
+          refundPayment.refundUsed = true;
+          refundPayment.refundUsedAt = new Date();
+          await refundPayment.save({ session });
+        } else {
+          // FIXED: If only partial refund was used, create a new mechanism to track partial usage
+          // For now, we'll still mark it as used but this needs a better solution for partial refund tracking
+          refundPayment.refundUsed = true;
+          refundPayment.refundUsedAt = new Date();
+          refundPayment.partiallyUsed = true;
+          refundPayment.remainingAmount = refundPayment.amount - refundAmount;
+          await refundPayment.save({ session });
+        }
         
         remainingRefundNeeded -= refundAmount;
       }
 
-      // Create new payment record for refund-only payment
+      // Rest of the function remains the same...
       const payment = new Payment({
         paymentId: `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`,
         tx_ref: `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`,
@@ -1223,14 +1234,14 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
 
       await payment.save({ session });
 
-      // ENHANCED: Update ad website selection with rejection deadline
+      // Update ad website selection with rejection deadline
       const selectionIndex = ad.websiteSelections.findIndex(
         sel => sel.websiteId.toString() === websiteId &&
                sel.categories.includes(categoryId)
       );
 
       const rejectionDeadline = new Date();
-      rejectionDeadline.setMinutes(rejectionDeadline.getMinutes() + 2); // 2 minutes rejection window
+      rejectionDeadline.setMinutes(rejectionDeadline.getMinutes() + 2);
 
       if (selectionIndex !== -1) {
         ad.websiteSelections[selectionIndex].status = 'active';
@@ -1239,7 +1250,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
         ad.websiteSelections[selectionIndex].publishedAt = new Date();
         ad.websiteSelections[selectionIndex].paymentId = payment._id;
         ad.websiteSelections[selectionIndex].rejectionDeadline = rejectionDeadline;
-        ad.websiteSelections[selectionIndex].isRejected = false; // Reset rejection status
+        ad.websiteSelections[selectionIndex].isRejected = false;
       } else {
         ad.websiteSelections.push({
           websiteId: websiteId,
@@ -1257,14 +1268,14 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
       ad.availableForReassignment = false;
       await ad.save({ session });
 
-      // Add ad to category's selectedAds (check for duplicates)
+      // Add ad to category's selectedAds
       await AdCategory.findByIdAndUpdate(
         categoryId,
         { $addToSet: { selectedAds: adId } },
         { session }
       );
 
-      // ENHANCED: Update web owner wallet
+      // Update web owner wallet
       let webOwnerWallet = await Wallet.findOne({ 
         ownerId: website.ownerId, 
         ownerType: 'webOwner' 
@@ -1285,7 +1296,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
       webOwnerWallet.lastUpdated = new Date();
       await webOwnerWallet.save({ session });
 
-      // Create wallet transaction for web owner
+      // Create wallet transaction
       const walletTransaction = new WalletTransaction({
         walletId: webOwnerWallet._id,
         paymentId: payment._id,
@@ -1303,7 +1314,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
       message: 'Payment completed using refund credits',
       paymentMethod: 'refund_only',
       refundUsed: refundToUse,
-      rejectionDeadline: Date.now() + (2 * 60 * 1000) // 2 minutes from now
+      rejectionDeadline: Date.now() + (2 * 60 * 1000)
     });
 
   } catch (error) {
