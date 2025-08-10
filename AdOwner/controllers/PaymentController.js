@@ -593,38 +593,38 @@ exports.verifyPaymentNonTransactional = async (req, res) => {
   }
 };
 
-exports.handleWebhook = async (req, res) => {
-  try {
-    const secretHash = process.env.FLW_SECRET_HASH;
-    const signature = req.headers["verif-hash"];
+// exports.handleWebhook = async (req, res) => {
+//   try {
+//     const secretHash = process.env.FLW_SECRET_HASH;
+//     const signature = req.headers["verif-hash"];
 
-    if (!signature || signature !== secretHash) {
-      return res.status(401).json({ error: 'Unauthorized webhook' });
-    }
+//     if (!signature || signature !== secretHash) {
+//       return res.status(401).json({ error: 'Unauthorized webhook' });
+//     }
 
-    const payload = req.body;
+//     const payload = req.body;
 
-    if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
-      // Process successful payment using transaction ID
-      await this.verifyPayment({ 
-        body: { 
-          transaction_id: payload.data.id,
-          tx_ref: payload.data.tx_ref 
-        } 
-      }, res);
-    }
+//     if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
+//       // Process successful payment using transaction ID
+//       await this.verifyPayment({ 
+//         body: { 
+//           transaction_id: payload.data.id,
+//           tx_ref: payload.data.tx_ref 
+//         } 
+//       }, res);
+//     }
 
-    res.status(200).json({ status: 'success' });
+//     res.status(200).json({ status: 'success' });
 
-  } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
-  }
-};
+//   } catch (error) {
+//     console.error('Webhook error:', error);
+//     res.status(500).json({ error: 'Webhook processing failed' });
+//   }
+// };
 
 exports.initiatePaymentWithRefund = async (req, res) => {
   try {
-    const { adId, websiteId, categoryId, pendingCategoriesCount = 1 } = req.body;
+    const { adId, websiteId, categoryId, useRefundOnly = false, expectedRefund = 0, expectedPayment = 0 } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
 
     // Get ad and category details
@@ -653,27 +653,38 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       });
     }
 
-    // FIXED: Get available refunds and calculate fair distribution
     const availableRefunds = await Payment.getAllAvailableRefunds(userId);
     
-    // FIXED: Calculate refund per category based on pending categories count
-    const refundPerCategory = pendingCategoriesCount > 1 ? 
-      Math.min(availableRefunds / pendingCategoriesCount, category.price) : 
-      Math.min(availableRefunds, category.price);
-    
-    const refundForThisCategory = Math.floor(refundPerCategory * 100) / 100; // Round down to cents
+    // FIXED: Handle refund-only payments
+    if (useRefundOnly || (availableRefunds >= category.price)) {
+      const refundToUse = Math.min(availableRefunds, category.price);
+      
+      return await this.processRefundOnlyPayment(req, res, {
+        adId,
+        websiteId,
+        categoryId,
+        refundToUse,
+        userId,
+        ad,
+        category,
+        website
+      });
+    }
+
+    // FIXED: For hybrid payments, use exact refund amount calculated by frontend
+    const refundForThisCategory = Math.min(expectedRefund || availableRefunds, category.price);
     const remainingAmount = Math.max(0, category.price - refundForThisCategory);
 
     console.log('PAYMENT CALCULATION:', {
       availableRefunds,
-      pendingCategoriesCount,
       categoryPrice: category.price,
-      refundPerCategory,
+      expectedRefund,
+      expectedPayment,
       refundForThisCategory,
       remainingAmount
     });
 
-    // If refund covers the entire cost for this category
+    // If no payment needed (shouldn't happen if we reach here, but safety check)
     if (remainingAmount <= 0.01 && refundForThisCategory > 0) {
       return await this.processRefundOnlyPayment(req, res, {
         adId,
@@ -701,7 +712,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       },
       customizations: {
         title: `Advertisement on ${website.websiteName}`,
-        description: `Payment for ad space: ${category.categoryName}${refundForThisCategory > 0 ? ` ($${refundForThisCategory} refund applied)` : ''}`,
+        description: `Payment for ad space: ${category.categoryName}${refundForThisCategory > 0 ? ` (${refundForThisCategory} refund applied)` : ''}`,
         logo: process.env.LOGO_URL || ""
       },
       meta: {
@@ -758,7 +769,8 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         amountPaid: remainingAmount,
         totalCost: category.price,
         availableRefunds: availableRefunds,
-        isSmartRefundUsed: refundForThisCategory > 0
+        isSmartRefundUsed: refundForThisCategory > 0,
+        paymentMethod: 'hybrid'
       });
     } else {
       res.status(400).json({ error: 'Payment initiation failed', details: response });
@@ -778,7 +790,27 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
     const { adId, websiteId, categoryId, refundToUse, userId, ad, category, website } = paymentData;
     
     await session.withTransaction(async () => {
-      // FIXED: Mark ONLY the required refund amount as used (FIFO)
+      // Create the new payment record FIRST so we have an ObjectId to reference
+      const newPayment = new Payment({
+        paymentId: `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`,
+        tx_ref: `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`,
+        adId: adId,
+        advertiserId: userId,
+        webOwnerId: website.ownerId,
+        websiteId: websiteId,
+        categoryId: categoryId,
+        amount: category.price,
+        currency: 'USD',
+        status: 'successful',
+        paidAt: new Date(),
+        refundApplied: refundToUse,
+        amountPaid: 0,
+        paymentMethod: 'refund_only'
+      });
+
+      await newPayment.save({ session });
+
+      // Now mark the required refund amount as used (FIFO) with the correct ObjectId reference
       const refundPayments = await Payment.find({
         advertiserId: userId,
         status: 'refunded',
@@ -797,36 +829,18 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
           amount: refundAmount
         });
         
-        // Mark as used (for simplicity, we'll mark the entire payment as used)
-        // In production, you might want to implement partial usage tracking
+        // Mark as used with the correct ObjectId reference
         refundPayment.refundUsed = true;
         refundPayment.refundUsedAt = new Date();
-        refundPayment.refundUsedForPayment = `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`;
+        refundPayment.refundUsedForPayment = newPayment._id; // Use ObjectId instead of string
         await refundPayment.save({ session });
         
         remainingRefundNeeded -= refundAmount;
       }
 
-      // Create payment record
-      const payment = new Payment({
-        paymentId: `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`,
-        tx_ref: `refund_${adId}_${websiteId}_${categoryId}_${Date.now()}`,
-        adId: adId,
-        advertiserId: userId,
-        webOwnerId: website.ownerId,
-        websiteId: websiteId,
-        categoryId: categoryId,
-        amount: category.price,
-        currency: 'USD',
-        status: 'successful',
-        paidAt: new Date(),
-        refundApplied: refundToUse,
-        amountPaid: 0,
-        paymentMethod: 'refund_only',
-        notes: `Paid using refund credits: ${usedRefunds.map(r => `${r.amount.toFixed(2)}`).join(', ')}`
-      });
-
-      await payment.save({ session });
+      // Update the payment record with notes about which refunds were used
+      newPayment.notes = `Paid using refund credits: ${usedRefunds.map(r => `${r.amount.toFixed(2)}`).join(', ')}`;
+      await newPayment.save({ session });
 
       // Update ad website selection with rejection deadline
       const selectionIndex = ad.websiteSelections.findIndex(
@@ -842,7 +856,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
         ad.websiteSelections[selectionIndex].approved = true;
         ad.websiteSelections[selectionIndex].approvedAt = new Date();
         ad.websiteSelections[selectionIndex].publishedAt = new Date();
-        ad.websiteSelections[selectionIndex].paymentId = payment._id;
+        ad.websiteSelections[selectionIndex].paymentId = newPayment._id;
         ad.websiteSelections[selectionIndex].rejectionDeadline = rejectionDeadline;
         ad.websiteSelections[selectionIndex].isRejected = false;
       } else {
@@ -852,7 +866,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
           approved: true,
           approvedAt: new Date(),
           publishedAt: new Date(),
-          paymentId: payment._id,
+          paymentId: newPayment._id,
           status: 'active',
           rejectionDeadline: rejectionDeadline,
           isRejected: false
@@ -893,7 +907,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
       // Create wallet transaction
       const walletTransaction = new WalletTransaction({
         walletId: webOwnerWallet._id,
-        paymentId: payment._id,
+        paymentId: newPayment._id,
         adId: adId,
         amount: category.price,
         type: 'credit',
@@ -919,7 +933,7 @@ exports.processRefundOnlyPayment = async (req, res, paymentData) => {
   }
 };
 
-// Enhanced verify payment that handles refund application
+// Also fix the verifyPaymentWithRefund function
 exports.verifyPaymentWithRefund = async (req, res) => {
   const session = await mongoose.startSession();
   
@@ -982,7 +996,7 @@ exports.verifyPaymentWithRefund = async (req, res) => {
             
             refundPayment.refundUsed = true;
             refundPayment.refundUsedAt = new Date();
-            refundPayment.refundUsedForPayment = payment._id;
+            refundPayment.refundUsedForPayment = payment._id; // Use ObjectId instead of string
             await refundPayment.save({ session });
             
             remainingRefundToApply -= refundAmountToUse;
