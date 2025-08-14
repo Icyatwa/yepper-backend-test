@@ -16,27 +16,25 @@ router.get('/available/:websiteId', authMiddleware, WebAdvertiseController.getAv
 router.post('/select-for-website', authMiddleware, WebAdvertiseController.selectAdForWebsite);
 
 router.get('/mixed/:userId', WebAdvertiseController.getUserMixedAds);
-// router.get('/:adId/details', WebAdvertiseController.getAdDetails);
 
 router.post('/payment/initiate', authMiddleware, PaymentController.initiatePayment);
 router.post('/payment/verify', PaymentController.verifyPayment);
 router.post('/payment/webhook', PaymentController.handleWebhook);
 
-// Get refund information for a specific ad
 router.get('/:adId/refund-info', authMiddleware, WebAdvertiseController.getAdRefundInfo);
 
-// Get all ads available for reassignment
 router.get('/reassignable', authMiddleware, WebAdvertiseController.getReassignableAds);
 
-// Reassign ad with refund application
 router.post('/:adId/reassign', authMiddleware, WebAdvertiseController.reassignAdWithRefund);
 
-// Enhanced payment routes
 router.post('/payment/initiate-with-refund', authMiddleware, PaymentController.initiatePaymentWithRefund);
 router.post('/payment/verify-with-refund', authMiddleware, PaymentController.verifyPaymentWithRefund);
-router.post('/payment/refund-only', authMiddleware, PaymentController.processRefundOnlyPayment);
+router.post('/payment/process-wallet', authMiddleware, PaymentController.handleProcessWallet);
 router.get('/payment/refund-balance', authMiddleware, PaymentController.getAdvertiserRefundBalance);
 router.post('/validate-category', authMiddleware, PaymentController.validateCategoryData);
+router.get('/payment/wallet-balance', authMiddleware, PaymentController.getWalletBalance);
+router.get('/payment/refund-credits', authMiddleware, PaymentController.getRefundCredits);
+router.post('/payment/calculate-breakdown', authMiddleware, PaymentController.calculatePaymentBreakdown);
 
 router.get('/available', authMiddleware, availableAdsController.getAvailableAds);
 router.post('/assign', authMiddleware, availableAdsController.assignAdToCategoryWithPayment);

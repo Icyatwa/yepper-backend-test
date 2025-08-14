@@ -1,4 +1,4 @@
-// PaymentModel.js - Enhanced with better refund tracking and FIFO logic
+// PaymentModel.js
 const mongoose = require('mongoose');
 
 const paymentSchema = new mongoose.Schema({
@@ -36,25 +36,36 @@ const paymentSchema = new mongoose.Schema({
   
   // REFUND APPLICATION FIELDS (for when refunds are used for new payments)
   refundApplied: { type: Number, default: 0 }, // Amount of refund applied to this payment
+  
+  // NEW: WALLET APPLICATION FIELDS (for when wallet balance is used)
+  walletApplied: { type: Number, default: 0 }, // Amount of wallet balance applied to this payment
+  
   amountPaid: { type: Number }, // Actual amount paid via external payment (Flutterwave)
   paymentMethod: { 
     type: String, 
-    enum: ['flutterwave', 'refund_only', 'hybrid'], 
+    enum: ['flutterwave', 'refund_only', 'wallet_only', 'hybrid', 'wallet_hybrid', 'refund_hybrid'], 
     default: 'flutterwave' 
   },
+  
+  // NEW: REASSIGNMENT TRACKING
+  isReassignment: { type: Boolean, default: false }, // Whether this payment is for ad reassignment
   
   // ENHANCED: FIFO refund usage tracking
   refundUsed: { type: Boolean, default: false }, // Whether this refund has been used
   refundUsedAt: { type: Date }, // When the refund was used
   refundUsedForPayment: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' }, // Which payment used this refund
-  notes: {
-    type: String
-  },
   refundUsageAmount: { type: Number, default: 0 }, // How much of this refund was used (for partial usage)
   
   // ENHANCED: Refund source tracking (for payments that used refunds)
   refundSources: [{
     sourcePaymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+    amountUsed: { type: Number },
+    usedAt: { type: Date }
+  }],
+  
+  // NEW: Wallet source tracking (for payments that used wallet balance)
+  walletSources: [{
+    walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet' },
     amountUsed: { type: Number },
     usedAt: { type: Date }
   }],
@@ -74,15 +85,16 @@ paymentSchema.index({ advertiserId: 1, status: 1 });
 paymentSchema.index({ webOwnerId: 1, status: 1 });
 paymentSchema.index({ status: 1, refundUsed: 1 });
 paymentSchema.index({ advertiserId: 1, status: 1, refundUsed: 1 }); // For refund queries
+paymentSchema.index({ advertiserId: 1, isReassignment: 1 }); // NEW: For reassignment queries
 paymentSchema.index({ createdAt: -1 }); // For chronological queries
 paymentSchema.index({ refundedAt: 1, refundUsed: 1 }); // For FIFO refund selection
 
 // Virtual to calculate effective payment amount
 paymentSchema.virtual('effectiveAmount').get(function() {
-  return this.amount - (this.refundApplied || 0);
+  return this.amount - (this.refundApplied || 0) - (this.walletApplied || 0);
 });
 
-// ENHANCED: Get all available refunds for a user with FIFO ordering
+// ENHANCED: Get all available refunds for a user with FIFO ordering (unchanged)
 paymentSchema.statics.getAllAvailableRefunds = async function(advertiserId) {
   const refundedPayments = await this.find({
     advertiserId: advertiserId,
@@ -93,7 +105,52 @@ paymentSchema.statics.getAllAvailableRefunds = async function(advertiserId) {
   return refundedPayments.reduce((total, payment) => total + payment.amount, 0);
 };
 
-// ENHANCED: Get available refund with detailed breakdown
+// NEW: Get all payments made through reassignment
+paymentSchema.statics.getReassignmentPayments = async function(advertiserId) {
+  return await this.find({
+    advertiserId: advertiserId,
+    isReassignment: true
+  }).sort({ createdAt: -1 });
+};
+
+// NEW: Get payment method breakdown for a user
+paymentSchema.statics.getPaymentMethodBreakdown = async function(advertiserId) {
+  const payments = await this.find({
+    advertiserId: advertiserId,
+    status: 'successful'
+  });
+  
+  const breakdown = {
+    total: payments.length,
+    totalAmount: 0,
+    methods: {
+      flutterwave: 0,
+      wallet_only: 0,
+      refund_only: 0,
+      wallet_hybrid: 0,
+      refund_hybrid: 0,
+      hybrid: 0
+    },
+    reassignments: {
+      count: 0,
+      amount: 0
+    }
+  };
+  
+  payments.forEach(payment => {
+    breakdown.totalAmount += payment.amount;
+    breakdown.methods[payment.paymentMethod] = (breakdown.methods[payment.paymentMethod] || 0) + 1;
+    
+    if (payment.isReassignment) {
+      breakdown.reassignments.count += 1;
+      breakdown.reassignments.amount += payment.amount;
+    }
+  });
+  
+  return breakdown;
+};
+
+// ENHANCED: Get available refund with detailed breakdown (unchanged but added reassignment exclusion note)
 paymentSchema.statics.getRefundBreakdown = async function(advertiserId) {
   const refundedPayments = await this.find({
     advertiserId: advertiserId,
@@ -106,18 +163,20 @@ paymentSchema.statics.getRefundBreakdown = async function(advertiserId) {
   return {
     totalAmount,
     count: refundedPayments.length,
+    note: "Refunds can only be used for new ad placements, not for ad reassignments.",
     refunds: refundedPayments.map(payment => ({
       paymentId: payment._id,
       amount: payment.amount,
       refundedAt: payment.refundedAt,
       reason: payment.refundReason,
       businessName: payment.adId?.businessName || 'Unknown Business',
-      status: payment.status
+      status: payment.status,
+      canUseForReassignment: false // Always false as per business rule
     }))
   };
 };
 
-// ENHANCED: Smart refund application with FIFO logic
+// ENHANCED: Smart refund application with FIFO logic (unchanged)
 paymentSchema.statics.applyRefundsToPayment = async function(advertiserId, requiredAmount, session = null) {
   const availableRefunds = await this.find({
     advertiserId: advertiserId,
@@ -159,8 +218,24 @@ paymentSchema.statics.applyRefundsToPayment = async function(advertiserId, requi
   };
 };
 
-// ENHANCED: Instance method to apply optimal refund amount
-paymentSchema.methods.applyOptimalRefund = async function(availableRefundAmount) {
+// ENHANCED: Instance method to apply optimal refund amount (modified to check reassignment)
+paymentSchema.methods.applyOptimalRefund = async function(availableRefundAmount, isReassignment = false) {
+  // Prevent refund application for reassignment
+  if (isReassignment) {
+    this.refundApplied = 0;
+    this.walletApplied = 0; // This will be set separately for wallet payments
+    this.amountPaid = this.amount;
+    this.paymentMethod = 'flutterwave';
+    
+    return {
+      refundApplied: 0,
+      walletApplied: 0,
+      amountPaid: this.amountPaid,
+      paymentMethod: this.paymentMethod,
+      note: 'Refunds not allowed for reassignment'
+    };
+  }
+  
   const refundToApply = Math.min(availableRefundAmount, this.amount);
   
   this.refundApplied = refundToApply;
@@ -179,14 +254,47 @@ paymentSchema.methods.applyOptimalRefund = async function(availableRefundAmount)
   };
 };
 
+// NEW: Instance method to apply wallet balance
+paymentSchema.methods.applyWalletBalance = async function(availableWalletAmount, isReassignment = false) {
+  const walletToApply = Math.min(availableWalletAmount, this.amount);
+  
+  this.walletApplied = walletToApply;
+  this.amountPaid = Math.max(0, this.amount - walletToApply);
+  this.isReassignment = isReassignment;
+  
+  if (this.amountPaid === 0) {
+    this.paymentMethod = 'wallet_only';
+  } else if (walletToApply > 0) {
+    this.paymentMethod = 'wallet_hybrid';
+  }
+  
+  return {
+    walletApplied: walletToApply,
+    amountPaid: this.amountPaid,
+    paymentMethod: this.paymentMethod,
+    isReassignment: isReassignment
+  };
+};
+
 // Pre-save middleware to set payment method and rejection deadline
 paymentSchema.pre('save', function(next) {
-  // Set payment method based on refund application
-  if (this.isNew && this.refundApplied > 0) {
-    if (this.amountPaid === 0) {
-      this.paymentMethod = 'refund_only';
-    } else {
+  // Set payment method based on refund/wallet application
+  if (this.isNew) {
+    if (this.walletApplied > 0 && this.refundApplied > 0) {
+      // Both wallet and refund used (shouldn't happen for reassignment)
       this.paymentMethod = 'hybrid';
+    } else if (this.walletApplied > 0) {
+      if (this.amountPaid === 0) {
+        this.paymentMethod = 'wallet_only';
+      } else {
+        this.paymentMethod = 'wallet_hybrid';
+      }
+    } else if (this.refundApplied > 0) {
+      if (this.amountPaid === 0) {
+        this.paymentMethod = 'refund_only';
+      } else {
+        this.paymentMethod = 'refund_hybrid';
+      }
     }
   }
   
@@ -232,6 +340,35 @@ paymentSchema.methods.canBeRejected = function() {
   return { canReject: true, reason: null };
 };
 
+// NEW: Instance method to check if payment is eligible for refund usage
+paymentSchema.methods.canUseRefunds = function() {
+  if (this.isReassignment) {
+    return { 
+      canUse: false, 
+      reason: 'Refunds cannot be used for ad reassignments. Only wallet balance and card payments are allowed.' 
+    };
+  }
+  
+  return { canUse: true, reason: null };
+};
+
+// NEW: Get payment summary with restrictions
+paymentSchema.methods.getPaymentSummary = function() {
+  return {
+    paymentId: this._id,
+    amount: this.amount,
+    walletApplied: this.walletApplied || 0,
+    refundApplied: this.refundApplied || 0,
+    amountPaid: this.amountPaid || 0,
+    paymentMethod: this.paymentMethod,
+    isReassignment: this.isReassignment || false,
+    status: this.status,
+    restrictions: this.isReassignment ? 'No refunds allowed for reassignments' : 'All payment methods available',
+    createdAt: this.createdAt,
+    paidAt: this.paidAt
+  };
+};
+
 // ENHANCED: Static method to cleanup expired rejection deadlines
 paymentSchema.statics.updateExpiredRejectionDeadlines = async function() {
   const now = new Date();
@@ -249,47 +386,50 @@ paymentSchema.statics.updateExpiredRejectionDeadlines = async function() {
   return result;
 };
 
+// NEW: Static method to get reassignment statistics
+paymentSchema.statics.getReassignmentStats = async function(advertiserId) {
+  const stats = await this.aggregate([
+    {
+      $match: {
+        advertiserId: advertiserId,
+        status: 'successful'
+      }
+    },
+    {
+      $group: {
+        _id: '$isReassignment',
+        count: { $sum: 1 },
+        totalAmount: { $sum: '$amount' },
+        walletUsed: { $sum: { $ifNull: ['$walletApplied', 0] } },
+        refundUsed: { $sum: { $ifNull: ['$refundApplied', 0] } }
+      }
+    }
+  ]);
+  
+  const result = {
+    newAds: { count: 0, totalAmount: 0, walletUsed: 0, refundUsed: 0 },
+    reassignments: { count: 0, totalAmount: 0, walletUsed: 0, refundUsed: 0 }
+  };
+  
+  stats.forEach(stat => {
+    if (stat._id === true) {
+      result.reassignments = {
+        count: stat.count,
+        totalAmount: stat.totalAmount,
+        walletUsed: stat.walletUsed,
+        refundUsed: stat.refundUsed
+      };
+    } else {
+      result.newAds = {
+        count: stat.count,
+        totalAmount: stat.totalAmount,
+        walletUsed: stat.walletUsed,
+        refundUsed: stat.refundUsed
+      };
+    }
+  });
+  
+  return result;
+};
+
 module.exports = mongoose.model('Payment', paymentSchema);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// // PaymentModel.js
-// const mongoose = require('mongoose');
-
-// const paymentSchema = new mongoose.Schema({
-//     tx_ref: { type: String, required: true, unique: true },
-//     amount: { type: Number, required: true },
-//     currency: { type: String, required: true },
-//     status: { type: String, enum: ['pending', 'successful', 'failed'], default: 'pending' },
-//     email: { type: String },
-//     cardDetails: {
-//         last4Digits: { type: String },
-//         issuer: { type: String },
-//         cardType: { type: String }
-//     },
-//     userId: { type: String },
-//     adId: { type: mongoose.Schema.Types.ObjectId, ref: 'ImportAd', required: true },
-//     websiteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Website', required: true },
-//     webOwnerId: { type: String },
-//     withdrawn: { type: Boolean, default: false },
-//     paymentTrackerId: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentTracker' },
-//     testMode: { type: Boolean, default: false },
-//     processedAt: { type: Date },
-//     failureReason: { type: String }
-// }, { timestamps: true });
-
-// // Check if model already exists to prevent OverwriteModelError
-// module.exports = mongoose.models.Payment || mongoose.model('Payment', paymentSchema);
