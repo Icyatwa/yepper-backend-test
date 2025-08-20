@@ -1,4 +1,5 @@
 // PaymentController.js
+const crypto = require('crypto');
 const Flutterwave = require('flutterwave-node-v3');
 const axios = require('axios');
 const User = require('../../models/User');
@@ -606,7 +607,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
     } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
 
-    // Get ad and category details FIRST - before any payment processing
+    // Get ad and category details FIRST
     const ad = await ImportAd.findById(adId);
     const category = await AdCategory.findById(categoryId).populate('websiteId');
     const website = await Website.findById(websiteId);
@@ -632,7 +633,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       });
     }
 
-    // Block refund usage for reassignment
+    // FIXED: Block ANY refund usage for reassignment
     if (isReassignment && (useRefundOnly || expectedRefund > 0)) {
       return res.status(400).json({
         error: 'Refunds not allowed for reassignment',
@@ -641,7 +642,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       });
     }
 
-    // Get wallet balance for reassignment or refund credits for new ads
+    // FIXED: Get appropriate balance source based on reassignment flag
     let availableBalance = 0;
     let balanceSource = '';
     
@@ -674,7 +675,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       balanceSource = 'refund';
     }
     
-    // Handle wallet-only payments - FIXED: Always pass ad object
+    // Handle wallet-only payments for reassignment
     if (balanceSource === 'wallet' && availableBalance >= category.price) {
       return await this.processWalletOnlyPayment(req, res, {
         adId,
@@ -682,42 +683,53 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         categoryId,
         walletAmount: category.price,
         userId,
-        ad, // ✅ ALWAYS pass the ad object
+        ad,
         category,
         website,
-        isReassignment
+        isReassignment: true // ENSURE reassignment flag is passed
       });
     } else if (balanceSource === 'refund' && useRefundOnly && availableBalance >= category.price) {
+      // Only for NEW ads - not reassignment
+      if (isReassignment) {
+        return res.status(400).json({
+          error: 'Refunds not allowed for reassignment',
+          message: 'Cannot use refunds for ad reassignment',
+          code: 'REFUND_NOT_ALLOWED_FOR_REASSIGNMENT'
+        });
+      }
+      
       return await this.processRefundOnlyPayment(req, res, {
         adId,
         websiteId,
         categoryId,
         refundToUse: Math.min(availableBalance, category.price),
         userId,
-        ad, // ✅ ALWAYS pass the ad object
+        ad,
         category,
         website
       });
     }
 
-    // Calculate payment breakdown
+    // FIXED: Calculate payment breakdown with reassignment logic
     let walletForThisCategory = 0;
     let refundForThisCategory = 0;
     let remainingAmount = category.price;
 
     if (isReassignment) {
-      // For reassignment: Only use wallet balance
+      // For reassignment: Only use wallet balance - NO REFUNDS
       const wallet = await Wallet.findOne({ ownerId: userId, ownerType: 'advertiser' });
       const walletBalance = wallet ? wallet.balance : 0;
       
       walletForThisCategory = Math.min(walletBalance, category.price);
       remainingAmount = Math.max(0, category.price - walletForThisCategory);
+      refundForThisCategory = 0; // ALWAYS 0 for reassignment
       
       console.log('REASSIGNMENT PAYMENT CALCULATION:', {
         categoryPrice: category.price,
         walletBalance,
         walletForThisCategory,
-        remainingAmount
+        remainingAmount,
+        refundForThisCategory: 0
       });
     } else {
       // For new ads: Can use refunds if explicitly requested
@@ -728,7 +740,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       }
     }
 
-    // If no external payment needed - FIXED: Always pass ad object
+    // If no external payment needed
     if (remainingAmount <= 0.01) {
       if (walletForThisCategory > 0) {
         return await this.processWalletOnlyPayment(req, res, {
@@ -737,27 +749,27 @@ exports.initiatePaymentWithRefund = async (req, res) => {
           categoryId,
           walletAmount: walletForThisCategory,
           userId,
-          ad, // ✅ ALWAYS pass the ad object
+          ad,
           category,
           website,
           isReassignment
         });
-      } else if (refundForThisCategory > 0) {
+      } else if (refundForThisCategory > 0 && !isReassignment) {
+        // Only for NEW ads
         return await this.processRefundOnlyPayment(req, res, {
           adId,
           websiteId,
           categoryId,
           refundToUse: refundForThisCategory,
           userId,
-          ad, // ✅ ALWAYS pass the ad object
+          ad,
           category,
           website
         });
       }
     }
 
-    // Continue with Flutterwave payment for remaining amount...
-    // (rest of the function remains the same)
+    // Continue with Flutterwave payment for remaining amount
     const tx_ref = `ad_${adId}_${websiteId}_${categoryId}_${Date.now()}`;
     
     const paymentData = {
@@ -771,7 +783,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
       },
       customizations: {
         title: `Advertisement on ${website.websiteName}`,
-        description: `Payment for ad space: ${category.categoryName}${walletForThisCategory > 0 ? ` (${walletForThisCategory} wallet balance applied)` : ''}${refundForThisCategory > 0 ? ` (${refundForThisCategory} refund applied)` : ''}${isReassignment ? ' (Reassignment)' : ''}`,
+        description: `Payment for ad space: ${category.categoryName}${walletForThisCategory > 0 ? ` (${walletForThisCategory} wallet balance applied)` : ''}${refundForThisCategory > 0 && !isReassignment ? ` (${refundForThisCategory} refund applied)` : ''}${isReassignment ? ' (Reassignment - No Refunds)' : ''}`,
         logo: process.env.LOGO_URL || ""
       },
       meta: {
@@ -781,7 +793,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         webOwnerId: website.ownerId,
         advertiserId: userId,
         walletApplied: walletForThisCategory,
-        refundApplied: refundForThisCategory,
+        refundApplied: isReassignment ? 0 : refundForThisCategory, // FORCE 0 for reassignment
         totalCost: category.price,
         isReassignment: isReassignment
       }
@@ -815,11 +827,11 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         status: 'pending',
         flutterwaveData: response.data,
         walletApplied: walletForThisCategory,
-        refundApplied: refundForThisCategory,
+        refundApplied: isReassignment ? 0 : refundForThisCategory, // FORCE 0 for reassignment
         amountPaid: remainingAmount,
-        paymentMethod: walletForThisCategory > 0 ? 'wallet_hybrid' : (refundForThisCategory > 0 ? 'refund_hybrid' : 'flutterwave'),
+        paymentMethod: walletForThisCategory > 0 ? 'wallet_hybrid' : (refundForThisCategory > 0 && !isReassignment ? 'refund_hybrid' : 'flutterwave'),
         isReassignment: isReassignment,
-        notes: isReassignment ? 'Ad reassignment payment' : undefined
+        notes: isReassignment ? 'Ad reassignment payment - no refunds applied' : undefined
       });
 
       await payment.save();
@@ -830,11 +842,12 @@ exports.initiatePaymentWithRefund = async (req, res) => {
         paymentId: payment._id,
         tx_ref: tx_ref,
         walletApplied: walletForThisCategory,
-        refundApplied: refundForThisCategory,
+        refundApplied: isReassignment ? 0 : refundForThisCategory, // FORCE 0 for reassignment
         amountPaid: remainingAmount,
         totalCost: category.price,
         isReassignment: isReassignment,
-        paymentMethod: payment.paymentMethod
+        paymentMethod: payment.paymentMethod,
+        reassignmentNote: isReassignment ? 'Reassignment payment - refunds not applicable' : null
       });
     } else {
       res.status(400).json({ error: 'Payment initiation failed', details: response });
@@ -846,16 +859,19 @@ exports.initiatePaymentWithRefund = async (req, res) => {
   }
 };
 
-// Helper function to generate unique transaction reference
 const generateUniqueTransactionRef = (prefix, userId, additionalData = '') => {
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 8);
-  const hash = require('crypto').createHash('md5')
-    .update(`${userId}_${additionalData}_${timestamp}_${random}`)
-    .digest('hex')
-    .substring(0, 8);
+  const nanoTime = process.hrtime.bigint().toString(); // High-resolution time for better uniqueness
+  const random = crypto.randomBytes(8).toString('hex'); // More secure random
+  const counter = Math.floor(Math.random() * 9999); // Additional counter
   
-  return `${prefix}_${userId}_${hash}_${timestamp}`;
+  // Create a more robust hash
+  const hash = crypto.createHash('sha256')
+    .update(`${userId}_${additionalData}_${timestamp}_${nanoTime}_${random}_${counter}`)
+    .digest('hex')
+    .substring(0, 12); // Longer hash for better uniqueness
+  
+  return `${prefix}_${userId}_${hash}_${timestamp}_${counter}`;
 };
 
 exports.handleProcessWallet = async (req, res) => {
@@ -872,6 +888,11 @@ exports.handleProcessWallet = async (req, res) => {
 
     if (!selections || !Array.isArray(selections) || selections.length === 0) {
       return res.status(400).json({ error: 'No selections provided' });
+    }
+
+    // FIXED: Block any refund operations for reassignment at the start
+    if (isReassignment) {
+      console.log('REASSIGNMENT DETECTED - Refunds will be blocked');
     }
 
     // Get wallet balance
@@ -945,116 +966,166 @@ exports.handleProcessWallet = async (req, res) => {
     console.log('Total cost:', totalCost);
     console.log('Wallet balance:', walletBalance);
 
-    // Determine payment strategy
-    if (walletBalance >= totalCost) {
-      // Full wallet payment
-      console.log('Processing full wallet payment');
-      
-      const results = [];
-      
-      await session.withTransaction(async () => {
-        for (let i = 0; i < processedSelections.length; i++) {
-          const selection = processedSelections[i];
-          
-          console.log(`Processing wallet payment ${i + 1}/${processedSelections.length} for category: ${selection.category.categoryName}`);
-
-          // Generate unique tx_ref for each selection
-          const uniqueTxRef = generateUniqueTransactionRef(
-            'wallet',
-            userId,
-            `${selection.adId}_${selection.categoryId}_${i}`
-          );
-
-          const result = await this.processWalletPaymentInternal({
-            adId: selection.adId,
-            websiteId: selection.websiteId,
-            categoryId: selection.categoryId,
-            walletAmount: selection.price,
-            userId: userId,
-            ad: selection.ad,
-            category: selection.category,
-            website: selection.website,
-            isReassignment: isReassignment,
-            txRef: uniqueTxRef
-          }, session);
-
-          results.push({
-            categoryName: selection.category.categoryName,
-            websiteName: selection.website.websiteName,
-            price: selection.price,
-            ...result
-          });
-        }
-      });
-
-      // All payments successful
-      res.status(200).json({
-        success: true,
-        allPaid: true,
-        message: `Successfully paid for ${processedSelections.length} categories using wallet balance${isReassignment ? ' (Reassignment)' : ''}`,
-        summary: {
-          message: `Successfully paid for ${processedSelections.length} categories using wallet balance${isReassignment ? ' (Reassignment)' : ''}`,
-          totalCost: totalCost,
-          walletUsed: totalCost,
-          cardAmount: 0,
-          isReassignment: isReassignment
-        },
-        results: results
-      });
-
-    } else {
-      // Hybrid payment (wallet + card)
-      console.log('Processing hybrid payment (wallet + card)');
+    if (isReassignment && walletBalance < totalCost) {
+      console.log('Processing hybrid payment for reassignment (wallet + card only)');
       
       const walletToUse = Math.min(walletBalance, totalCost);
       const remainingAmount = totalCost - walletToUse;
       
-      console.log('HYBRID PAYMENT CALCULATION:', {
-        totalCost,
-        walletToUse,
-        remainingAmount,
-        isReassignment
-      });
-
-      // Generate unique transaction reference for hybrid payment
-      const hybridTxRef = generateUniqueTransactionRef(
-        'hybrid',
+      // Generate base reference for grouping
+      const baseHybridRef = generateUniqueTransactionRef(
+        'hybrid_reassignment_base',
         userId,
-        `${selections.length}_selections_${totalCost}`
+        `${selections.length}_selections_${totalCost}_${Date.now()}`
       );
 
-      // Create payment record for card processing
-      const paymentData = {
-        userId,
-        tx_ref: hybridTxRef,
-        amount: remainingAmount,
-        walletAmount: walletToUse,
-        totalAmount: totalCost,
-        selections: processedSelections.map(s => ({
-          adId: s.adId,
-          websiteId: s.websiteId,
-          categoryId: s.categoryId,
-          price: s.price
-        })),
-        isReassignment,
-        status: 'pending',
-        paymentType: 'hybrid'
-      };
+      // CREATE PAYMENT RECORDS FOR EACH SELECTION BEFORE FLUTTERWAVE REDIRECT
+      await session.withTransaction(async () => {
+        for (let i = 0; i < processedSelections.length; i++) {
+          const selection = processedSelections[i];
+          
+          // Create UNIQUE transaction reference for each payment record
+          const individualTxRef = generateUniqueTransactionRef(
+            'hybrid_reassignment_item',
+            userId,
+            `${selection.adId}_${selection.categoryId}_${i}_${baseHybridRef}_${Date.now()}_${Math.random()}`
+          );
 
-      // Save payment record (assuming you have a Payment model)
-      // const payment = new Payment(paymentData);
-      // await payment.save();
+          const payment = new Payment({
+            advertiserId: userId,
+            tx_ref: individualTxRef, // UNIQUE for each record
+            baseReference: baseHybridRef, // Group reference for tracking
+            amount: selection.price,
+            paymentType: 'hybrid_reassignment',
+            status: 'pending', // Important: Set as pending, not completed
+            adId: selection.adId,
+            websiteId: selection.websiteId,
+            categoryId: selection.categoryId,
+            webOwnerId: selection.category.ownerId, // Required field from category
+            paymentId: `pending_${individualTxRef}`, // Use individual ref
+            isReassignment: true,
+            walletApplied: walletToUse * (selection.price / totalCost), // Proportional wallet amount
+            refundApplied: 0, // Always 0 for reassignment
+            amountPaid: remainingAmount * (selection.price / totalCost), // Proportional card amount
+            createdAt: new Date(),
+            metadata: {
+              selectionIndex: i,
+              totalSelections: processedSelections.length,
+              hybridPayment: true,
+              baseReference: baseHybridRef
+            }
+          });
 
-      // Generate Flutterwave payment URL
+          await payment.save({ session });
+          
+          console.log(`Created payment record ${i + 1}/${processedSelections.length}:`, {
+            id: payment._id,
+            tx_ref: payment.tx_ref,
+            baseReference: payment.baseReference,
+            amount: payment.amount,
+            status: payment.status
+          });
+        }
+      });
+
+      // NOW generate Flutterwave payment URL using base reference
       const paymentUrl = await this.generateFlutterwavePaymentUrl({
         amount: remainingAmount,
-        tx_ref: hybridTxRef,
+        tx_ref: baseHybridRef, // Use base reference for Flutterwave
         customer: {
           email: req.user.email,
           name: req.user.name || 'User'
         },
         customizations: {
-          title: `Ad Category Payment${isReassignment ? ' (Reassignment)' : ''}`,
+          title: `Ad Category Payment (Reassignment)`,
+          description: `Reassignment payment for ${processedSelections.length} categories - No refunds applied`
+        }
+      });
+
+      res.status(200).json({
+        success: true,
+        allPaid: false,
+        message: `Partial reassignment payment processed. ${walletToUse.toFixed(2)} deducted from wallet. Complete payment of ${remainingAmount.toFixed(2)} via card.`,
+        summary: {
+          message: `Partial reassignment payment processed. ${walletToUse.toFixed(2)} deducted from wallet. Complete payment of ${remainingAmount.toFixed(2)} via card.`,
+          totalCost: totalCost,
+          walletUsed: walletToUse,
+          cardAmount: remainingAmount,
+          refundUsed: 0,
+          isReassignment: true
+        },
+        paymentUrl: paymentUrl,
+        tx_ref: baseHybridRef, // Return base reference for tracking
+        paymentCount: processedSelections.length
+      });
+    
+    } else if (!isReassignment && walletBalance < totalCost) {
+      // SAME FIX FOR NEW AD HYBRID PAYMENTS
+      console.log('Processing hybrid payment for new ad (wallet + refunds + card allowed)');
+      
+      const availableRefunds = await Payment.getAllAvailableRefunds(userId);
+      const walletToUse = Math.min(walletBalance, totalCost);
+      let remainingAfterWallet = totalCost - walletToUse;
+      const refundToUse = Math.min(availableRefunds, remainingAfterWallet);
+      const remainingAmount = remainingAfterWallet - refundToUse;
+      
+      const baseHybridRef = generateUniqueTransactionRef(
+        'hybrid_base',
+        userId,
+        `${selections.length}_selections_${totalCost}_${Date.now()}`
+      );
+
+      // CREATE PAYMENT RECORDS FIRST
+      await session.withTransaction(async () => {
+        for (let i = 0; i < processedSelections.length; i++) {
+          const selection = processedSelections[i];
+          
+          // Create UNIQUE transaction reference for each payment record
+          const individualTxRef = generateUniqueTransactionRef(
+            'hybrid_item',
+            userId,
+            `${selection.adId}_${selection.categoryId}_${i}_${baseHybridRef}_${Date.now()}_${Math.random()}`
+          );
+          
+          const payment = new Payment({
+            advertiserId: userId,
+            tx_ref: individualTxRef, // UNIQUE for each record
+            baseReference: baseHybridRef, // Group reference
+            amount: selection.price,
+            paymentType: 'hybrid',
+            status: 'pending',
+            adId: selection.adId,
+            websiteId: selection.websiteId,
+            categoryId: selection.categoryId,
+            webOwnerId: selection.category.ownerId, // Required field from category
+            paymentId: `pending_${individualTxRef}`, // Use individual ref
+            isReassignment: false,
+            walletApplied: walletToUse * (selection.price / totalCost),
+            refundApplied: refundToUse * (selection.price / totalCost),
+            amountPaid: remainingAmount * (selection.price / totalCost),
+            createdAt: new Date(),
+            metadata: {
+              selectionIndex: i,
+              totalSelections: processedSelections.length,
+              hybridPayment: true,
+              baseReference: baseHybridRef
+            }
+          });
+
+          await payment.save({ session });
+        }
+      });
+
+      // Generate payment URL
+      const paymentUrl = await this.generateFlutterwavePaymentUrl({
+        amount: remainingAmount,
+        tx_ref: baseHybridRef, // Use base reference for Flutterwave
+        customer: {
+          email: req.user.email,
+          name: req.user.name || 'User'
+        },
+        customizations: {
+          title: `Ad Category Payment`,
           description: `Payment for ${processedSelections.length} categories`
         }
       });
@@ -1062,16 +1133,143 @@ exports.handleProcessWallet = async (req, res) => {
       res.status(200).json({
         success: true,
         allPaid: false,
-        message: `Partial payment processed. ${walletToUse.toFixed(2)} deducted from wallet. Complete payment of ${remainingAmount.toFixed(2)} via card.`,
+        message: `Partial payment processed. ${(walletToUse + refundToUse).toFixed(2)} applied from wallet/refunds. Complete payment of ${remainingAmount.toFixed(2)} via card.`,
         summary: {
-          message: `Partial payment processed. ${walletToUse.toFixed(2)} deducted from wallet. Complete payment of ${remainingAmount.toFixed(2)} via card.`,
+          message: `Partial payment processed. ${(walletToUse + refundToUse).toFixed(2)} applied from wallet/refunds. Complete payment of ${remainingAmount.toFixed(2)} via card.`,
           totalCost: totalCost,
           walletUsed: walletToUse,
           cardAmount: remainingAmount,
-          isReassignment: isReassignment
+          refundUsed: refundToUse,
+          isReassignment: false
         },
         paymentUrl: paymentUrl,
-        tx_ref: hybridTxRef
+        tx_ref: baseHybridRef, // Return base reference for tracking
+        paymentCount: processedSelections.length
+      });
+    }
+
+    // Handle full wallet payment cases (both reassignment and new ads)
+    else if (walletBalance >= totalCost) {
+      console.log('Processing full wallet payment');
+      
+      // Generate base reference for grouping
+      const baseWalletRef = generateUniqueTransactionRef(
+        isReassignment ? 'wallet_reassignment_base' : 'wallet_base',
+        userId,
+        `${selections.length}_selections_${totalCost}_${Date.now()}`
+      );
+
+      await session.withTransaction(async () => {
+        // Deduct from wallet first
+        await Wallet.findOneAndUpdate(
+          { ownerId: userId, ownerType: 'advertiser' },
+          { 
+            $inc: { 
+              balance: -totalCost,
+              totalSpent: totalCost
+            },
+            lastUpdated: new Date()
+          },
+          { session }
+        );
+
+        // Create payment records and process each selection
+        for (let i = 0; i < processedSelections.length; i++) {
+          const selection = processedSelections[i];
+          
+          // Create UNIQUE transaction reference for each payment record
+          const individualTxRef = generateUniqueTransactionRef(
+            isReassignment ? 'wallet_reassignment_item' : 'wallet_item',
+            userId,
+            `${selection.adId}_${selection.categoryId}_${i}_${baseWalletRef}_${Date.now()}_${Math.random()}`
+          );
+
+          const payment = new Payment({
+            advertiserId: userId,
+            tx_ref: individualTxRef, // UNIQUE for each record
+            baseReference: baseWalletRef, // Group reference
+            amount: selection.price,
+            paymentType: isReassignment ? 'wallet_reassignment' : 'wallet',
+            status: 'successful', // Wallet payments are immediately successful
+            adId: selection.adId,
+            websiteId: selection.websiteId,
+            categoryId: selection.categoryId,
+            webOwnerId: selection.category.ownerId,
+            paymentId: individualTxRef, // Use individual ref as payment ID
+            isReassignment: isReassignment,
+            walletApplied: selection.price, // Full amount from wallet
+            refundApplied: isReassignment ? 0 : 0, // No refunds for full wallet payment
+            amountPaid: 0, // No external payment needed
+            paidAt: new Date(),
+            createdAt: new Date(),
+            metadata: {
+              selectionIndex: i,
+              totalSelections: processedSelections.length,
+              fullWalletPayment: true,
+              baseReference: baseWalletRef
+            }
+          });
+
+          await payment.save({ session });
+
+          // Update ad's website selection
+          await ImportAd.findOneAndUpdate(
+            { 
+              _id: selection.adId,
+              'websiteSelections.websiteId': selection.websiteId,
+              'websiteSelections.categories': selection.categoryId
+            },
+            {
+              $set: {
+                'websiteSelections.$.approved': true,
+                'websiteSelections.$.approvedAt': new Date(),
+                'websiteSelections.$.status': 'active',
+                'websiteSelections.$.publishedAt': new Date()
+              }
+            },
+            { session }
+          );
+
+          // Update category selected ads
+          await AdCategory.findByIdAndUpdate(
+            selection.categoryId,
+            { $addToSet: { selectedAds: selection.adId } },
+            { session }
+          );
+
+          // Update website owner's wallet
+          await Wallet.findOneAndUpdate(
+            { ownerId: selection.category.ownerId, ownerType: 'webOwner' },
+            { 
+              $inc: { 
+                balance: selection.price,
+                totalEarned: selection.price
+              },
+              lastUpdated: new Date()
+            },
+            { session, upsert: true }
+          );
+        }
+      });
+
+      // Get updated wallet balance
+      const updatedWallet = await Wallet.findOne({ ownerId: userId, ownerType: 'advertiser' });
+
+      res.status(200).json({
+        success: true,
+        allPaid: true,
+        message: `All payments processed successfully using wallet balance. Remaining balance: ${updatedWallet.balance.toFixed(2)}`,
+        summary: {
+          message: `All payments processed successfully using wallet balance. Remaining balance: ${updatedWallet.balance.toFixed(2)}`,
+          totalCost: totalCost,
+          walletUsed: totalCost,
+          cardAmount: 0,
+          refundUsed: 0,
+          isReassignment: isReassignment,
+          remainingBalance: updatedWallet.balance
+        },
+        tx_ref: baseWalletRef,
+        paymentCount: processedSelections.length
       });
     }
 
@@ -1104,7 +1302,6 @@ exports.handleProcessWallet = async (req, res) => {
   }
 };
 
-// Internal wallet payment processing method
 exports.processWalletPaymentInternal = async (data, session = null) => {
   try {
     const {
@@ -1145,18 +1342,18 @@ exports.processWalletPaymentInternal = async (data, session = null) => {
     }
 
     // Create payment record (if you have a Payment model)
-    // const payment = new Payment({
-    //   userId,
-    //   tx_ref: transactionRef,
-    //   amount: walletAmount,
-    //   paymentType: 'wallet',
-    //   status: 'completed',
-    //   adId,
-    //   websiteId,
-    //   categoryId,
-    //   isReassignment
-    // });
-    // await payment.save({ session });
+    const payment = new Payment({
+      userId,
+      tx_ref: transactionRef,
+      amount: walletAmount,
+      paymentType: 'wallet',
+      status: 'completed',
+      adId,
+      websiteId,
+      categoryId,
+      isReassignment
+    });
+    await payment.save({ session });
 
     // Update ad's website selection
     const updatedAd = await ImportAd.findOneAndUpdate(
@@ -1208,7 +1405,6 @@ exports.processWalletPaymentInternal = async (data, session = null) => {
   }
 };
 
-// Helper method to generate Flutterwave payment URL
 exports.generateFlutterwavePaymentUrl = async (paymentData) => {
   try {
     // Check if Flutterwave secret key is configured
@@ -1227,7 +1423,7 @@ exports.generateFlutterwavePaymentUrl = async (paymentData) => {
     console.log('Generating Flutterwave payment with:', {
       tx_ref: paymentData.tx_ref,
       amount: paymentData.amount,
-      redirect_url: `${frontendUrl}/payment-callback`,
+      redirect_url: `${frontendUrl}/payment-callback2`,
       hasSecretKey: !!flutterwaveSecretKey
     });
 
@@ -1237,7 +1433,7 @@ exports.generateFlutterwavePaymentUrl = async (paymentData) => {
         tx_ref: paymentData.tx_ref,
         amount: paymentData.amount,
         currency: 'USD', // or your preferred currency
-        redirect_url: `${frontendUrl}/payment-callback`,
+        redirect_url: `${frontendUrl}/payment-callback2`,
         customer: paymentData.customer,
         customizations: paymentData.customizations
       },
@@ -1285,7 +1481,7 @@ exports.calculatePaymentBreakdown = async (req, res) => {
     const wallet = await Wallet.findOne({ ownerId: userId, ownerType: 'advertiser' });
     const walletBalance = wallet ? wallet.balance : 0;
     
-    // Only get refund credits if NOT reassignment
+    // FIXED: Only get refund credits if NOT reassignment
     const availableRefunds = isReassignment ? 0 : await Payment.getAllAvailableRefunds(userId);
     
     let totalCost = 0;
@@ -1314,20 +1510,20 @@ exports.calculatePaymentBreakdown = async (req, res) => {
     console.log('Available Refunds:', availableRefunds);
     console.log('Is Reassignment:', isReassignment);
 
-    // Different logic for reassignment vs new ads
+    // FIXED: Different logic for reassignment vs new ads
     let paidFromWallet = 0;
     let paidFromRefunds = 0;
     let needsExternalPayment = 0;
 
     if (isReassignment) {
-      // REASSIGNMENT: Only wallet + external payment
+      // REASSIGNMENT: Only wallet + external payment - NO REFUNDS
       if (walletBalance >= totalCost) {
         paidFromWallet = totalCost;
       } else {
         paidFromWallet = walletBalance;
         needsExternalPayment = totalCost - walletBalance;
       }
-      paidFromRefunds = 0;
+      paidFromRefunds = 0; // ALWAYS 0 for reassignment
     } else {
       // NEW ADS: Wallet first, then refunds, then external payment
       if (walletBalance >= totalCost) {
@@ -1345,9 +1541,9 @@ exports.calculatePaymentBreakdown = async (req, res) => {
       }
     }
 
-    // Create breakdown for each category
+    // FIXED: Create breakdown for each category with reassignment logic
     let remainingWallet = paidFromWallet;
-    let remainingRefunds = paidFromRefunds;
+    let remainingRefunds = isReassignment ? 0 : paidFromRefunds; // Force 0 for reassignment
     let remainingExternal = needsExternalPayment;
     
     const breakdown = categoryDetails.map(cat => {
@@ -1363,6 +1559,7 @@ exports.calculatePaymentBreakdown = async (req, res) => {
         const stillNeeded = cat.price - remainingWallet;
         remainingWallet = 0;
         
+        // FIXED: Only use refunds for NEW ads, not reassignment
         if (!isReassignment && remainingRefunds >= stillNeeded) {
           refundUsed = stillNeeded;
           remainingRefunds -= stillNeeded;
@@ -1372,13 +1569,16 @@ exports.calculatePaymentBreakdown = async (req, res) => {
           remainingRefunds = 0;
           remainingExternal -= externalNeeded;
         } else {
+          // For reassignment OR when no refunds available
           externalNeeded = stillNeeded;
           remainingExternal -= externalNeeded;
         }
       } else if (!isReassignment && remainingRefunds >= cat.price) {
+        // Only for NEW ads
         refundUsed = cat.price;
         remainingRefunds -= cat.price;
       } else if (!isReassignment && remainingRefunds > 0) {
+        // Only for NEW ads
         refundUsed = remainingRefunds;
         externalNeeded = cat.price - remainingRefunds;
         remainingRefunds = 0;
@@ -1391,9 +1591,9 @@ exports.calculatePaymentBreakdown = async (req, res) => {
       return {
         ...cat,
         walletUsed,
-        refundUsed,
+        refundUsed: isReassignment ? 0 : refundUsed, // FORCE 0 for reassignment
         externalPayment: externalNeeded,
-        paymentMethod: externalNeeded > 0 ? 'external' : (refundUsed > 0 ? 'refund_or_wallet' : 'wallet')
+        paymentMethod: externalNeeded > 0 ? 'external' : (refundUsed > 0 && !isReassignment ? 'refund_or_wallet' : 'wallet')
       };
     });
 
@@ -1403,9 +1603,9 @@ exports.calculatePaymentBreakdown = async (req, res) => {
       summary: {
         totalCost,
         walletBalance,
-        availableRefunds,
+        availableRefunds: isReassignment ? 0 : availableRefunds, // FORCE 0 for reassignment display
         paidFromWallet,
-        paidFromRefunds,
+        paidFromRefunds: isReassignment ? 0 : paidFromRefunds, // FORCE 0 for reassignment
         needsExternalPayment,
         canAffordAll: needsExternalPayment === 0,
         isReassignment: isReassignment,
@@ -1498,196 +1698,31 @@ exports.completeAdPlacement = async (adId, websiteId, categoryId, paymentId, ses
   await walletTransaction.save({ session });
 };
 
-exports.verifyPaymentWithRefund = async (req, res) => {
-  const session = await mongoose.startSession();
+exports.debugRoutes = (req, res) => {
+  console.log('=== PAYMENT ROUTES DEBUG ===');
+  console.log('Available routes:');
+  console.log('POST /payment/verify-with-refund');
+  console.log('POST /payment/verify-non-transactional');
+  console.log('POST /payment/initiate-with-refund');
+  console.log('POST /payment/process-wallet');
+  console.log('POST /payment/calculate-breakdown');
+  console.log('POST /payment/validate-category');
+  console.log('POST /payment/webhook');
+  console.log('=== END DEBUG ===');
   
-  try {
-    const { transaction_id, tx_ref } = req.body;
-    
-    const identifier = transaction_id || tx_ref;
-    
-    if (!identifier) {
-      return res.status(400).json({ error: 'Transaction ID or reference required' });
-    }
-
-    // Verify with Flutterwave
-    const response = await flw.Transaction.verify({ id: identifier });
-
-    if (response.status === 'success' && response.data.status === 'successful') {
-      // Find payment by tx_ref first, then by paymentId
-      let payment = await Payment.findOne({ 
-        $or: [
-          { tx_ref: response.data.tx_ref },
-          { paymentId: identifier }
-        ]
-      });
-
-      if (!payment) {
-        return res.status(404).json({ error: 'Payment record not found' });
-      }
-
-      if (payment.status === 'successful') {
-        return res.status(200).json({ 
-          success: true, 
-          message: 'Payment already processed',
-          payment: payment 
-        });
-      }
-
-      // Execute transaction
-      await session.withTransaction(async () => {
-        // Update payment with actual Flutterwave transaction ID
-        payment.paymentId = response.data.id;
-        payment.status = 'successful';
-        payment.paidAt = new Date();
-        payment.flutterwaveData.set('verification', response.data);
-        await payment.save({ session });
-
-        // If refund was applied, mark the refunds as used (FIFO)
-        if (payment.refundApplied && payment.refundApplied > 0) {
-          const refundPayments = await Payment.find({
-            advertiserId: payment.advertiserId,
-            status: 'refunded',
-            refundUsed: { $ne: true }
-          }).sort({ refundedAt: 1 }).session(session);
-
-          let remainingRefundToApply = payment.refundApplied;
-          
-          for (const refundPayment of refundPayments) {
-            if (remainingRefundToApply <= 0) break;
-            
-            const refundAmountToUse = Math.min(remainingRefundToApply, refundPayment.amount);
-            
-            refundPayment.refundUsed = true;
-            refundPayment.refundUsedAt = new Date();
-            refundPayment.refundUsedForPayment = payment._id; // Use ObjectId instead of string
-            await refundPayment.save({ session });
-            
-            remainingRefundToApply -= refundAmountToUse;
-          }
-        }
-
-        // Update ad website selection
-        const ad = await ImportAd.findById(payment.adId).session(session);
-        const selectionIndex = ad.websiteSelections.findIndex(
-          sel => sel.websiteId.toString() === payment.websiteId.toString() &&
-                 sel.categories.includes(payment.categoryId)
-        );
-
-        const rejectionDeadline = new Date();
-        rejectionDeadline.setMinutes(rejectionDeadline.getMinutes() + 2);
-
-        if (selectionIndex !== -1) {
-          ad.websiteSelections[selectionIndex].status = 'active';
-          ad.websiteSelections[selectionIndex].approved = true;
-          ad.websiteSelections[selectionIndex].approvedAt = new Date();
-          ad.websiteSelections[selectionIndex].publishedAt = new Date();
-          ad.websiteSelections[selectionIndex].paymentId = payment._id;
-          ad.websiteSelections[selectionIndex].rejectionDeadline = rejectionDeadline;
-          ad.websiteSelections[selectionIndex].isRejected = false;
-        } else {
-          ad.websiteSelections.push({
-            websiteId: payment.websiteId,
-            categories: [payment.categoryId],
-            approved: true,
-            approvedAt: new Date(),
-            publishedAt: new Date(),
-            paymentId: payment._id,
-            status: 'active',
-            rejectionDeadline: rejectionDeadline,
-            isRejected: false
-          });
-        }
-
-        ad.availableForReassignment = false;
-        await ad.save({ session });
-
-        // Add ad to category's selectedAds
-        await AdCategory.findByIdAndUpdate(
-          payment.categoryId,
-          { $addToSet: { selectedAds: payment.adId } },
-          { session }
-        );
-
-        // Update or create wallet for web owner
-        let wallet = await Wallet.findOne({ 
-          ownerId: payment.webOwnerId, 
-          ownerType: 'webOwner' 
-        }).session(session);
-        
-        if (!wallet) {
-          const website = await Website.findById(payment.websiteId).session(session);
-          const category = await AdCategory.findById(payment.categoryId).session(session);
-          const ownerEmail = category.webOwnerEmail;
-          
-          if (!ownerEmail) {
-            throw new Error('Website owner email not found');
-          }
-          
-          wallet = new Wallet({
-            ownerId: payment.webOwnerId,
-            ownerEmail: ownerEmail,
-            ownerType: 'webOwner',
-            balance: 0,
-            totalEarned: 0
-          });
-        }
-
-        wallet.balance += payment.amount;
-        wallet.totalEarned += payment.amount;
-        wallet.lastUpdated = new Date();
-        await wallet.save({ session });
-
-        // Create wallet transaction
-        const walletTransaction = new WalletTransaction({
-          walletId: wallet._id,
-          paymentId: payment._id,
-          adId: payment.adId,
-          amount: payment.amount,
-          type: 'credit',
-          description: `Payment for ad: ${ad.businessName} on category: ${payment.categoryId}${payment.refundApplied ? ` (Refund applied: ${payment.refundApplied})` : ''}`
-        });
-
-        await walletTransaction.save({ session });
-      });
-
-      res.status(200).json({
-        success: true,
-        message: 'Payment verified and ad published successfully',
-        payment: payment,
-        refundApplied: payment.refundApplied || 0,
-        rejectionDeadline: Date.now() + (2 * 60 * 1000)
-      });
-
-    } else {
-      // Payment failed
-      await Payment.findOneAndUpdate(
-        { 
-          $or: [
-            { tx_ref: identifier },
-            { paymentId: identifier },
-            { tx_ref: response.data?.tx_ref }
-          ]
-        },
-        { 
-          status: 'failed',
-          flutterwaveData: response.data 
-        }
-      );
-
-      res.status(400).json({ 
-        success: false, 
-        message: 'Payment verification failed',
-        details: response.data 
-      });
-    }
-
-  } catch (error) {
-    console.error('Payment verification error:', error);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
-  } finally {
-    await session.endSession();
-  }
+  res.json({
+    success: true,
+    message: 'Payment routes are working',
+    availableRoutes: [
+      'POST /payment/verify-with-refund',
+      'POST /payment/verify-non-transactional',
+      'POST /payment/initiate-with-refund',
+      'POST /payment/process-wallet',
+      'POST /payment/calculate-breakdown',
+      'POST /payment/validate-category',
+      'POST /payment/webhook'
+    ]
+  });
 };
 
 exports.validateCategoryData = async (req, res) => {
