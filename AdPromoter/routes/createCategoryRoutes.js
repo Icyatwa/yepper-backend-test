@@ -4,7 +4,7 @@ const router = express.Router();
 const categoryController = require('../controllers/createCategoryController');
 const WalletController = require('../controllers/WalletController');
 const adRejectionController = require('../controllers/AdRejectionController');
-const authMiddleware = require('../../middleware/authMiddleware');
+const authMiddleware = require('../../middleware/authmiddleware');
 
 router.use(authMiddleware);
 

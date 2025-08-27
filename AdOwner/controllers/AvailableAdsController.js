@@ -4,7 +4,7 @@ const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const Website = require('../../AdPromoter/models/CreateWebsiteModel');
 const Payment = require('../../AdOwner/models/PaymentModel');
-const { Wallet, WalletTransaction } = require('../../AdPromoter/models/WalletModel');
+const { Wallet, WalletTransaction } = require('../../AdPromoter/models/walletModel');
 
 exports.getAvailableAds = async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 // controllers/WalletController.js
-const { Wallet, WalletTransaction } = require('../models/WalletModel');
+const { Wallet, WalletTransaction } = require('../models/walletModel');
 const { User } = require('../../models/User'); // Adjust the path according to your User model location
 
 exports.getWallet = async (req, res) => {

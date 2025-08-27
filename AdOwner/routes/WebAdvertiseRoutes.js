@@ -6,7 +6,7 @@ const axios = require('axios');
 const WebAdvertiseController = require('../controllers/WebAdvertiseController');
 const PaymentController = require('../controllers/PaymentController');
 const availableAdsController = require('../controllers/AvailableAdsController');
-const authMiddleware = require('../../middleware/authMiddleware');
+const authMiddleware = require('../../middleware/authmiddleware');
 
 const Payment = require('../models/PaymentModel');
 const ImportAd = require('../models/WebAdvertiseModel');
