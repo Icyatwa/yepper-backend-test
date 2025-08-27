@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const AdCategory = require('../models/CreateCategoryModel');
 const Payment = require('../../AdOwner/models/PaymentModel');
-const { Wallet, WalletTransaction } = require('../models/WalletModel');
+const { Wallet, WalletTransaction } = require('../models/walletModel');
 
 exports.rejectAd = async (req, res) => {
   const session = await mongoose.startSession();

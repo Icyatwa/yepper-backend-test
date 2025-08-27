@@ -11,7 +11,7 @@ const authMiddleware = require('../../middleware/authmiddleware');
 const Payment = require('../models/PaymentModel');
 const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
-const { Wallet } = require('../../AdPromoter/models/WalletModel');
+const { Wallet } = require('../../AdPromoter/models/walletModel');
 
 router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);
