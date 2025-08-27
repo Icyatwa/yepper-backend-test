@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const AdCategory = require('../models/CreateCategoryModel');
-const { Wallet, WalletTransaction } = require('../models/WalletModel');
+const { Wallet, WalletTransaction } = require('../models/walletModel');
 const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
