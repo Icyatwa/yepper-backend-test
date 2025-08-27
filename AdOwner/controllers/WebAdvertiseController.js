@@ -325,6 +325,49 @@ exports.getUserAds = async (req, res) => {
   }
 };
 
+exports.getAd = async (req, res) => {
+  const { adId } = req.params;
+
+  try {
+    const ad = await ImportAd.findById(adId)
+      .populate({
+        path: 'websiteSelections.websiteId',
+        select: 'websiteName websiteLink'
+      })
+      .populate({
+        path: 'websiteSelections.categories',
+        select: 'categoryName price ownerId'
+      });
+
+    if (!ad) {
+      return res.status(404).json({ message: 'Ad not found' });
+    }
+
+    const adDetails = {
+      ...ad.toObject(),
+      totalPrice: ad.websiteSelections.reduce((sum, selection) => {
+        const categoryPriceSum = selection.categories.reduce((catSum, category) => 
+          catSum + (category.price || 0), 0);
+        return sum + categoryPriceSum;
+      }, 0),
+      websiteStatuses: ad.websiteSelections.map(selection => ({
+        websiteId: selection.websiteId._id,
+        websiteName: selection.websiteId.websiteName,
+        websiteLink: selection.websiteId.websiteLink,
+        categories: selection.categories,
+        approved: selection.approved,
+        confirmed: selection.confirmed || false,
+        approvedAt: selection.approvedAt
+      }))
+    };
+
+    res.status(200).json(adDetails);
+  } catch (error) {
+    console.error('Error fetching ad details:', error);
+    res.status(500).json({ message: 'Failed to fetch ad details', error: error.message });
+  }
+};
+
 exports.getAdDetails = async (req, res) => {
   try {
     const { adId } = req.params;

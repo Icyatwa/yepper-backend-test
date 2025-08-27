@@ -15,6 +15,7 @@ const { Wallet } = require('../../AdPromoter/models/WalletModel');
 
 router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);
+router.get('/ad-details/:adId', WebAdvertiseController.getAd);
 router.get('/:adId', authMiddleware, WebAdvertiseController.getAdDetails);
 router.get('/budget', authMiddleware, WebAdvertiseController.getAdBudget);
 router.post('/:adId/add-selections', authMiddleware, WebAdvertiseController.addWebsiteSelectionsToAd);

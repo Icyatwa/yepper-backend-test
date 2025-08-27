@@ -1,4 +1,4 @@
-// Create new file: AdRejectionController.js
+// AdRejectionController.js
 const mongoose = require('mongoose');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const AdCategory = require('../models/CreateCategoryModel');
