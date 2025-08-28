@@ -1,7 +1,7 @@
 // AdScriptController.js
 
 const AdCategory = require('../models/CreateCategoryModel');
-http
+
 exports.serveAdScript = async (req, res) => {
   try {
     const { scriptId } = req.params;
