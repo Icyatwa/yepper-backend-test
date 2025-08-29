@@ -38,7 +38,7 @@ const sendVerificationEmail = async (email, token) => {
   }
 
   try {
-    const verificationUrl = `http://localhost:3000/verify-email?token=${token}`;
+    const verificationUrl = `https://demo.yepper.cc/verify-email?token=${token}`;
     
     const mailOptions = {
       from: process.env.EMAIL_USER,
