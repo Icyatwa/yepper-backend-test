@@ -205,12 +205,111 @@ exports.displayAd = async (req, res) => {
       })
       .filter(html => html)
       .join('');
-
+	  
     const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
     return res.json({ html: finalHtml });
   } catch (error) {
     console.error('Error displaying ad:', error);
     return res.json({ html: getNoAdsHtml() });
+  }
+};
+
+exports.searchAd = async (req, res) => {
+  try {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    
+    //const { categoryId } = req.query;
+    const { categoryId,searchTerm } = req.query;
+    //const { categoryId,searchTerm } = req.params;
+	
+	// Escape any special characters (if needed)
+	let searchEscape = searchTerm.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
+	// Create the regex pattern
+	let searchRegex = new RegExp("([\\s\\S]*?)"+searchEscape.split(" ").join("([\\s\\S]*?)")+"([\\s\\S]*?)");
+
+    const adCategory = await AdCategory.findById(categoryId);
+    if (!adCategory) {
+      return res.json({ message: "Can't Find AdCategory "+categoryId });
+    }
+    
+    const ads = await ImportAd.find({
+      _id: { $in: adCategory.selectedAds },
+      'websiteSelections': {
+        $elemMatch: {
+          websiteId: adCategory.websiteId,
+          categories: categoryId,
+          approved: true
+        }
+      },
+      'confirmed': true,
+	  $or: [
+		{businessName: searchRegex},
+		{businessLink: searchRegex},
+		{adDescription: searchRegex}
+	  ]
+    });
+    if (!ads || ads.length === 0) {
+      return res.json({message:"No Ads Found"});
+    }
+
+    const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
+
+    const adsJSON = adsToShow
+      .map((ad) => {
+        if (!ad) return '';
+
+        try {
+          const websiteSelection = ad.websiteSelections.find(
+            sel => sel.websiteId.toString() === adCategory.websiteId.toString() &&
+                  sel.approved
+          );
+
+          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/600x300';
+          const targetUrl = ad.businessLink.startsWith('http') ? 
+            ad.businessLink : `https://${ad.businessLink}`;
+          
+          // Generate description from available data
+          const description = ad.adDescription || 
+                            `Visit ${ad.businessName} for great products and services.`;
+          
+          // Truncate description based on container size - more aggressive for small spaces
+          const shortDescription = description.length > 80 ? 
+            description.substring(0, 80) + '...' : description;
+
+          // Add data attributes for tracking with new design
+			//return `{"ad_id":"${ad._id}","category_id":"${categoryId}","website_id":"${adCategory.websiteId}","link":"${targetUrl}","cover":"${imageUrl}","business_name":"${ad.businessName}","description":"${shortDescription}"}`;
+			/*return {"ad_id":ad._id,
+				"category_id":categoryId,
+				"website_id":adCategory.websiteId,
+				"link":targetUrl,
+                "cover":imageUrl,
+				"business_name":ad.businessName,
+				"description":shortDescription
+			};*/
+			return {
+				"title":ad.businessName,
+				"link":targetUrl,
+				"description":shortDescription,
+                "image":imageUrl,
+			};
+        } catch (error) {
+          console.error('Error generating ad JSON:', error);
+          return {"message":`Error generating ad JSON: ${error}`};
+        }
+      })
+      //.filter(html => html)
+      //.join('');
+	console.log(adsJSON);
+	console.log("AdsJSON LEN? ",adsJSON.length);
+    //const finalJSON = adsJSON[0];
+	const finalJSON = adsJSON.length ? adsJSON[0] : { message: 'No matching ads found' };
+    //return res.json({link: finalJSON[0].link,cover: finalJSON[0].cover,type:"ad"});
+    return res.json(finalJSON);
+  } catch (error) {
+    console.error('Error displaying ad:', error);
+    return res.json({ message: "ERROR CAUGHT" });
   }
 };
 
