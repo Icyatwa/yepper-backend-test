@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const AdCategory = require('../models/CreateCategoryModel');
-const { Wallet, WalletTransaction } = require('../models/WalletModel');
+const { Wallet, WalletTransaction } = require('../models/walletModel');
 const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
@@ -11,7 +11,7 @@ const Payment = require('../../AdOwner/models/PaymentModel');
 
 const generateScriptTag = (categoryId) => {
   return {
-    script: `<script src="http://localhost:5000/api/ads/script/${categoryId}"></script>`
+    script: `<script src="https://yepper-backend-test.onrender.com/api/ads/script/${categoryId}"></script>`
   };
 };
 
@@ -212,7 +212,7 @@ exports.createCategory = async (req, res) => {
     // Update with API codes
     savedCategory.apiCodes = {
       HTML: script,
-      JavaScript: `const script = document.createElement('script');\nscript.src = "http://localhost:5000/api/ads/script/${savedCategory._id}";\ndocument.body.appendChild(script);`,
+      JavaScript: `const script = document.createElement('script');\nscript.src = "https://yepper-backend-test.onrender.com/api/ads/script/${savedCategory._id}";\ndocument.body.appendChild(script);`,
       PHP: `<?php echo '${script}'; ?>`,
       Python: `print('${script}')`
     };

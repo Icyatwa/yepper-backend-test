@@ -18,7 +18,7 @@ const businessCategoriesRoutes = require('./AdPromoter/routes/businessCategories
 
 // AdOwner.js
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes');
-const test = require('./AdOwner/routes/test');
+// const test = require('./AdOwner/routes/test');
 
 const app = express();
 
@@ -26,7 +26,7 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: 'https://demo.yepper.cc',
   credentials: true
 }));
 
@@ -51,7 +51,7 @@ app.use('/api/ads', adDisplayRoutes);
 
 // AdPromoter Routes
 app.use('/api/web-advertise', webAdvertiseRoutes);
-app.use('/api/test', test);
+// app.use('/api/test', test);
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {

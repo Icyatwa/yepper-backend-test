@@ -2,7 +2,7 @@
 const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const Website = require('../../AdPromoter/models/CreateWebsiteModel');
-const { Wallet, WalletTransaction } = require('../../AdPromoter/models/WalletModel');
+const { Wallet, WalletTransaction } = require('../../AdPromoter/models/walletModel');
 const mongoose = require('mongoose');
 
 // Get marketplace ads

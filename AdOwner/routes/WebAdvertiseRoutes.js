@@ -6,12 +6,12 @@ const axios = require('axios');
 const WebAdvertiseController = require('../controllers/WebAdvertiseController');
 const PaymentController = require('../controllers/PaymentController');
 const availableAdsController = require('../controllers/AvailableAdsController');
-const authMiddleware = require('../../middleware/authMiddleware');
+const authMiddleware = require('../../middleware/authmiddleware');
 
 const Payment = require('../models/PaymentModel');
 const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
-const { Wallet } = require('../../AdPromoter/models/WalletModel');
+const { Wallet } = require('../../AdPromoter/models/walletModel');
 
 router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);

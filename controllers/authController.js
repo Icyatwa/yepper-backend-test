@@ -38,7 +38,7 @@ const sendVerificationEmail = async (email, token) => {
   }
 
   try {
-    const verificationUrl = `http://localhost:3000/verify-email?token=${token}`;
+    const verificationUrl = `https://demo.yepper.cc/verify-email?token=${token}`;
     
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -302,13 +302,13 @@ exports.getCurrentUser = async (req, res) => {
 exports.googleSuccess = async (req, res) => {
   if (req.user) {
     const token = generateToken(req.user._id);
-    res.redirect(`http://localhost:3000/auth/success?token=${token}`);
+    res.redirect(`https://demo.yepper.cc/auth/success?token=${token}`);
   } else {
-    res.redirect('http://localhost:3000/login?error=google_auth_failed');
+    res.redirect('https://demo.yepper.cc/login?error=google_auth_failed');
   }
 };
 
 // Google OAuth failure
 exports.googleFailure = (req, res) => {
-  res.redirect('http://localhost:3000/login?error=google_auth_failed');
+  res.redirect('https://demo.yepper.cc/login?error=google_auth_failed');
 };
