@@ -15,6 +15,7 @@ const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
 const createCategoryRoutes = require('./AdPromoter/routes/createCategoryRoutes');
 const adDisplayRoutes = require('./AdPromoter/routes/AdDisplayRoutes');
 const businessCategoriesRoutes = require('./AdPromoter/routes/businessCategoriesRoutes');
+const withdrawalRoutes = require('./AdPromoter/routes/withdrawalRoutes');
 
 // AdOwner.js
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes');
@@ -26,7 +27,7 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors({
-  origin: 'https://demo.yepper.cc',
+  origin: 'http://localhost:3000',
   credentials: true
 }));
 
@@ -48,6 +49,7 @@ app.use('/api/createWebsite', createWebsiteRoutes);
 app.use('/api/business-categories', businessCategoriesRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);
+app.use('/api/withdrawals', withdrawalRoutes);
 
 // AdPromoter Routes
 app.use('/api/web-advertise', webAdvertiseRoutes);
