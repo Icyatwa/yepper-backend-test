@@ -302,7 +302,7 @@ exports.getCurrentUser = async (req, res) => {
 exports.googleSuccess = async (req, res) => {
   if (req.user) {
     const token = generateToken(req.user._id);
-    res.redirect(`http://localhost:3000/auth/success?token=${token}`);
+    res.redirect(`http://localhost:3000/success?token=${token}`);
   } else {
     res.redirect('http://localhost:3000/login?error=google_auth_failed');
   }
