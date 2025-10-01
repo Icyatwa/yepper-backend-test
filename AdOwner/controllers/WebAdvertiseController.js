@@ -304,6 +304,183 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
   }
 }];
 
+exports.updateAdSelections = async (req, res) => {
+  try {
+    const { adId } = req.params;
+    const {
+      selectedWebsites,
+      selectedCategories,
+      // Optional: allow updating other fields
+      businessLink,
+      businessLocation,
+      adDescription
+    } = req.body;
+
+    // Validate required fields
+    if (!selectedWebsites || !selectedCategories) {
+      return res.status(400).json({
+        error: 'Missing Required Fields',
+        message: 'selectedWebsites and selectedCategories are required'
+      });
+    }
+
+    // Parse arrays
+    let websitesArray, categoriesArray;
+    try {
+      websitesArray = typeof selectedWebsites === 'string' 
+        ? JSON.parse(selectedWebsites) 
+        : selectedWebsites;
+      categoriesArray = typeof selectedCategories === 'string' 
+        ? JSON.parse(selectedCategories) 
+        : selectedCategories;
+    } catch (parseError) {
+      return res.status(400).json({
+        error: 'Invalid Data Format',
+        message: 'selectedWebsites and selectedCategories must be valid JSON arrays'
+      });
+    }
+
+    if (!Array.isArray(websitesArray) || !Array.isArray(categoriesArray)) {
+      return res.status(400).json({
+        error: 'Invalid Data Type',
+        message: 'selectedWebsites and selectedCategories must be arrays'
+      });
+    }
+
+    if (websitesArray.length === 0 || categoriesArray.length === 0) {
+      return res.status(400).json({
+        error: 'Empty Selection',
+        message: 'At least one website and category must be selected'
+      });
+    }
+
+    // Get the ad
+    const ad = await ImportAd.findById(adId);
+    if (!ad) {
+      return res.status(404).json({
+        error: 'Ad Not Found',
+        message: 'The specified ad does not exist'
+      });
+    }
+
+    // Verify ownership
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
+    if (ad.userId !== userId) {
+      return res.status(403).json({
+        error: 'Unauthorized',
+        message: 'You do not have permission to update this ad'
+      });
+    }
+
+    // Check if ad already has website selections
+    if (ad.websiteSelections && ad.websiteSelections.length > 0) {
+      return res.status(400).json({
+        error: 'Ad Already Has Selections',
+        message: 'This ad already has website selections. Use the add more sites feature instead.'
+      });
+    }
+
+    // Fetch categories
+    const categories = await AdCategory.find({
+      _id: { $in: categoriesArray }
+    });
+    
+    if (categories.length === 0) {
+      return res.status(404).json({
+        error: 'Categories Not Found',
+        message: 'No valid categories found for the provided IDs'
+      });
+    }
+
+    // Create website-category mapping
+    const websiteCategoryMap = categories.reduce((map, category) => {
+      const websiteId = category.websiteId.toString();
+      if (!map.has(websiteId)) {
+        map.set(websiteId, []);
+      }
+      map.get(websiteId).push(category._id);
+      return map;
+    }, new Map());
+
+    // Create website selections
+    const websiteSelections = websitesArray.map(websiteId => {
+      const websiteIdStr = websiteId.toString();
+      const websiteCategories = websiteCategoryMap.get(websiteIdStr) || [];
+      
+      const validCategories = categoriesArray.filter(categoryId => 
+        websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
+      );
+
+      return {
+        websiteId: websiteId,
+        categories: validCategories,
+        approved: false,
+        approvedAt: null,
+        status: 'pending'
+      };
+    }).filter(selection => selection.categories.length > 0);
+
+    if (websiteSelections.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid Selection',
+        message: 'No valid website and category combinations found'
+      });
+    }
+
+    // Update the ad
+    const updateData = {
+      websiteSelections: websiteSelections,
+      confirmed: true
+    };
+
+    // Optionally update other fields if provided
+    if (businessLink) updateData.businessLink = businessLink;
+    if (businessLocation) updateData.businessLocation = businessLocation;
+    if (adDescription) updateData.adDescription = adDescription;
+
+    const updatedAd = await ImportAd.findByIdAndUpdate(
+      adId,
+      { $set: updateData },
+      { new: true }
+    ).populate('websiteSelections.websiteId')
+     .populate('websiteSelections.categories');
+
+    // Prepare payment info
+    const adWithPaymentInfo = {
+      ...updatedAd.toObject(),
+      paymentRequired: true,
+      paymentSelections: websiteSelections.map(selection => {
+        const category = categories.find(cat => 
+          selection.categories.includes(cat._id) && 
+          cat.websiteId.toString() === selection.websiteId.toString()
+        );
+        return {
+          websiteId: selection.websiteId,
+          categoryId: selection.categories[0],
+          price: category ? category.price : 0,
+          categoryName: category ? category.categoryName : 'Unknown',
+          websiteName: updatedAd.websiteSelections?.find(ws => 
+            ws.websiteId.toString() === selection.websiteId.toString()
+          )?.websiteId?.websiteName || 'Unknown'
+        };
+      })
+    };
+
+    res.status(200).json({
+      success: true,
+      data: adWithPaymentInfo,
+      message: 'Ad updated successfully. Please proceed with payment to publish.'
+    });
+
+  } catch (error) {
+    console.error('Update ad selections error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
 exports.getUserAds = async (req, res) => {
   try {
     const ownerId = req.user?.userId || req.user?.id || req.user?._id;

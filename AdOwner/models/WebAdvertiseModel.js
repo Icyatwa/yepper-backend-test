@@ -16,7 +16,6 @@ const importAdSchema = new mongoose.Schema({
     categories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'AdCategory' }],
     approved: { type: Boolean, default: false },
     approvedAt: { type: Date },
-    // ADD THESE NEW FIELDS:
     rejectionDeadline: { type: Date },
     rejectedAt: { type: Date },
     rejectedBy: { type: String },

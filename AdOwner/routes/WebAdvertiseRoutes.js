@@ -14,6 +14,7 @@ const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const { Wallet } = require('../../AdPromoter/models/walletModel');
 
 router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
+router.put('/ads/:adId/update-selections', authMiddleware, WebAdvertiseController.updateAdSelections);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);
 router.get('/ad-details/:adId', WebAdvertiseController.getAd);
 router.get('/:adId', authMiddleware, WebAdvertiseController.getAdDetails);
