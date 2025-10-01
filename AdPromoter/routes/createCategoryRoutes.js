@@ -6,6 +6,8 @@ const WalletController = require('../controllers/WalletController');
 const adRejectionController = require('../controllers/AdRejectionController');
 const authMiddleware = require('../../middleware/authmiddleware');
 
+router.get('/category/:categoryId', categoryController.getCategoryById);
+
 router.use(authMiddleware);
 
 router.post('/', categoryController.createCategory);
@@ -18,7 +20,6 @@ router.delete('/:categoryId', categoryController.deleteCategory);
 router.get('/', categoryController.getCategories);
 router.get('/:websiteId/advertiser', categoryController.getCategoriesByWebsiteForAdvertisers);
 router.get('/:websiteId', categoryController.getCategoriesByWebsite);
-router.get('/category/:categoryId', categoryController.getCategoryById);
 router.patch('/category/:categoryId/language', categoryController.updateCategoryLanguage);
 router.get('/pending/:ownerId', categoryController.getPendingAds);
 router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForWebsite);
