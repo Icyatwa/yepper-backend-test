@@ -11,25 +11,28 @@ const generateToken = (userId) => {
   });
 };
 
-// Email transporter setup
 const createTransporter = () => {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    throw new Error('Email credentials not configured');
-  }
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    throw new Error('Email credentials not configured');
+  }
 
-  return nodemailer.createTransport({ // <--- CORRECT: Changed to createTransport
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
 };
 
-// Send verification email with button
-const sendVerificationEmail = async (email, token) => {
+const sendVerificationEmail = async (email, token, returnUrl = null) => {
   const transporter = createTransporter();
-  const verificationUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify-email?token=${token}`;
+  
+  // Build verification URL with returnUrl if provided
+  let verificationUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify-email?token=${token}`;
+  if (returnUrl) {
+    verificationUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
+  }
   
   const mailOptions = {
     from: process.env.EMAIL_USER,
@@ -79,7 +82,6 @@ const sendVerificationEmail = async (email, token) => {
             color: white !important; 
             padding: 16px 32px; 
             text-decoration: none; 
-            border-radius: 6px; 
             font-weight: 600; 
             font-size: 16px;
             margin: 30px 0;
@@ -112,20 +114,12 @@ const sendVerificationEmail = async (email, token) => {
             <p class="subtitle">
               Welcome! Please verify your email address to complete your account setup and get started.
             </p>
-            <div class="email-display">${email}</div>
           </div>
           
           <div style="text-align: center;">
             <a href="${verificationUrl}" class="verify-button">
               Verify Email Address & Sign In
             </a>
-          </div>
-          
-          <div class="footer">
-            <p>This link will expire in 1 hour.</p>
-            <p>If you didn't create an account, please ignore this email.</p>
-            <p>If the button doesn't work, copy and paste this link:</p>
-            <p style="word-break: break-all; color: #666;">${verificationUrl}</p>
           </div>
         </div>
       </body>
@@ -136,10 +130,9 @@ const sendVerificationEmail = async (email, token) => {
   await transporter.sendMail(mailOptions);
 };
 
-// FIXED: Enhanced register function - allows re-registration for unverified users
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, returnUrl } = req.body;
 
     // Validate input
     if (!name || !email || !password) {
@@ -158,7 +151,7 @@ exports.register = async (req, res) => {
           message: 'An account with this email already exists and is verified. Please sign in instead.' 
         });
       } else {
-        // FIXED: Delete the unverified user and allow re-registration
+        // Delete the unverified user and allow re-registration
         await User.deleteOne({ email });
         console.log('Deleted unverified user for re-registration:', email);
       }
@@ -180,9 +173,9 @@ exports.register = async (req, res) => {
 
     await user.save();
 
-    // Send verification email
+    // Send verification email with optional returnUrl
     try {
-      await sendVerificationEmail(email, verificationToken);
+      await sendVerificationEmail(email, verificationToken, returnUrl);
       
       res.status(201).json({
         success: true,
@@ -209,10 +202,9 @@ exports.register = async (req, res) => {
   }
 };
 
-// FIXED: Enhanced email verification - directly verifies and signs user in
 exports.verifyEmail = async (req, res) => {
   try {
-    const { token } = req.query;
+    const { token, returnUrl } = req.query;
 
     if (!token) {
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=missing_token`);
@@ -227,24 +219,30 @@ exports.verifyEmail = async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=invalid_token`);
     }
 
-    // FIXED: Verify user and clear verification tokens
+    // Verify user and clear verification tokens
     user.isVerified = true;
     user.verificationToken = null;
     user.verificationTokenExpires = null;
     await user.save();
 
-    // FIXED: Generate JWT token for automatic sign-in
+    // Generate JWT token for automatic sign-in
     const authToken = generateToken(user._id);
 
-    // FIXED: Redirect with success and auto-login token
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-success?token=${authToken}&auto_login=true`);
+    // NEW: Always redirect to verify-success page, but include returnUrl info
+    let redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-success?token=${authToken}&auto_login=true`;
+    
+    if (returnUrl) {
+      // Add a flag to indicate this came from DirectAdvertise
+      redirectUrl += '&fromDirectAdvertise=true';
+    }
+
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error('Email verification error:', error);
     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=server_error`);
   }
 };
 
-// Enhanced login function (unchanged but included for completeness)
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -303,10 +301,9 @@ exports.login = async (req, res) => {
   }
 };
 
-// Resend verification email (updated message)
 exports.resendVerification = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, returnUrl } = req.body;
 
     if (!email) {
       return res.status(400).json({ 
@@ -338,7 +335,7 @@ exports.resendVerification = async (req, res) => {
     await user.save();
 
     try {
-      await sendVerificationEmail(email, verificationToken);
+      await sendVerificationEmail(email, verificationToken, returnUrl);
       res.json({ 
         success: true,
         message: 'Verification email sent successfully. Click the link in the email to verify and sign in.' 
@@ -358,7 +355,6 @@ exports.resendVerification = async (req, res) => {
   }
 };
 
-// Utility function to mask email
 const maskEmail = (email) => {
   const [localPart, domain] = email.split('@');
   if (localPart.length <= 2) {
