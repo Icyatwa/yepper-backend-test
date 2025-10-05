@@ -137,15 +137,12 @@ exports.serveAdScript = async (req, res) => {
           margin-bottom: 16px;
           background: rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(5px);
-          min-height: 140px;
           border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
         .yepper-ad-image {
           width: 100%;
           height: auto;
-          min-height: 140px;
-          max-height: 180px;
           object-fit: cover;
           display: block;
           transition: transform 0.3s ease;
@@ -358,10 +355,7 @@ exports.serveAdScript = async (req, res) => {
             font-size: 11px;
           }
           
-          .yepper-ad-image {
-            min-height: 120px;
-            max-height: 150px;
-          }
+          
         }
         
         @media (max-width: 480px) {
