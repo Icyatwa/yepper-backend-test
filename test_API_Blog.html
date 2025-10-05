@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global News Today - Latest Headlines</title>
+    <title>The Washington Post - Democracy Dies in Darkness</title>
     <style>
         * {
             box-sizing: border-box;
@@ -12,67 +12,89 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f8f9fa;
-            color: #333;
-            line-height: 1.6;
+            font-family: 'Franklin Gothic', 'Georgia', serif;
+            background-color: #ffffff;
+            color: #111111;
+            line-height: 1.7;
         }
 
         header {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            background: #000000;
             color: #fff;
-            padding: 20px 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .header-top {
+            background: #000000;
+            padding: 15px 0;
+            text-align: center;
+            border-bottom: 1px solid #333;
         }
 
         .header-content {
             max-width: 1200px;
             margin: 0 auto;
             text-align: center;
-            padding: 0 20px;
+            padding: 25px 20px 20px;
         }
 
         .header-content h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            font-weight: 700;
+            font-size: 3.5rem;
+            margin-bottom: 5px;
+            font-weight: 900;
+            font-family: 'Georgia', serif;
+            letter-spacing: -2px;
         }
 
         .tagline {
-            font-size: 1.1rem;
-            opacity: 0.9;
+            font-size: 0.85rem;
+            opacity: 0.8;
             margin-bottom: 20px;
+            font-style: italic;
+            font-weight: 300;
         }
 
         nav {
-            margin-top: 15px;
+            background: #ffffff;
+            border-top: 1px solid #e0e0e0;
+            border-bottom: 3px solid #000000;
+            padding: 12px 0;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            gap: 5px;
         }
 
         nav a {
-            margin: 0 20px;
-            color: #fff;
+            color: #111111;
             text-decoration: none;
-            font-weight: 600;
+            font-weight: 700;
             padding: 8px 16px;
-            border-radius: 25px;
-            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.2s ease;
         }
 
         nav a:hover {
-            background-color: rgba(255,255,255,0.2);
-            transform: translateY(-2px);
+            background-color: #f0f0f0;
         }
 
         .container {
             display: flex;
             max-width: 1200px;
-            margin: 30px auto;
+            margin: 40px auto;
             padding: 0 20px;
-            gap: 30px;
+            gap: 40px;
         }
 
         .main-content {
-            flex: 2;
+            flex: 2.5;
         }
 
         .sidebar {
@@ -81,82 +103,335 @@
 
         .article {
             background-color: #fff;
-            margin-bottom: 30px;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
-        }
-
-        .article:hover {
-            transform: translateY(-5px);
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid #e0e0e0;
         }
 
         .article img {
             width: 100%;
-            height: 250px;
+            height: 400px;
             object-fit: cover;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
 
         .article h2 {
-            font-size: 1.8rem;
+            font-size: 2.2rem;
             margin-bottom: 15px;
-            color: #2c3e50;
+            color: #111111;
+            font-weight: 700;
+            line-height: 1.2;
+            font-family: 'Georgia', serif;
         }
 
         .article-meta {
             display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-            color: #7f8c8d;
-            font-size: 0.9rem;
+            gap: 15px;
+            margin-bottom: 20px;
+            color: #666666;
+            font-size: 0.85rem;
+            font-weight: 400;
         }
 
         .article p {
             line-height: 1.8;
-            margin-bottom: 15px;
-            color: #555;
+            margin-bottom: 18px;
+            color: #111111;
+            font-size: 1.05rem;
         }
 
         .read-more {
-            color: #3498db;
+            color: #0073e6;
             text-decoration: none;
-            font-weight: 600;
-            transition: color 0.3s ease;
+            font-weight: 700;
+            font-size: 0.95rem;
         }
 
         .read-more:hover {
-            color: #2980b9;
+            text-decoration: underline;
         }
 
-        .adsContainer {
-            margin-bottom: 25px;
-            padding: 20px;
-            color: white;
-            text-align: center;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        /* ===== AD 1: Header Leaderboard (Top Banner) ===== */
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper {
+            max-width: 728px !important;
+            margin: 0 auto 15px !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-item {
+            background: rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-radius: 4px !important;
+            padding: 15px !important;
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 15px !important;
+            min-height: 90px !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header {
+            display: none !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-content {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 15px !important;
+            padding: 0 !important;
+            width: 100% !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image-wrapper {
+            flex-shrink: 0 !important;
+            width: 120px !important;
+            height: 60px !important;
+            margin: 0 !important;
+            border-radius: 4px !important;
+            overflow: hidden !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image {
+            width: 120px !important;
+            height: 60px !important;
+            object-fit: cover !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-business-name {
+            font-size: 14px !important;
+            font-weight: 700 !important;
+            color: #ffffff !important;
+            margin: 0 0 4px 0 !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-description {
+            color: rgba(255, 255, 255, 0.8) !important;
+            font-size: 11px !important;
+            line-height: 1.4 !important;
+            margin: 0 0 8px 0 !important;
+            display: -webkit-box !important;
+            -webkit-line-clamp: 2 !important;
+            -webkit-box-orient: vertical !important;
+            overflow: hidden !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-cta {
+            background: #ffffff !important;
+            color: #000000 !important;
+            padding: 6px 16px !important;
+            border-radius: 3px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            display: inline-block !important;
+        }
+
+        .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-footer {
+            display: none !important;
+        }
+
+        /* ===== AD 2: Sidebar Square ===== */
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-item {
+            background: #ffffff !important;
+            border: 2px solid #111111 !important;
+            border-radius: 0 !important;
+            padding: 0 !important;
+            box-shadow: 4px 4px 0 #111111 !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header {
+            background: #111111 !important;
+            padding: 8px 12px !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            margin: 0 !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header-logo {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            font-size: 10px !important;
+            text-transform: uppercase !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header-badge {
+            background: #ffffff !important;
+            color: #111111 !important;
+            padding: 3px 8px !important;
+            font-size: 9px !important;
+            font-weight: 700 !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-content {
+            padding: 15px !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image-wrapper {
+            margin-bottom: 15px !important;
+            border: 2px solid #111111 !important;
+            height: 250px !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image {
+            width: 100% !important;
+            height: 250px !important;
+            object-fit: cover !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-business-name {
+            font-size: 18px !important;
+            font-weight: 900 !important;
+            color: #111111 !important;
+            text-transform: uppercase !important;
+            margin-bottom: 10px !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-description {
+            color: #333333 !important;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            margin-bottom: 15px !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-cta {
+            background: #111111 !important;
+            color: #ffffff !important;
+            border: 2px solid #111111 !important;
+            padding: 12px !important;
+            font-weight: 700 !important;
+            font-size: 12px !important;
+            width: 100% !important;
+            text-align: center !important;
+        }
+
+        .sidebar script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-footer {
+            padding: 8px 15px !important;
+            border-top: 2px solid #111111 !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            font-size: 9px !important;
+        }
+
+        /* ===== AD 3: Main Content Wide Billboard ===== */
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper {
+            margin: 40px 0 !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-item {
+            background: #fafafa !important;
+            border: none !important;
+            border-top: 4px solid #111111 !important;
+            border-bottom: 4px solid #111111 !important;
+            border-radius: 0 !important;
+            padding: 25px !important;
+            display: grid !important;
+            grid-template-columns: 350px 1fr !important;
+            gap: 25px !important;
+            align-items: center !important;
+            position: relative !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header {
+            position: absolute !important;
+            top: 10px !important;
+            right: 10px !important;
+            background: transparent !important;
+            padding: 0 !important;
+            border: none !important;
+            margin: 0 !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header-logo {
+            display: none !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-header-badge {
+            background: transparent !important;
+            color: #111111 !important;
+            padding: 4px 10px !important;
+            font-size: 9px !important;
+            font-weight: 700 !important;
+            border: 1px solid #111111 !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-content {
+            display: contents !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image-wrapper {
+            margin: 0 !important;
+            border: 1px solid #cccccc !important;
+            grid-column: 1 !important;
+            height: 180px !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image {
+            width: 350px !important;
+            height: 180px !important;
+            object-fit: cover !important;
+            filter: grayscale(30%) !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-business-name {
+            font-family: 'Georgia', serif !important;
+            font-size: 26px !important;
+            font-weight: 700 !important;
+            color: #111111 !important;
+            margin-bottom: 10px !important;
+            line-height: 1.2 !important;
+            grid-column: 2 !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-description {
+            font-family: 'Georgia', serif !important;
+            color: #333333 !important;
+            font-size: 14px !important;
+            line-height: 1.6 !important;
+            margin-bottom: 15px !important;
+            grid-column: 2 !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-cta {
+            background: transparent !important;
+            color: #111111 !important;
+            border: 2px solid #111111 !important;
+            padding: 11px 32px !important;
+            font-weight: 700 !important;
+            font-size: 12px !important;
+            text-transform: uppercase !important;
+            grid-column: 2 !important;
+            justify-self: start !important;
+        }
+
+        .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-footer {
+            grid-column: 1 / -1 !important;
+            margin-top: 10px !important;
+            padding-top: 10px !important;
+            border-top: 1px solid #cccccc !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            font-size: 9px !important;
         }
 
         .trending-section {
-            background-color: #fff;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            margin-bottom: 25px;
+            background-color: #fafafa;
+            padding: 20px;
+            border-top: 3px solid #000000;
+            margin-bottom: 30px;
         }
 
         .trending-section h3 {
-            color: #2c3e50;
+            color: #111111;
             margin-bottom: 20px;
-            font-size: 1.3rem;
+            font-size: 1.1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .trending-item {
             padding: 15px 0;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid #e0e0e0;
         }
 
         .trending-item:last-child {
@@ -164,21 +439,25 @@
         }
 
         .trending-item h4 {
-            color: #3498db;
-            margin-bottom: 5px;
+            color: #111111;
+            margin-bottom: 8px;
+            font-weight: 700;
+            font-size: 0.95rem;
         }
 
         .trending-item p {
-            color: #7f8c8d;
-            font-size: 0.9rem;
+            color: #666666;
+            font-size: 0.85rem;
+            line-height: 1.5;
         }
 
         footer {
-            background-color: #2c3e50;
+            background-color: #111111;
             color: #fff;
             text-align: center;
             padding: 30px 0;
             margin-top: 50px;
+            font-size: 0.85rem;
         }
 
         @media (max-width: 768px) {
@@ -187,83 +466,103 @@
             }
             
             .header-content h1 {
-                font-size: 2rem;
+                font-size: 2.5rem;
             }
             
             nav a {
-                margin: 5px 10px;
+                margin: 5px;
+                padding: 6px 10px;
+                font-size: 0.8rem;
+            }
+
+            .header-top script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-item {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+            }
+
+            .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-item {
+                grid-template-columns: 1fr !important;
+            }
+
+            .main-content script:nth-of-type(1) ~ .yepper-ad-wrapper .yepper-ad-image {
+                width: 100% !important;
             }
         }
     </style>
 </head>
 <body>
     <header>
+        <div class="header-top">
+            <script src="http://localhost:5000/api/ads/script/68e0f08decfc2363cf666fd9"></script>
+            <div style="font-size: 0.75rem; font-weight: 300;">Saturday, October 04, 2025</div>
+        </div>
         <div class="header-content">
-            <h1>Global News Today</h1>
-            <p class="tagline">Your trusted source for breaking news and in-depth analysis</p>
-            <nav>
-                <a href="#">Home</a>
-                <a href="#">World</a>
-                <a href="#">Politics</a>
-                <a href="#">Technology</a>
-                <a href="#">Sports</a>
-                <a href="#">Business</a>
-            </nav>
+            <h1>The Washington Post</h1>
+            <p class="tagline">Democracy Dies in Darkness</p>
         </div>
     </header>
+
+    <nav>
+        <div class="nav-content">
+            <a href="#">Politics</a>
+            <a href="#">World</a>
+            <a href="#">Business</a>
+            <a href="#">Technology</a>
+            <a href="#">Climate</a>
+            <a href="#">Opinion</a>
+            <a href="#">Investigations</a>
+        </div>
+    </nav>
 
     <div class="container">
         <div class="main-content">
             <div class="article">
-                <img src="https://via.placeholder.com/600x250/3498db/ffffff?text=Breaking+News" alt="Breaking News">
+                <img src="https://via.placeholder.com/800x400/333333/ffffff?text=Breaking+News" alt="Breaking News">
                 <h2>Global Climate Summit Reaches Historic Agreement</h2>
                 <div class="article-meta">
-                    <span>📅 July 18, 2025</span>
-                    <span>👤 Sarah Johnson</span>
-                    <span>🏷️ Environment</span>
+                    <span>By Sarah Johnson</span>
+                    <span>July 18, 2025</span>
+                    <span>Environment</span>
                 </div>
                 <p>World leaders gathered in Geneva have reached a groundbreaking agreement on climate action, marking a significant step forward in global environmental cooperation. The comprehensive plan includes ambitious targets for carbon reduction and renewable energy adoption.</p>
                 <p>The agreement, signed by representatives from 195 countries, establishes binding commitments for emissions reductions and provides a framework for international cooperation on climate technologies. Environmental groups have praised the deal as "the most significant climate agreement since the Paris Accord."</p>
-                <a href="#" class="read-more">Read full story →</a>
+                <a href="#" class="read-more">Continue reading →</a>
             </div>
 
-            <div class="adsContainer">
-                <h3>Advertisement</h3>
-                <script src="http://localhost:5000/api/ads/script/68d846c05da35287e52299bc"></script>
-                <h3>Advertisement</h3>
-                <script src="http://localhost:5000/api/ads/script/68dc3566bec2b43588dc7757"></script>           
-            </div>
+            <script src="http://localhost:5000/api/ads/script/68d846c05da35287e52299bc"></script>
 
             <div class="article">
-                <img src="https://via.placeholder.com/600x250/e74c3c/ffffff?text=Technology+News" alt="Technology News">
+                <img src="https://via.placeholder.com/800x400/666666/ffffff?text=Technology+News" alt="Technology News">
                 <h2>Revolutionary AI Breakthrough Transforms Healthcare</h2>
                 <div class="article-meta">
-                    <span>📅 July 17, 2025</span>
-                    <span>👤 Michael Chen</span>
-                    <span>🏷️ Technology</span>
+                    <span>By Michael Chen</span>
+                    <span>July 17, 2025</span>
+                    <span>Technology</span>
                 </div>
                 <p>A team of researchers at MIT has developed an AI system capable of diagnosing rare diseases with 95% accuracy, potentially revolutionizing medical diagnostics worldwide. The system analyzes patient symptoms and medical history to provide rapid, accurate diagnoses.</p>
                 <p>The breakthrough technology could particularly benefit rural and underserved communities where access to specialist medical expertise is limited. Clinical trials are set to begin next month at major hospitals across the United States.</p>
-                <a href="#" class="read-more">Read full story →</a>
+                <a href="#" class="read-more">Continue reading →</a>
             </div>
 
             <div class="article">
-                <img src="https://via.placeholder.com/600x250/f39c12/ffffff?text=Economic+Update" alt="Economic News">
+                <img src="https://via.placeholder.com/800x400/999999/ffffff?text=Economic+Update" alt="Economic News">
                 <h2>Global Markets Show Strong Recovery Amid Economic Optimism</h2>
                 <div class="article-meta">
-                    <span>📅 July 16, 2025</span>
-                    <span>👤 Emma Rodriguez</span>
-                    <span>🏷️ Business</span>
+                    <span>By Emma Rodriguez</span>
+                    <span>July 16, 2025</span>
+                    <span>Business</span>
                 </div>
                 <p>Stock markets worldwide posted significant gains this week as investors responded positively to encouraging economic indicators and corporate earnings reports. The S&P 500 reached new record highs, while international markets showed similar upward trends.</p>
                 <p>Economists attribute the market optimism to strong employment data, controlled inflation rates, and positive corporate guidance from major technology companies. The Federal Reserve's recent policy decisions have also contributed to investor confidence.</p>
-                <a href="#" class="read-more">Read full story →</a>
+                <a href="#" class="read-more">Continue reading →</a>
             </div>
         </div>
 
         <div class="sidebar">
+            <script src="http://localhost:5000/api/ads/script/68dc3566bec2b43588dc7757"></script>
+
             <div class="trending-section">
-                <h3>🔥 Trending Stories</h3>
+                <h3>Most Read</h3>
                 <div class="trending-item">
                     <h4>Space Mission Discovers Water on Mars</h4>
                     <p>NASA's latest rover mission has found evidence of liquid water beneath the Martian surface...</p>
@@ -279,7 +578,7 @@
             </div>
 
             <div class="trending-section">
-                <h3>📊 Quick Stats</h3>
+                <h3>By The Numbers</h3>
                 <div class="trending-item">
                     <h4>Global Temperature Rise</h4>
                     <p>+1.2°C above pre-industrial levels</p>
@@ -297,7 +596,7 @@
     </div>
 
     <footer>
-        <p>&copy; 2025 Global News Today. All rights reserved. | Contact us: news@globalnewstoday.com</p>
+        <p>&copy; 2025 The Washington Post. All rights reserved.</p>
     </footer>
 </body>
 </html>
