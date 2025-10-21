@@ -226,12 +226,13 @@ exports.incrementView = async (req, res) => {
 
     // Use a transaction to ensure both updates succeed or fail together
     const session = await ImportAd.startSession();
+	console.log(session);
     await session.withTransaction(async () => {
       // Increment views on the ad
       const updatedAd = await ImportAd.findByIdAndUpdate(
         adId, 
         { $inc: { views: 1 } },
-        { new: true, select: 'views', session }
+        { new: true, select: 'views userId categoryId', session }
       );
 
       if (!updatedAd) {
@@ -239,11 +240,27 @@ exports.incrementView = async (req, res) => {
       }
 
       // Update the payment tracker's view count
-      const updatedTracker = await PaymentTracker.findOneAndUpdate(
+	  /*
+	  const updatedTracker = await PaymentTracker.findOneAndUpdate(
         { adId },
         { $inc: { currentViews: 1 } },
         { new: true, session }
       );
+	  */
+	  const updatedTracker = await PaymentTracker.findOneAndUpdate(
+		  { adId },
+		  {
+			$inc: { currentViews: 1 },
+			$setOnInsert: {
+			  userId: updatedAd.userId,
+			  categoryId: updatedAd.categoryId,
+			  paymentDate: new Date(),
+			  amount: 0,
+			  viewsRequired: 0,
+			}
+		  },
+		  { new: true, upsert: true }
+		);
 
       if (!updatedTracker) {
         throw new Error('Payment tracker not found');
