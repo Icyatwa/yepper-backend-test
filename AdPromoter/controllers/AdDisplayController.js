@@ -48,16 +48,13 @@ exports.displayAd = async (req, res) => {
           const targetUrl = ad.businessLink.startsWith('http') ? 
             ad.businessLink : `https://${ad.businessLink}`;
           
-          // Generate description from available data
           const description = ad.businessDescription || 
                             ad.productDescription || 
                             `Visit ${ad.businessName} for great products and services.`;
           
-          // Truncate description based on container size - more aggressive for small spaces
           const shortDescription = description.length > 80 ? 
             description.substring(0, 80) + '...' : description;
 
-          // Add data attributes for tracking with new design
           return `
             <div class="yepper-ad-item" 
                   data-ad-id="${ad._id}"

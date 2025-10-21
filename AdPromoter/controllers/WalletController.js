@@ -1,6 +1,6 @@
 // controllers/WalletController.js
 const { Wallet, WalletTransaction } = require('../models/walletModel');
-const { User } = require('../../models/User'); // Adjust the path according to your User model location
+const { User } = require('../../models/User');
 
 exports.getWallet = async (req, res) => {
   try {
@@ -14,7 +14,6 @@ exports.getWallet = async (req, res) => {
         return res.status(404).json({ error: 'User not found' });
       }
       
-      // Determine owner type based on user data or default to 'webOwner'
       const ownerType = user.role === 'advertiser' ? 'advertiser' : 'webOwner';
       
       wallet = new Wallet({
@@ -71,11 +70,10 @@ exports.getWalletTransactions = async (req, res) => {
   }
 };
 
-// Wallet Balance Verification Endpoint
 exports.getWalletBalance = async (req, res) => {
   try {
     const userId = req.user.userId || req.user.id || req.user._id;
-    const { ownerType } = req.params; // 'webOwner' or 'advertiser'
+    const { ownerType } = req.params;
 
     const wallet = await Wallet.findOne({
       ownerId: userId,
@@ -108,12 +106,11 @@ exports.getWalletBalance = async (req, res) => {
   }
 };
 
-// Transaction History Endpoint
 exports.getTransactionHistory = async (req, res) => {
   try {
     const userId = req.user.userId || req.user.id || req.user._id;
-    const { ownerType } = req.params; // Changed from req.query to req.params
-    const { page = 1, limit = 20 } = req.query; // Keep page and limit in query
+    const { ownerType } = req.params;
+    const { page = 1, limit = 20 } = req.query;
 
     const wallet = await Wallet.findOne({
       ownerId: userId,
@@ -146,7 +143,6 @@ exports.getTransactionHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching transaction history:', error);
     res.status(500).json({ error: 'Failed to fetch transaction history' });
   }
 };

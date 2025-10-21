@@ -61,10 +61,8 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    // Find the user with timeout
     let user;
     try {
-      // FIXED: Add timeout and better error handling for database queries
       user = await Promise.race([
         User.findById(decoded.userId),
         new Promise((_, reject) => 
@@ -111,7 +109,6 @@ const authMiddleware = async (req, res, next) => {
   } catch (error) {
     console.error('Auth middleware unexpected error:', error);
     
-    // FIXED: Don't expose internal errors to client
     res.status(500).json({ 
       success: false,
       message: 'Authentication service temporarily unavailable' 
