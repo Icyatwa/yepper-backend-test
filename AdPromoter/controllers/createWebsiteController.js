@@ -188,6 +188,49 @@ exports.prepareWebsite = [upload.single('file'), authenticateToken, async (req, 
   }
 }];
 
+exports.uploadWebsiteImage = [
+  authenticateToken,
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      const { websiteId } = req.params;
+      
+      if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded' });
+      }
+
+      // Verify website exists and belongs to user
+      const website = await Website.findById(websiteId);
+      if (!website) {
+        return res.status(404).json({ message: 'Website not found' });
+      }
+      
+      if (website.ownerId !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+
+      // Upload to GCS
+      const imageUrl = await uploadToGCS(req.file);
+
+      // Update website with image URL
+      website.imageUrl = imageUrl;
+      await website.save();
+
+      res.json({
+        success: true,
+        imageUrl,
+        message: 'Image uploaded successfully'
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({ 
+        message: 'Failed to upload image',
+        error: error.message 
+      });
+    }
+  }
+];
+
 exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
   try {
     const { websiteName, websiteLink, imageUrl, businessCategories } = req.body;
