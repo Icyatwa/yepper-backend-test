@@ -13,23 +13,25 @@
 
         body {
             font-family: 'Franklin Gothic', 'Georgia', serif;
-            background-color: #ffffff;
-            color: #111111;
+            background: linear-gradient(135deg, #0a1929 0%, #1a2332 100%);
+            color: #e8eef5;
             line-height: 1.7;
+            min-height: 100vh;
         }
 
         header {
-            background: #000000;
+            background: linear-gradient(180deg, #0d1b2a 0%, #1b263b 100%);
             color: #fff;
             padding: 0;
-            border-bottom: 1px solid #333;
+            border-bottom: 3px solid #2ec4b6;
+            box-shadow: 0 4px 20px rgba(46, 196, 182, 0.3);
         }
 
         .header-top {
-            background: #000000;
+            background: rgba(0, 0, 0, 0.3);
             padding: 15px 0;
             text-align: center;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid rgba(46, 196, 182, 0.3);
         }
 
         .header-content {
@@ -45,20 +47,26 @@
             font-weight: 900;
             font-family: 'Georgia', serif;
             letter-spacing: -2px;
+            background: linear-gradient(135deg, #2ec4b6 0%, #4dd4e8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .tagline {
             font-size: 0.85rem;
-            opacity: 0.8;
+            opacity: 0.9;
             margin-bottom: 20px;
             font-style: italic;
             font-weight: 300;
+            color: #2ec4b6;
         }
 
         nav {
-            background: #ffffff;
-            border-top: 1px solid #e0e0e0;
-            border-bottom: 3px solid #000000;
+            background: rgba(27, 38, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(46, 196, 182, 0.2);
+            border-bottom: 3px solid #2ec4b6;
             padding: 12px 0;
         }
 
@@ -68,21 +76,25 @@
             display: flex;
             justify-content: center;
             gap: 5px;
+            flex-wrap: wrap;
         }
 
         nav a {
-            color: #111111;
+            color: #e8eef5;
             text-decoration: none;
             font-weight: 700;
             padding: 8px 16px;
             font-size: 0.9rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
+            border-radius: 4px;
         }
 
         nav a:hover {
-            background-color: #f0f0f0;
+            background-color: rgba(46, 196, 182, 0.2);
+            color: #2ec4b6;
+            transform: translateY(-2px);
         }
 
         .container {
@@ -102,10 +114,19 @@
         }
 
         .article {
-            background-color: #fff;
+            background: linear-gradient(135deg, rgba(27, 38, 59, 0.9) 0%, rgba(13, 27, 42, 0.9) 100%);
             margin-bottom: 40px;
-            padding-bottom: 30px;
-            border-bottom: 1px solid #e0e0e0;
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid rgba(46, 196, 182, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .article:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(46, 196, 182, 0.3);
+            border-color: #2ec4b6;
         }
 
         .article img {
@@ -113,12 +134,14 @@
             height: 400px;
             object-fit: cover;
             margin-bottom: 25px;
+            border-radius: 8px;
+            border: 2px solid rgba(46, 196, 182, 0.3);
         }
 
         .article h2 {
             font-size: 2.2rem;
             margin-bottom: 15px;
-            color: #111111;
+            color: #ffffff;
             font-weight: 700;
             line-height: 1.2;
             font-family: 'Georgia', serif;
@@ -128,7 +151,7 @@
             display: flex;
             gap: 15px;
             margin-bottom: 20px;
-            color: #666666;
+            color: #2ec4b6;
             font-size: 0.85rem;
             font-weight: 400;
         }
@@ -136,30 +159,35 @@
         .article p {
             line-height: 1.8;
             margin-bottom: 18px;
-            color: #111111;
+            color: #e8eef5;
             font-size: 1.05rem;
         }
 
         .read-more {
-            color: #0073e6;
+            color: #2ec4b6;
             text-decoration: none;
             font-weight: 700;
             font-size: 0.95rem;
+            transition: all 0.3s ease;
         }
 
         .read-more:hover {
+            color: #4dd4e8;
             text-decoration: underline;
         }
 
         .trending-section {
-            background-color: #fafafa;
-            padding: 20px;
-            border-top: 3px solid #000000;
+            background: linear-gradient(135deg, rgba(27, 38, 59, 0.9) 0%, rgba(13, 27, 42, 0.9) 100%);
+            padding: 25px;
+            border-radius: 12px;
+            border-top: 3px solid #2ec4b6;
             margin-bottom: 30px;
+            border: 1px solid rgba(46, 196, 182, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }
 
         .trending-section h3 {
-            color: #111111;
+            color: #2ec4b6;
             margin-bottom: 20px;
             font-size: 1.1rem;
             font-weight: 700;
@@ -169,33 +197,40 @@
 
         .trending-item {
             padding: 15px 0;
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 1px solid rgba(46, 196, 182, 0.2);
+            transition: all 0.3s ease;
         }
 
         .trending-item:last-child {
             border-bottom: none;
         }
 
+        .trending-item:hover {
+            padding-left: 10px;
+            border-left: 3px solid #2ec4b6;
+        }
+
         .trending-item h4 {
-            color: #111111;
+            color: #ffffff;
             margin-bottom: 8px;
             font-weight: 700;
             font-size: 0.95rem;
         }
 
         .trending-item p {
-            color: #666666;
+            color: #b0c4de;
             font-size: 0.85rem;
             line-height: 1.5;
         }
 
         footer {
-            background-color: #111111;
-            color: #fff;
+            background: linear-gradient(180deg, #0d1b2a 0%, #000000 100%);
+            color: #e8eef5;
             text-align: center;
             padding: 30px 0;
             margin-top: 50px;
             font-size: 0.85rem;
+            border-top: 3px solid #2ec4b6;
         }
 
         @media (max-width: 768px) {
@@ -242,7 +277,7 @@
     <div class="container">
         <div class="main-content">
             <div class="article">
-                <img src="https://via.placeholder.com/800x400/333333/ffffff?text=Breaking+News" alt="Breaking News">
+                <img src="https://via.placeholder.com/800x400/1b263b/2ec4b6?text=Breaking+News" alt="Breaking News">
                 <h2>Global Climate Summit Reaches Historic Agreement</h2>
                 <div class="article-meta">
                     <span>By Sarah Johnson</span>
@@ -257,7 +292,7 @@
             <script src="http://localhost:5000/api/ads/script/68ff6db39e64ccf3bc61f87a"></script>
             <script src="http://localhost:5000/api/ads/script/6900916347fddd9e353c1a5c"></script>
             <div class="article">
-                <img src="https://via.placeholder.com/800x400/666666/ffffff?text=Technology+News" alt="Technology News">
+                <img src="https://via.placeholder.com/800x400/1b263b/2ec4b6?text=Technology+News" alt="Technology News">
                 <h2>Revolutionary AI Breakthrough Transforms Healthcare</h2>
                 <div class="article-meta">
                     <span>By Michael Chen</span>
@@ -270,7 +305,7 @@
             </div>
 
             <div class="article">
-                <img src="https://via.placeholder.com/800x400/999999/ffffff?text=Economic+Update" alt="Economic News">
+                <img src="https://via.placeholder.com/800x400/1b263b/2ec4b6?text=Economic+Update" alt="Economic News">
                 <h2>Global Markets Show Strong Recovery Amid Economic Optimism</h2>
                 <div class="article-meta">
                     <span>By Emma Rodriguez</span>
@@ -306,8 +341,6 @@
                 <h3>By The Numbers</h3>
                 <div class="trending-item">
                     <h4>Global Temperature Rise</h4>
-            <script src="http://localhost:5000/api/ads/script/68ffc2837e56d7ff6855eb34"></script>
-
                     <p>+1.2°C above pre-industrial levels</p>
                 </div>
                 <div class="trending-item">
@@ -327,3 +360,4 @@
     </footer>
 </body>
 </html>
+

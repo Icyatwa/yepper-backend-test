@@ -62,7 +62,7 @@ exports.displayAd = async (req, res) => {
                   data-website-id="${adCategory.websiteId}">
               <div class="yepper-ad-header">
                 <span class="yepper-ad-header-logo">Yepper Ad</span>
-                <span class="yepper-ad-header-badge">Sponsored</span>
+                <span class="yepper-ad-header-badge">Sponsored by ${ad.businessName}</span>
               </div>
               
               <a href="${targetUrl}" 
@@ -75,20 +75,15 @@ exports.displayAd = async (req, res) => {
                     <img class="yepper-ad-image" src="${imageUrl}" alt="${ad.businessName}" loading="lazy">
                   </div>
                   
-                  <h3 class="yepper-ad-business-name">${ad.businessName}</h3>
+                  <h3 class="yepper-ad-business-name"></h3>
                   
                   <p class="yepper-ad-description">${shortDescription}</p>
                   
                   <div class="yepper-ad-cta">
-                    Learn More →
+                    Visit →
                   </div>
                 </div>
               </a>
-              
-              <div class="yepper-ad-footer">
-                <span class="yepper-ad-footer-brand">Powered by Yepper</span>
-                <span class="yepper-ad-footer-business">by ${ad.businessName}</span>
-              </div>
             </div>
           `;
         } catch (error) {

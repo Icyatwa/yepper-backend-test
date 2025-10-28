@@ -24,6 +24,38 @@ router.patch('/category/:categoryId/language', categoryController.updateCategory
 router.get('/pending/:ownerId', categoryController.getPendingAds);
 router.put('/approve/:adId/website/:websiteId', categoryController.approveAdForWebsite);
 
+router.get('/categoriees/:categoryId', authMiddleware, async (req, res) => {
+  try {
+    const category = await AdCategory.findById(req.params.categoryId);
+    if (!category) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+    res.json(category);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching category' });
+  }
+});
+
+router.put('/categoriees/:categoryId/customization', authMiddleware, async (req, res) => {
+  try {
+    const { customization } = req.body;
+    
+    const category = await AdCategory.findByIdAndUpdate(
+      req.params.categoryId,
+      { customization },
+      { new: true }
+    );
+    
+    if (!category) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+    
+    res.json({ message: 'Customization saved', category });
+  } catch (error) {
+    res.status(500).json({ message: 'Error saving customization' });
+  }
+});
+
 router.get('/wallet', authMiddleware, WalletController.getWallet);
 router.get('/wallet/transactions', authMiddleware, WalletController.getWalletTransactions);
 

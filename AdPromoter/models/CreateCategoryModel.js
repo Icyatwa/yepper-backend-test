@@ -33,6 +33,10 @@ const adCategorySchema = new mongoose.Schema({
     enum: ['bronze', 'silver', 'gold', 'platinum'],
     required: true
   },
+  customization: {
+    type: Object,
+    default: null
+  },
   createdAt: { type: Date, default: Date.now }
 });
 
