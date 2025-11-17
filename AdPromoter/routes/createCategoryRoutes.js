@@ -1,6 +1,7 @@
 // AdCategoryRoutes.js
 const express = require('express');
 const router = express.Router();
+const AdCategory = require('../models/CreateCategoryModel');
 const categoryController = require('../controllers/createCategoryController');
 const WalletController = require('../controllers/WalletController');
 const WithdrawalController = require('../controllers/WithdrawalController');
@@ -9,6 +10,32 @@ const authMiddleware = require('../../middleware/authmiddleware');
 
 router.get('/category/:categoryId', categoryController.getCategoryById);
 router.get('/:websiteId/advertiser', categoryController.getCategoriesByWebsiteForAdvertisers);
+
+router.get('/ads/customization/:categoryId', async (req, res) => {
+  try {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    res.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    res.header('Expires', '0');
+    
+    const { categoryId } = req.params;
+    
+    const category = await AdCategory.findById(categoryId).select('customization').lean();
+    
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    res.json({ 
+      customization: category.customization || {},
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    console.error('Error fetching customization:', error);
+    res.status(500).json({ error: 'Failed to fetch customization' });
+  }
+});
 
 router.use(authMiddleware);
 
@@ -38,21 +65,46 @@ router.get('/categoriees/:categoryId', authMiddleware, async (req, res) => {
 
 router.put('/categoriees/:categoryId/customization', authMiddleware, async (req, res) => {
   try {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+    res.header('Access-Control-Allow-Methods', 'PUT, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    const { categoryId } = req.params;
     const { customization } = req.body;
     
-    const category = await AdCategory.findByIdAndUpdate(
-      req.params.categoryId,
-      { customization },
-      { new: true }
-    );
+    const category = await AdCategory.findById(categoryId);
     
     if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
+      return res.status(404).json({ error: 'Category not found' });
     }
     
-    res.json({ message: 'Customization saved', category });
+    if (category.ownerId.toString() !== req.user.id.toString() && 
+        category.ownerId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    category.customization = {
+      ...category.customization,
+      ...customization
+    };
+    
+    category.markModified('customization');
+    await category.save();
+    
+    res.json({ 
+      success: true,
+      message: 'Customization saved successfully',
+      customization: category.customization,
+      timestamp: Date.now()
+    });
+    
   } catch (error) {
-    res.status(500).json({ message: 'Error saving customization' });
+    console.error('Error saving customization:', error);
+    res.status(500).json({ 
+      error: 'Failed to save customization',
+      message: error.message 
+    });
   }
 });
 

@@ -159,7 +159,9 @@ exports.createCategory = async (req, res) => {
       userCount,
       instructions,
       visitorRange,
-      tier
+      tier,
+      adSize, 
+      allowedAdTypes 
     } = req.body;
 
     // Get userId from req.user with fallback options
@@ -181,11 +183,23 @@ exports.createCategory = async (req, res) => {
     const webOwnerEmail = user.email;
 
     // Validation
-    if (!websiteId || !categoryName || !price || !spaceType || !visitorRange || !tier) {
+    if (!websiteId || !categoryName || !price || !spaceType || !visitorRange || !tier || !adSize || !allowedAdTypes) {
       return res.status(400).json({ 
         message: 'Missing required fields',
-        required: ['websiteId', 'categoryName', 'price', 'spaceType', 'visitorRange', 'tier'],
-        received: { websiteId, categoryName, price, spaceType, visitorRange, tier }
+        required: ['websiteId', 'categoryName', 'price', 'spaceType', 'visitorRange', 'tier', 'adSize', 'allowedAdTypes'],
+        received: { websiteId, categoryName, price, spaceType, visitorRange, tier, adSize, allowedAdTypes }
+      });
+    }
+
+    if (!adSize.width || !adSize.height || !adSize.label) {
+      return res.status(400).json({
+        message: 'Invalid ad size format. Required: { width, height, label }'
+      });
+    }
+
+    if (!Array.isArray(allowedAdTypes) || allowedAdTypes.length === 0) {
+      return res.status(400).json({
+        message: 'allowedAdTypes must be a non-empty array'
       });
     }
 
@@ -203,7 +217,9 @@ exports.createCategory = async (req, res) => {
       webOwnerEmail,
       selectedAds: [],
       visitorRange,
-      tier
+      tier,
+      adSize, 
+      allowedAdTypes 
     });
 
     const savedCategory = await newCategory.save();

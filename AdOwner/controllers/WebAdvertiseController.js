@@ -1,12 +1,11 @@
 // WebAdvertiseController.js
-const mongoose = require('mongoose');
 const multer = require('multer');
 const path = require('path');
 const bucket = require('../../config/storage');
 const ImportAd = require('../models/WebAdvertiseModel');
 const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const User = require('../../models/User');
-const Payment = require('../models/PaymentModel');
+const ImageProcessingService = require('../services/ImageProcessingService');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -18,6 +17,173 @@ const upload = multer({
   },
 });
 
+exports.autoResizeImage = [upload.single('file'), async (req, res) => {
+  try {
+    const { targetWidth, targetHeight } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No file uploaded',
+        message: 'Please provide an image file'
+      });
+    }
+
+    if (!targetWidth || !targetHeight) {
+      return res.status(400).json({
+        error: 'Missing dimensions',
+        message: 'targetWidth and targetHeight are required'
+      });
+    }
+
+    const width = parseInt(targetWidth);
+    const height = parseInt(targetHeight);
+
+    const resizedBuffer = await ImageProcessingService.resizeImage(
+      req.file.buffer,
+      width,
+      height
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        originalSize: { width: req.file.width, height: req.file.height },
+        newSize: { width, height },
+        buffer: resizedBuffer.toString('base64')
+      },
+      message: 'Image resized successfully'
+    });
+
+  } catch (error) {
+    console.error('Auto-resize error:', error);
+    res.status(500).json({
+      error: 'Resize failed',
+      message: error.message
+    });
+  }
+}];
+
+exports.enhanceImageQuality = [upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No file uploaded',
+        message: 'Please provide an image file'
+      });
+    }
+
+    const enhancedBuffer = await ImageProcessingService.enhanceImageQuality(
+      req.file.buffer
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        originalSize: req.file.size,
+        enhancedSize: enhancedBuffer.length,
+        buffer: enhancedBuffer.toString('base64')
+      },
+      message: 'Image quality enhanced successfully'
+    });
+
+  } catch (error) {
+    console.error('Enhancement error:', error);
+    res.status(500).json({
+      error: 'Enhancement failed',
+      message: error.message
+    });
+  }
+}];
+
+exports.generateAdWithAI = [upload.array('images', 5), async (req, res) => {
+  try {
+    const {
+      prompt,
+      targetWidth,
+      targetHeight,
+      adSizeLabel,
+      businessName,
+      businessLocation,
+      adDescription,
+      layout = 'grid'
+    } = req.body;
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        error: 'No images uploaded',
+        message: 'Please provide at least one image'
+      });
+    }
+
+    if (req.files.length > 5) {
+      return res.status(400).json({
+        error: 'Too many images',
+        message: 'Maximum 5 images allowed'
+      });
+    }
+
+    const width = parseInt(targetWidth);
+    const height = parseInt(targetHeight);
+
+    const businessContext = {
+      businessName,
+      businessLocation,
+      adDescription
+    };
+
+    const requirements = {
+      width,
+      height,
+      label: adSizeLabel
+    };
+
+    const aiValidation = await ImageProcessingService.generateAdWithAI(
+      req.files.map(f => f.buffer),
+      prompt,
+      requirements,
+      businessContext
+    );
+
+    if (!aiValidation.success) {
+      return res.status(400).json({
+        error: 'Content validation failed',
+        message: aiValidation.message
+      });
+    }
+
+    const analysis = await ImageProcessingService.analyzeImagesForAd(
+      req.files.map(f => f.buffer),
+      requirements
+    );
+
+    const compositedBuffer = await ImageProcessingService.compositeImages(
+      req.files.map(f => f.buffer),
+      width,
+      height,
+      layout
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        imageCount: req.files.length,
+        dimensions: { width, height },
+        designGuidance: aiValidation.designGuidance,
+        analysis: analysis.analysis,
+        buffer: compositedBuffer.toString('base64')
+      },
+      message: 'Advertisement generated successfully'
+    });
+
+  } catch (error) {
+    console.error('AI generation error:', error);
+    res.status(500).json({
+      error: 'Generation failed',
+      message: error.message
+    });
+  }
+}];
+
 exports.createImportAd = [upload.single('file'), async (req, res) => {
   try {
     const {
@@ -26,50 +192,85 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       businessLink,
       businessLocation,
       adDescription,
-      selectedWebsites, // CHANGE: Make optional
-      selectedCategories, // CHANGE: Make optional
+      selectedWebsites,
+      selectedCategories,
     } = req.body;
 
-    // CHANGE: Only businessName is required now
-    if (!businessName) {
+    if (!businessName || !selectedWebsites || !selectedCategories) {
       return res.status(400).json({
         error: 'Missing Required Fields',
-        message: 'businessName is required'
+        message: 'businessName, selectedWebsites, and selectedCategories are required'
       });
     }
 
-    // CHANGE: Handle optional website/category selections
     let websitesArray = [];
     let categoriesArray = [];
     
-    if (selectedWebsites && selectedCategories) {
-      try {
-        websitesArray = typeof selectedWebsites === 'string' 
-          ? JSON.parse(selectedWebsites) 
-          : selectedWebsites;
-        categoriesArray = typeof selectedCategories === 'string' 
-          ? JSON.parse(selectedCategories) 
-          : selectedCategories;
-      } catch (parseError) {
-        console.error('JSON parsing error:', parseError);
-        return res.status(400).json({
-          error: 'Invalid Data Format',
-          message: 'selectedWebsites and selectedCategories must be valid JSON arrays'
-        });
-      }
+    try {
+      websitesArray = typeof selectedWebsites === 'string' 
+        ? JSON.parse(selectedWebsites) 
+        : selectedWebsites;
+      categoriesArray = typeof selectedCategories === 'string' 
+        ? JSON.parse(selectedCategories) 
+        : selectedCategories;
+    } catch (parseError) {
+      return res.status(400).json({
+        error: 'Invalid Data Format',
+        message: 'selectedWebsites and selectedCategories must be valid JSON arrays'
+      });
+    }
 
-      // Validate arrays only if provided
-      if (!Array.isArray(websitesArray) || !Array.isArray(categoriesArray)) {
-        return res.status(400).json({
-          error: 'Invalid Data Type',
-          message: 'selectedWebsites and selectedCategories must be arrays'
-        });
+    if (!Array.isArray(websitesArray) || !Array.isArray(categoriesArray)) {
+      return res.status(400).json({
+        error: 'Invalid Data Type',
+        message: 'selectedWebsites and selectedCategories must be arrays'
+      });
+    }
+
+    // Fetch categories to validate ad requirements
+    const categories = await AdCategory.find({
+      _id: { $in: categoriesArray }
+    });
+    
+    if (categories.length === 0) {
+      return res.status(404).json({
+        error: 'Categories Not Found',
+        message: 'No valid categories found for the provided IDs'
+      });
+    }
+
+    // Validate file against category requirements
+    if (req.file) {
+      for (const category of categories) {
+        const fileType = req.file.mimetype.split('/')[0]; // 'image', 'video', etc
+        const fileExtension = req.file.mimetype.split('/')[1]; // 'gif', 'mp4', etc
+        
+        let adType = fileType;
+        if (fileExtension === 'gif') adType = 'gif';
+        if (req.file.mimetype === 'application/pdf') adType = 'text';
+        
+        if (!category.allowedAdTypes.includes(adType)) {
+          return res.status(400).json({
+            error: 'Invalid Ad Type',
+            message: `Category "${category.categoryName}" does not accept ${adType} files. Allowed types: ${category.allowedAdTypes.join(', ')}`
+          });
+        }
+        
+        // Validate dimensions for images
+        if (fileType === 'image') {
+          const sharp = require('sharp');
+          const metadata = await sharp(req.file.buffer).metadata();
+          
+          if (metadata.width !== category.adSize.width || metadata.height !== category.adSize.height) {
+            return res.status(400).json({
+              error: 'Invalid Ad Dimensions',
+              message: `Category "${category.categoryName}" requires ${category.adSize.width}x${category.adSize.height}px (${category.adSize.label}). Your image is ${metadata.width}x${metadata.height}px`
+            });
+          }
+        }
       }
     }
 
-    console.log('Parsed arrays:', { websitesArray, categoriesArray });
-
-    // File upload logic remains the same...
     let imageUrl = '';
     let videoUrl = '';
     let pdfUrl = '';
@@ -108,74 +309,39 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       });
     }
 
-    // CHANGE: Only fetch categories if selections exist
-    let categories = [];
-    let websiteSelections = [];
-    
-    if (categoriesArray.length > 0) {
-      console.log('Fetching categories...');
-      try {
-        categories = await AdCategory.find({
-          _id: { $in: categoriesArray }
-        });
-        
-        if (categories.length === 0) {
-          return res.status(404).json({
-            error: 'Categories Not Found',
-            message: 'No valid categories found for the provided IDs'
-          });
-        }
-        
-        console.log(`Found ${categories.length} categories`);
-      } catch (categoryError) {
-        console.error('Category fetch error:', categoryError);
-        return res.status(500).json({
-          error: 'Database Error',
-          message: 'Failed to fetch categories'
-        });
+    const websiteCategoryMap = categories.reduce((map, category) => {
+      const websiteId = category.websiteId.toString();
+      if (!map.has(websiteId)) {
+        map.set(websiteId, []);
       }
+      map.get(websiteId).push(category._id);
+      return map;
+    }, new Map());
 
-      // Create website-category mapping
-      const websiteCategoryMap = categories.reduce((map, category) => {
-        const websiteId = category.websiteId.toString();
-        if (!map.has(websiteId)) {
-          map.set(websiteId, []);
-        }
-        map.get(websiteId).push(category._id);
-        return map;
-      }, new Map());
+    const websiteSelections = websitesArray.map(websiteId => {
+      const websiteIdStr = websiteId.toString();
+      const websiteCategories = websiteCategoryMap.get(websiteIdStr) || [];
+      
+      const validCategories = categoriesArray.filter(categoryId => 
+        websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
+      );
 
-      console.log('Website-category mapping:', Object.fromEntries(websiteCategoryMap));
+      return {
+        websiteId: websiteId,
+        categories: validCategories,
+        approved: false,
+        approvedAt: null,
+        status: 'pending'
+      };
+    }).filter(selection => selection.categories.length > 0);
 
-      // Create website selections with validation
-      websiteSelections = websitesArray.map(websiteId => {
-        const websiteIdStr = websiteId.toString();
-        const websiteCategories = websiteCategoryMap.get(websiteIdStr) || [];
-        
-        const validCategories = categoriesArray.filter(categoryId => 
-          websiteCategories.some(webCatId => webCatId.toString() === categoryId.toString())
-        );
-
-        return {
-          websiteId: websiteId,
-          categories: validCategories,
-          approved: false,
-          approvedAt: null,
-          status: 'pending'
-        };
-      }).filter(selection => selection.categories.length > 0);
-
-      if (websiteSelections.length === 0 && websitesArray.length > 0) {
-        return res.status(400).json({
-          error: 'Invalid Selection',
-          message: 'No valid website and category combinations found. Please ensure the selected categories belong to the selected websites.'
-        });
-      }
-
-      console.log('Valid website selections:', websiteSelections);
+    if (websiteSelections.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid Selection',
+        message: 'No valid website and category combinations found.'
+      });
     }
 
-    // User information handling remains the same...
     const ownerId = req.user?.userId || req.user?.id || req.user?._id;
     if (!ownerId) {
       return res.status(401).json({
@@ -184,27 +350,16 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       });
     }
 
-    let user;
-    try {
-      user = await User.findById(ownerId);
-      if (!user) {
-        return res.status(404).json({
-          error: 'User Not Found',
-          message: 'Authenticated user not found in database'
-        });
-      }
-    } catch (userError) {
-      console.error('User fetch error:', userError);
-      return res.status(500).json({
-        error: 'Database Error',
-        message: 'Failed to fetch user information'
+    const user = await User.findById(ownerId);
+    if (!user) {
+      return res.status(404).json({
+        error: 'User Not Found',
+        message: 'Authenticated user not found in database'
       });
     }
 
     const userId = user._id.toString();
-    console.log('Creating ad for user:', userId);
 
-    // Create new ad
     const newRequestAd = new ImportAd({
       userId,
       adOwnerEmail: adOwnerEmail || user.email,
@@ -215,84 +370,43 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
       businessLink,
       businessLocation,
       adDescription,
-      websiteSelections, // CHANGE: Can be empty array
-      confirmed: true, // CHANGE: Always true since basic info is complete
+      websiteSelections,
+      confirmed: true,
       clicks: 0,
       views: 0
     });
 
-    // Save ad with error handling - same logic
-    let savedRequestAd;
-    try {
-      savedRequestAd = await newRequestAd.save();
-      console.log('Ad saved successfully:', savedRequestAd._id);
-    } catch (saveError) {
-      console.error('Ad save error:', saveError);
-      return res.status(500).json({
-        error: 'Database Error',
-        message: `Failed to save ad: ${saveError.message}`
-      });
-    }
+    const savedRequestAd = await newRequestAd.save();
 
-    // Populate ad data with error handling - same logic
-    let populatedAd;
-    try {
-      populatedAd = await ImportAd.findById(savedRequestAd._id)
-        .populate('websiteSelections.websiteId')
-        .populate('websiteSelections.categories');
-      
-      if (!populatedAd) {
-        throw new Error('Failed to retrieve saved ad');
-      }
-    } catch (populateError) {
-      console.error('Population error:', populateError);
-      populatedAd = savedRequestAd;
-    }
+    const populatedAd = await ImportAd.findById(savedRequestAd._id)
+      .populate('websiteSelections.websiteId')
+      .populate('websiteSelections.categories');
 
-    // CHANGE: Conditional response based on whether website selections exist
-    if (websiteSelections.length > 0) {
-      // Create payment information - existing logic
-      const adWithPaymentInfo = {
-        ...populatedAd.toObject(),
-        paymentRequired: true,
-        paymentSelections: websiteSelections.map(selection => {
-          const category = categories.find(cat => 
-            selection.categories.includes(cat._id) && 
-            cat.websiteId.toString() === selection.websiteId.toString()
-          );
-          return {
-            websiteId: selection.websiteId,
-            categoryId: selection.categories[0],
-            price: category ? category.price : 0,
-            categoryName: category ? category.categoryName : 'Unknown',
-            websiteName: populatedAd.websiteSelections?.find(ws => 
-              ws.websiteId.toString() === selection.websiteId.toString()
-            )?.websiteId?.websiteName || 'Unknown'
-          };
-        })
-      };
+    const adWithPaymentInfo = {
+      ...populatedAd.toObject(),
+      paymentRequired: true,
+      paymentSelections: websiteSelections.map(selection => {
+        const category = categories.find(cat => 
+          selection.categories.includes(cat._id) && 
+          cat.websiteId.toString() === selection.websiteId.toString()
+        );
+        return {
+          websiteId: selection.websiteId,
+          categoryId: selection.categories[0],
+          price: category ? category.price : 0,
+          categoryName: category ? category.categoryName : 'Unknown',
+          websiteName: populatedAd.websiteSelections?.find(ws => 
+            ws.websiteId.toString() === selection.websiteId.toString()
+          )?.websiteId?.websiteName || 'Unknown'
+        };
+      })
+    };
 
-      console.log('Ad creation completed successfully with website selections');
-      
-      res.status(201).json({
-        success: true,
-        data: adWithPaymentInfo,
-        message: 'Ad created successfully. Please proceed with payment to publish.'
-      });
-    } else {
-      // CHANGE: Response for basic ad creation without website selections
-      console.log('Basic ad creation completed successfully');
-      
-      res.status(201).json({
-        success: true,
-        data: {
-          adId: populatedAd._id,
-          ...populatedAd.toObject(),
-          paymentRequired: false
-        },
-        message: 'Ad created successfully! You can add website selections later.'
-      });
-    }
+    res.status(201).json({
+      success: true,
+      data: adWithPaymentInfo,
+      message: 'Ad created successfully. Please proceed with payment to publish.'
+    });
 
   } catch (err) {
     console.error('Unexpected error in createImportAd:', err);
@@ -303,6 +417,31 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     });
   }
 }];
+
+exports.getCategoryRequirements = async (req, res) => {
+  try {
+    const { categoryIds } = req.body;
+    
+    const categories = await AdCategory.find({
+      _id: { $in: categoryIds }
+    }).select('categoryName adSize allowedAdTypes');
+    
+    res.status(200).json({
+      success: true,
+      requirements: categories.map(cat => ({
+        categoryId: cat._id,
+        categoryName: cat.categoryName,
+        adSize: cat.adSize,
+        allowedAdTypes: cat.allowedAdTypes
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch requirements',
+      message: error.message
+    });
+  }
+};
 
 exports.updateAdSelections = async (req, res) => {
   try {

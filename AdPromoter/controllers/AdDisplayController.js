@@ -13,7 +13,7 @@ exports.displayAd = async (req, res) => {
     
     const adCategory = await AdCategory.findById(categoryId);
     if (!adCategory) {
-      return res.json({ html: getNoAdsHtml() });
+      return res.json({ html: '' });
     }
     
     const ads = await ImportAd.find({
@@ -29,7 +29,7 @@ exports.displayAd = async (req, res) => {
     });
 
     if (!ads || ads.length === 0) {
-      return res.json({ html: getNoAdsHtml() });
+      return res.json({ html: '' });
     }
 
     const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
@@ -39,48 +39,31 @@ exports.displayAd = async (req, res) => {
         if (!ad) return '';
 
         try {
-          const websiteSelection = ad.websiteSelections.find(
-            sel => sel.websiteId.toString() === adCategory.websiteId.toString() &&
-                  sel.approved
-          );
-
-          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/600x300';
+          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/1200x630/667eea/ffffff?text=Ad+Image';
           const targetUrl = ad.businessLink.startsWith('http') ? 
             ad.businessLink : `https://${ad.businessLink}`;
           
-          const description = ad.businessDescription || 
-                            ad.productDescription || 
-                            `Visit ${ad.businessName} for great products and services.`;
-          
-          const shortDescription = description.length > 80 ? 
-            description.substring(0, 80) + '...' : description;
-
           return `
             <div class="yepper-ad-item" 
                   data-ad-id="${ad._id}"
                   data-category-id="${categoryId}"
                   data-website-id="${adCategory.websiteId}">
-              <div class="yepper-ad-header">
-                <span class="yepper-ad-header-logo">Yepper Ad</span>
-                <span class="yepper-ad-header-badge">Sponsored by ${ad.businessName}</span>
-              </div>
-              
               <a href="${targetUrl}" 
                   class="yepper-ad-link" 
                   target="_blank" 
                   rel="noopener"
                   data-tracking="true">
                 <div class="yepper-ad-content">
-                  <div class="yepper-ad-image-wrapper">
-                    <img class="yepper-ad-image" src="${imageUrl}" alt="${ad.businessName}" loading="lazy">
-                  </div>
-                  
-                  <h3 class="yepper-ad-business-name"></h3>
-                  
-                  <p class="yepper-ad-description">${shortDescription}</p>
-                  
-                  <div class="yepper-ad-cta">
-                    Visit →
+                    <img class="yepper-ad-image" 
+                         src="${imageUrl}" 
+                         alt="${ad.businessName}" 
+                         loading="lazy">
+                  <div class="yepper-ad-text-content">
+                    <h3 class="yepper-ad-business-name">${ad.businessName}</h3>
+                    <p class="yepper-ad-description">${ad.adDescription}</p>
+                    <button class="yepper-ad-cta" type="button">
+                      Visit Website
+                    </button>
                   </div>
                 </div>
               </a>
@@ -98,7 +81,7 @@ exports.displayAd = async (req, res) => {
     return res.json({ html: finalHtml });
   } catch (error) {
     console.error('Error displaying ad:', error);
-    return res.json({ html: getNoAdsHtml() });
+    return res.json({ html: '' });
   }
 };
 
