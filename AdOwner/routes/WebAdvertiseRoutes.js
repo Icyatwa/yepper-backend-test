@@ -14,9 +14,9 @@ const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const { Wallet } = require('../../AdPromoter/models/walletModel');
 
 router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
-router.post('/auto-resize', authMiddleware, WebAdvertiseController.autoResizeImage);
-router.post('/enhance-quality', authMiddleware, WebAdvertiseController.enhanceImageQuality);
-router.post('/generate-ai-ad', authMiddleware, WebAdvertiseController.generateAdWithAI);
+// router.post('/auto-resize', authMiddleware, WebAdvertiseController.autoResizeImage);
+// router.post('/generate-image-ai', authMiddleware, WebAdvertiseController.generateImageWithAI);
+// router.get('/usage', authMiddleware, WebAdvertiseController.getUserUsage);
 
 router.put('/ads/:adId/update-selections', authMiddleware, WebAdvertiseController.updateAdSelections);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);

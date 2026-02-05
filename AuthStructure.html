@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Backend Authentication System Structure</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+            }
+
+            .container {
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .header {
+                text-align: center;
+                margin-bottom: 40px;
+                color: white;
+            }
+
+            .header h1 {
+                font-size: 2.5em;
+                margin-bottom: 10px;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+
+            .header p {
+                font-size: 1.2em;
+                opacity: 0.9;
+            }
+
+            .architecture-flow {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin-bottom: 50px;
+                gap: 30px;
+                flex-wrap: wrap;
+            }
+
+            .flow-box {
+                background: rgba(255, 255, 255, 0.95);
+                padding: 20px;
+                border-radius: 15px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                min-width: 200px;
+                text-align: center;
+                transition: transform 0.3s ease;
+            }
+
+            .flow-box:hover {
+                transform: translateY(-5px);
+            }
+
+            .flow-arrow {
+                font-size: 2em;
+                color: white;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+
+            .layers {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 30px;
+                margin-bottom: 50px;
+            }
+
+            .layer {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 20px;
+                padding: 25px;
+                box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+                transition: all 0.3s ease;
+            }
+
+            .layer:hover {
+                transform: translateY(-10px);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            }
+
+            .layer-title {
+                font-size: 1.5em;
+                font-weight: bold;
+                margin-bottom: 15px;
+                color: #4a5568;
+                border-bottom: 3px solid #667eea;
+                padding-bottom: 10px;
+            }
+
+            .file-item {
+                background: #f8f9fa;
+                margin: 10px 0;
+                padding: 15px;
+                border-radius: 10px;
+                border-left: 4px solid #667eea;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .file-item:hover {
+                background: #e9ecef;
+                border-left-color: #764ba2;
+            }
+
+            .file-name {
+                font-weight: bold;
+                color: #2d3748;
+                margin-bottom: 5px;
+            }
+
+            .file-desc {
+                color: #718096;
+                font-size: 0.9em;
+                line-height: 1.4;
+            }
+
+            .api-endpoints {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 20px;
+                padding: 25px;
+                margin-bottom: 30px;
+                box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            }
+
+            .endpoint {
+                display: flex;
+                align-items: center;
+                margin: 15px 0;
+                padding: 15px;
+                background: #f8f9fa;
+                border-radius: 10px;
+                transition: all 0.3s ease;
+            }
+
+            .endpoint:hover {
+                background: #e9ecef;
+                transform: translateX(5px);
+            }
+
+            .method {
+                font-weight: bold;
+                padding: 5px 10px;
+                border-radius: 5px;
+                margin-right: 15px;
+                min-width: 60px;
+                text-align: center;
+                font-size: 0.8em;
+            }
+
+            .method.post { background: #28a745; color: white; }
+            .method.get { background: #007bff; color: white; }
+
+            .endpoint-path {
+                flex: 1;
+                font-family: monospace;
+                color: #495057;
+            }
+
+            .endpoint-desc {
+                color: #6c757d;
+                font-size: 0.9em;
+            }
+
+            .data-flow {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 20px;
+                padding: 25px;
+                margin-bottom: 30px;
+                box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            }
+
+            .flow-step {
+                display: flex;
+                align-items: center;
+                margin: 20px 0;
+                padding: 20px;
+                background: #f8f9fa;
+                border-radius: 15px;
+                position: relative;
+            }
+
+            .step-number {
+                background: #667eea;
+                color: white;
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                margin-right: 20px;
+                flex-shrink: 0;
+            }
+
+            .step-content {
+                flex: 1;
+            }
+
+            .step-title {
+                font-weight: bold;
+                color: #2d3748;
+                margin-bottom: 5px;
+            }
+
+            .step-desc {
+                color: #718096;
+                font-size: 0.9em;
+            }
+
+            .security-features {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+
+            .security-item {
+                background: rgba(255, 255, 255, 0.95);
+                padding: 20px;
+                border-radius: 15px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+                text-align: center;
+                transition: transform 0.3s ease;
+            }
+
+            .security-item:hover {
+                transform: translateY(-5px);
+            }
+
+            .security-icon {
+                font-size: 3em;
+                margin-bottom: 15px;
+            }
+
+            .security-title {
+                font-weight: bold;
+                color: #2d3748;
+                margin-bottom: 10px;
+            }
+
+            .security-desc {
+                color: #718096;
+                font-size: 0.9em;
+            }
+
+            .modal {
+                display: none;
+                position: fixed;
+                z-index: 1000;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.5);
+            }
+
+            .modal-content {
+                background-color: white;
+                margin: 5% auto;
+                padding: 30px;
+                border-radius: 20px;
+                width: 80%;
+                max-width: 600px;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+
+            .close {
+                color: #aaa;
+                float: right;
+                font-size: 28px;
+                font-weight: bold;
+                cursor: pointer;
+                line-height: 1;
+            }
+
+            .close:hover {
+                color: black;
+            }
+
+            @media (max-width: 768px) {
+                .architecture-flow {
+                    flex-direction: column;
+                }
+                
+                .flow-arrow {
+                    transform: rotate(90deg);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🔐 Backend Authentication System</h1>
+                <p>Interactive Structure & Flow Diagram</p>
+            </div>
+
+            <div class="architecture-flow">
+                <div class="flow-box">
+                    <h3>Frontend (React)</h3>
+                    <p>User Interface</p>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <h3>Backend API</h3>
+                    <p>Authentication Logic</p>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <h3>Database (MongoDB)</h3>
+                    <p>Data Storage</p>
+                </div>
+            </div>
+
+            <div class="layers">
+                <div class="layer">
+                    <div class="layer-title">🔧 Configuration Layer</div>
+                    <div class="file-item" onclick="showDetails('env')">
+                        <div class="file-name">.env</div>
+                        <div class="file-desc">Environment variables and secrets</div>
+                    </div>
+                    <div class="file-item" onclick="showDetails('server')">
+                        <div class="file-name">server.js</div>
+                        <div class="file-desc">Main application entry point</div>
+                    </div>
+                    <div class="file-item" onclick="showDetails('passport')">
+                        <div class="file-name">passport.js</div>
+                        <div class="file-desc">Google OAuth configuration</div>
+                    </div>
+                </div>
+
+                <div class="layer">
+                    <div class="layer-title">🗄️ Data Layer</div>
+                    <div class="file-item" onclick="showDetails('user')">
+                        <div class="file-name">User.js</div>
+                        <div class="file-desc">User database model and schema</div>
+                    </div>
+                </div>
+
+                <div class="layer">
+                    <div class="layer-title">🧠 Business Logic Layer</div>
+                    <div class="file-item" onclick="showDetails('controller')">
+                        <div class="file-name">authController.js</div>
+                        <div class="file-desc">Authentication logic and operations</div>
+                    </div>
+                </div>
+
+                <div class="layer">
+                    <div class="layer-title">🛡️ Security Layer</div>
+                    <div class="file-item" onclick="showDetails('middleware')">
+                        <div class="file-name">authMiddleware.js</div>
+                        <div class="file-desc">Route protection and token validation</div>
+                    </div>
+                </div>
+
+                <div class="layer">
+                    <div class="layer-title">🛣️ Routing Layer</div>
+                    <div class="file-item" onclick="showDetails('routes')">
+                        <div class="file-name">authRoutes.js</div>
+                        <div class="file-desc">API endpoint definitions</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="api-endpoints">
+                <div class="layer-title">📡 API Endpoints</div>
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/api/auth/register</span>
+                    <span class="endpoint-desc">Create new user account</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/api/auth/login</span>
+                    <span class="endpoint-desc">User authentication</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/api/auth/verify-email</span>
+                    <span class="endpoint-desc">Verify email address</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/api/auth/resend-verification</span>
+                    <span class="endpoint-desc">Resend verification email</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/api/auth/profile</span>
+                    <span class="endpoint-desc">Get user profile (protected)</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/api/auth/google</span>
+                    <span class="endpoint-desc">Google OAuth login</span>
+                </div>
+            </div>
+
+            <div class="data-flow">
+                <div class="layer-title">🔄 User Registration Flow</div>
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <div class="step-title">User Input</div>
+                        <div class="step-desc">User submits name, email, and password</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <div class="step-title">Validation</div>
+                        <div class="step-desc">System validates input and checks for existing users</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <div class="step-title">Password Security</div>
+                        <div class="step-desc">Password is hashed with bcrypt and salt</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <div class="step-title">Token Generation</div>
+                        <div class="step-desc">Verification token created for email confirmation</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <div class="step-title">Database Save</div>
+                        <div class="step-desc">User saved to MongoDB with unverified status</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">6</div>
+                    <div class="step-content">
+                        <div class="step-title">Email Verification</div>
+                        <div class="step-desc">Verification email sent to user (if configured)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="security-features">
+                <div class="security-item">
+                    <div class="security-icon">🔐</div>
+                    <div class="security-title">Password Hashing</div>
+                    <div class="security-desc">Bcrypt with salt for secure password storage</div>
+                </div>
+                <div class="security-item">
+                    <div class="security-icon">🎫</div>
+                    <div class="security-title">JWT Tokens</div>
+                    <div class="security-desc">Stateless authentication with 7-day expiration</div>
+                </div>
+                <div class="security-item">
+                    <div class="security-icon">📧</div>
+                    <div class="security-title">Email Verification</div>
+                    <div class="security-desc">Confirms user email ownership</div>
+                </div>
+                <div class="security-item">
+                    <div class="security-icon">🔒</div>
+                    <div class="security-title">Google OAuth</div>
+                    <div class="security-desc">Secure third-party authentication</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="detailModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <div id="modalContent"></div>
+            </div>
+        </div>
+
+        <script>
+            const modal = document.getElementById('detailModal');
+            const modalContent = document.getElementById('modalContent');
+            const closeBtn = document.getElementsByClassName('close')[0];
+
+            const details = {
+                env: {
+                    title: '.env - Environment Configuration',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>Stores sensitive configuration data that should never be committed to version control.</p>
+                        
+                        <h3>Key Variables</h3>
+                        <ul>
+                            <li><strong>PORT</strong>: Server port (5000)</li>
+                            <li><strong>JWT_SECRET</strong>: Secret for signing JWT tokens</li>
+                            <li><strong>MONGODB_URI</strong>: Database connection string</li>
+                            <li><strong>EMAIL_USER/PASS</strong>: Gmail credentials for verification emails</li>
+                            <li><strong>GOOGLE_CLIENT_ID/SECRET</strong>: Google OAuth credentials</li>
+                        </ul>
+                        
+                        <h3>Security Note</h3>
+                        <p>This file contains sensitive information and should be kept secure. Never share these values publicly.</p>
+                    `
+                },
+                server: {
+                    title: 'server.js - Application Entry Point',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>The main file that starts and configures your entire backend application.</p>
+                        
+                        <h3>Key Responsibilities</h3>
+                        <ul>
+                            <li>Sets up Express server</li>
+                            <li>Configures middleware (CORS, sessions, passport)</li>
+                            <li>Connects to MongoDB database</li>
+                            <li>Defines API routes</li>
+                            <li>Starts server on specified port</li>
+                        </ul>
+                        
+                        <h3>Middleware Stack</h3>
+                        <p>The order of middleware matters - each request passes through them in sequence.</p>
+                    `
+                },
+                passport: {
+                    title: 'passport.js - Google OAuth Configuration',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>Handles Google OAuth authentication strategy and user serialization.</p>
+                        
+                        <h3>Key Functions</h3>
+                        <ul>
+                            <li>Configures Google OAuth strategy</li>
+                            <li>Handles user creation/linking for Google accounts</li>
+                            <li>Manages user sessions</li>
+                            <li>Auto-verifies Google users</li>
+                        </ul>
+                        
+                        <h3>OAuth Flow</h3>
+                        <p>User → Google → Callback → User Creation/Linking → Token Generation</p>
+                    `
+                },
+                user: {
+                    title: 'User.js - Database Model',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>Defines the structure and behavior of user data in MongoDB.</p>
+                        
+                        <h3>Schema Fields</h3>
+                        <ul>
+                            <li><strong>name</strong>: User's full name</li>
+                            <li><strong>email</strong>: Unique email address</li>
+                            <li><strong>password</strong>: Hashed password (optional for OAuth users)</li>
+                            <li><strong>googleId</strong>: Google account identifier</li>
+                            <li><strong>avatar</strong>: Profile picture URL</li>
+                            <li><strong>isVerified</strong>: Email verification status</li>
+                            <li><strong>verificationToken</strong>: Email verification token</li>
+                        </ul>
+                        
+                        <h3>Security Features</h3>
+                        <ul>
+                            <li>Automatic password hashing before save</li>
+                            <li>Password comparison method</li>
+                            <li>Required field validation</li>
+                        </ul>
+                    `
+                },
+                controller: {
+                    title: 'authController.js - Business Logic',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>Contains all the business logic for user authentication operations.</p>
+                        
+                        <h3>Main Functions</h3>
+                        <ul>
+                            <li><strong>register()</strong>: Creates new user accounts</li>
+                            <li><strong>login()</strong>: Authenticates users</li>
+                            <li><strong>verifyEmail()</strong>: Confirms email addresses</li>
+                            <li><strong>resendVerification()</strong>: Resends verification emails</li>
+                            <li><strong>getProfile()</strong>: Returns user profile data</li>
+                            <li><strong>googleSuccess/Failure()</strong>: Handles OAuth responses</li>
+                        </ul>
+                        
+                        <h3>Error Handling</h3>
+                        <p>Comprehensive error handling with development/production modes for debugging vs security.</p>
+                    `
+                },
+                middleware: {
+                    title: 'authMiddleware.js - Route Protection',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>Protects routes that require authentication by validating JWT tokens.</p>
+                        
+                        <h3>How It Works</h3>
+                        <ol>
+                            <li>Extracts token from Authorization header</li>
+                            <li>Verifies token signature and expiration</li>
+                            <li>Checks if user still exists in database</li>
+                            <li>Adds user info to request object</li>
+                            <li>Allows or blocks access accordingly</li>
+                        </ol>
+                        
+                        <h3>Usage</h3>
+                        <p>Applied to protected routes like /profile to ensure only authenticated users can access them.</p>
+                    `
+                },
+                routes: {
+                    title: 'authRoutes.js - API Endpoints',
+                    content: `
+                        <h3>Purpose</h3>
+                        <p>Defines all the API endpoints that your frontend can call.</p>
+                        
+                        <h3>Route Structure</h3>
+                        <ul>
+                            <li><strong>POST /register</strong>: User registration</li>
+                            <li><strong>POST /login</strong>: User authentication</li>
+                            <li><strong>GET /verify-email</strong>: Email verification</li>
+                            <li><strong>POST /resend-verification</strong>: Resend verification</li>
+                            <li><strong>GET /profile</strong>: User profile (protected)</li>
+                            <li><strong>GET /google</strong>: Google OAuth start</li>
+                            <li><strong>GET /google/callback</strong>: Google OAuth callback</li>
+                        </ul>
+                        
+                        <h3>Route Protection</h3>
+                        <p>Some routes use authMiddleware to ensure only authenticated users can access them.</p>
+                    `
+                }
+            };
+
+            function showDetails(type) {
+                const detail = details[type];
+                modalContent.innerHTML = `
+                    <h2>${detail.title}</h2>
+                    ${detail.content}
+                `;
+                modal.style.display = 'block';
+            }
+
+            closeBtn.onclick = function() {
+                modal.style.display = 'none';
+            }
+
+            window.onclick = function(event) {
+                if (event.target == modal) {
+                    modal.style.display = 'none';
+                }
+            }
+
+            // Add some interactive animations
+            document.addEventListener('DOMContentLoaded', function() {
+                const layers = document.querySelectorAll('.layer');
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.style.opacity = '1';
+                            entry.target.style.transform = 'translateY(0)';
+                        }
+                    });
+                });
+
+                layers.forEach(layer => {
+                    layer.style.opacity = '0';
+                    layer.style.transform = 'translateY(20px)';
+                    layer.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                    observer.observe(layer);
+                });
+            });
+        </script>
+    </body>
+</html>

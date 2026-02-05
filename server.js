@@ -11,6 +11,8 @@ require('./config/passport');
 const authRoutes = require('./routes/authRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+// const campaignRoutes = require('./routes/campaignRoutes');
+const campaignSelectionRoutes = require('./campaigns/routes/campaignSelectionRoutes');
 
 // Ad Promoter
 const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
@@ -38,58 +40,84 @@ const allowedOrigins = [
   'https://www.yepper.cc',
 ];
 
-// Helper function to normalize origin (remove trailing slash)
+const allowNullOriginPaths = [
+  '/api/ads/display',
+  '/api/ads/view',
+  '/api/ads/click',
+  '/api/ads/script',
+  '/api/ad-categories/ads/customization'
+];
+
 const normalizeOrigin = (origin) => {
   if (!origin) return null;
   return origin.endsWith('/') ? origin.slice(0, -1) : origin;
 };
 
-// CORS configuration - IMPORTANT: Must be before routes
-app.use(cors({
-  origin: function (origin, callback) {
-    console.log('Request origin:', origin);
-    
-    // Allow requests with no origin (mobile apps, curl, Postman, file://)
-    if (!origin) {
-      console.log('Allowing request with no origin');
-      return callback(null, true);
-    }
-    
-    // Normalize the origin by removing trailing slash
-    const normalizedOrigin = normalizeOrigin(origin);
-    
-    if (allowedOrigins.includes(normalizedOrigin)) {
-      console.log('Origin allowed:', normalizedOrigin);
-      return callback(null, true);
-    }
-    
-    // Log rejected origin for debugging
-    console.error('Origin rejected:', origin);
-    const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-    return callback(new Error(msg), false);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
-}));
+const shouldAllowNullOrigin = (path) => {
+  return allowNullOriginPaths.some(allowedPath => path.startsWith(allowedPath));
+};
 
-// Handle preflight requests explicitly for all routes
-app.options('*', cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    
-    const normalizedOrigin = normalizeOrigin(origin);
-    if (allowedOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  console.log('Request:', {
+    method: req.method,
+    path: req.path,
+    origin: origin
+  });
+  
+  // Handle requests with null origin
+  if (!origin || origin === 'null') {
+    if (shouldAllowNullOrigin(req.path)) {
+      console.log('✓ Allowing null origin for ad endpoint:', req.path);
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+      res.header('Access-Control-Allow-Credentials', 'false');
+      
+      if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+      }
+      return next();
     }
-    return callback(new Error('Not allowed by CORS'), false);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
-}));
+    
+    // Allow other null origin requests (mobile apps, curl, etc.)
+    console.log('✓ Allowing null origin request');
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    return next();
+  }
+  
+  // Handle requests with specified origin
+  const normalizedOrigin = normalizeOrigin(origin);
+  
+  if (allowedOrigins.includes(normalizedOrigin)) {
+    console.log('✓ Origin allowed:', normalizedOrigin);
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    res.header('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
+    
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    return next();
+  }
+  
+  // Origin not allowed
+  console.error('✗ Origin rejected:', origin);
+  return res.status(403).json({
+    error: 'CORS Error',
+    message: `The CORS policy does not allow access from origin: ${origin}`,
+    allowedOrigins: allowedOrigins
+  });
+});
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -108,6 +136,8 @@ app.use(passport.session());
 app.use('/api/auth', authRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/ai', aiRoutes);
+// app.use('/api/campaigns', campaignRoutes);
+app.use('/api/campaign-selections', campaignSelectionRoutes);
 
 // AdPromoter Routes
 app.use('/api/createWebsite', createWebsiteRoutes);

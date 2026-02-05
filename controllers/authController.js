@@ -243,6 +243,42 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
+// exports.verifyEmail = async (req, res) => {
+//   try {
+//     const { token } = req.query;
+
+//     if (!token) {
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=missing_token`);
+//     }
+
+//     const user = await User.findOne({
+//       verificationToken: token,
+//       verificationTokenExpires: { $gt: Date.now() }
+//     });
+
+//     if (!user) {
+//       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=invalid_token`);
+//     }
+
+//     // Verify user and clear verification tokens
+//     user.isVerified = true;
+//     user.verificationToken = null;
+//     user.verificationTokenExpires = null;
+//     await user.save();
+
+//     // Generate JWT token for automatic sign-in
+//     const authToken = generateToken(user._id);
+
+//     // Always redirect to verify-success with token for auto-login
+//     let redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-success?token=${authToken}&auto_login=true`;
+
+//     res.redirect(redirectUrl);
+//   } catch (error) {
+//     console.error('Email verification error:', error);
+//     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=server_error`);
+//   }
+// };
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
