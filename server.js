@@ -7,12 +7,23 @@ const passport = require('passport');
 require('dotenv').config();
 require('./config/passport');
 
-// User
+// Import routes
 const authRoutes = require('./routes/authRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 // const campaignRoutes = require('./routes/campaignRoutes');
+
 const campaignSelectionRoutes = require('./campaigns/routes/campaignSelectionRoutes');
+const adultCampaignRoutes = require('./campaigns/adultCampaigns/routes/campaignSelectionRoutes');
+const carOwnersCampaignRoutes = require('./campaigns/carOwnersCampaigns/routes/campaignSelectionRoutes');
+const countrySideCampaignRoutes = require('./campaigns/countrySideCampaigns/routes/campaignSelectionRoutes');
+const parentsCampaignRoutes = require('./campaigns/parentsCampaigns/routes/campaignSelectionRoutes');
+const transportCampaignRoutes = require('./campaigns/transportersCampaigns/routes/campaignSelectionRoutes');
+const youthCampaignRoutes = require('./campaigns/youthCampaigns/routes/campaignSelectionRoutes');
+
+// Personal Brand
+const brandAuth = require('./brand/routes/auth');
+const brandAnalytics = require('./brand/routes/analytics');
 
 // Ad Promoter
 const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
@@ -20,24 +31,28 @@ const createCategoryRoutes = require('./AdPromoter/routes/createCategoryRoutes')
 const adDisplayRoutes = require('./AdPromoter/routes/AdDisplayRoutes');
 const businessCategoriesRoutes = require('./AdPromoter/routes/businessCategoriesRoutes');
 
-// AdOwner.js
+// Password Reset
+const passwordRoutes = require('./routes/passwordRoutes');
+
+// AdOwner
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes');
 
-const app = express();
+const app = express(); // ← INITIALIZE APP FIRST
 
 // Middleware
 app.use(express.json());
 
-// Improved CORS configuration
 const allowedOrigins = [
   'http://localhost:3001',
   'http://localhost:3000',
-  'http://localhost:5000',
+  'http://yepper.cc',
+  'http://localhost:3000',
+  'https://www.yepper.cc',
+  'https://yepper-backend-ll50.onrender.com',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
-  'http://127.0.0.1:5000',
-  'http://yepper.cc',
-  'https://www.yepper.cc',
+  'https://waitlist.yepper.cc',
+  'https://radiant.yepper.cc',
 ];
 
 const allowNullOriginPaths = [
@@ -136,8 +151,22 @@ app.use(passport.session());
 app.use('/api/auth', authRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/ai', aiRoutes);
-// app.use('/api/campaigns', campaignRoutes);
+
+// campaigns
 app.use('/api/campaign-selections', campaignSelectionRoutes);
+app.use('/api/adult-campaign', adultCampaignRoutes);
+app.use('/api/carOwners-campaign', carOwnersCampaignRoutes);
+app.use('/api/countrySide-campaign', countrySideCampaignRoutes);
+app.use('/api/parents-campaign', parentsCampaignRoutes);
+app.use('/api/transport-campaign', transportCampaignRoutes);
+app.use('/api/youth-campaign', youthCampaignRoutes);
+
+// Password Reset Routes
+app.use('/api/password', passwordRoutes);
+
+// Personal Brand
+app.use('/api/brandAuth', brandAuth);
+app.use('/api/brandAnalytics', brandAnalytics);
 
 // AdPromoter Routes
 app.use('/api/createWebsite', createWebsiteRoutes);
@@ -148,7 +177,6 @@ app.use('/api/ads', adDisplayRoutes);
 // AdOwner Routes
 app.use('/api/web-advertise', webAdvertiseRoutes);
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
@@ -192,6 +220,14 @@ app.use((req, res) => {
       '/api/auth',
       '/api/conversations',
       '/api/ai',
+      '/api/password',
+      '/api/campaign-selections',
+      '/api/adult-campaign',
+      '/api/carOwners-campaign',
+      '/api/countrySide-campaign',
+      '/api/parents-campaign',
+      '/api/transport-campaign',
+      '/api/youth-campaign',
       '/api/createWebsite',
       '/api/business-categories',
       '/api/ad-categories',
@@ -206,13 +242,11 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✓ MongoDB connected'))
-.catch(err => console.error('✗ MongoDB connection error:', err));
+.then(() => console.log('MongoDB connected'))
+.catch(err => console.log('MongoDB connection error:', err));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Server running on port ${PORT}`);
-  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 Allowed origins:`, allowedOrigins.join(', '));
-  console.log(`\n✓ Ready to accept requests\n`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });

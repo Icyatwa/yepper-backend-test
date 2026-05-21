@@ -4,38 +4,8 @@ const multer = require('multer');
 const User = require('../../models/User'); // CHANGE: Added User model import for custom auth
 const path = require('path');
 const jwt = require('jsonwebtoken'); // ADD THIS LINE - Missing import
-const { Storage } = require('@google-cloud/storage');
+const cloudinary = require('../../config/storage');
 require('dotenv').config();
-
-const credentials = {
-  type: 'service_account',
-  project_id: process.env.GOOGLE_CLOUD_PROJECT_ID,
-  private_key_id: process.env.GOOGLE_CLOUD_PRIVATE_KEY_ID,
-  private_key: process.env.GOOGLE_CLOUD_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  client_email: process.env.GOOGLE_CLOUD_CLIENT_EMAIL,
-  client_id: process.env.GOOGLE_CLOUD_CLIENT_ID,
-  auth_uri: "https://accounts.google.com/o/oauth2/auth",
-  token_uri: "https://oauth2.googleapis.com/token",
-  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-  client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.GOOGLE_CLOUD_CLIENT_EMAIL)}`
-};
-
-// Initialize storage with credentials object and timeout settings
-const storage = new Storage({
-  credentials,
-  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-  timeout: 60000, // 60 seconds timeout
-  maxRetries: 3,
-  retryOptions: {
-    autoRetry: true,
-    maxRetries: 3,
-    retryDelayMultiplier: 2,
-    totalTimeout: 60000,
-    maxRetryDelay: 10000
-  }
-});
-
-const bucketName = process.env.GOOGLE_CLOUD_BUCKET_NAME;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -51,58 +21,33 @@ const upload = multer({
   },
 });
 
-const uploadToGCS = async (file) => {
+const uploadToCloudinary = async (file) => {
   try {
-    console.log('Starting GCS upload for:', file.originalname);
-    
-    const bucket = storage.bucket(bucketName);
+    console.log('Starting Cloudinary upload for:', file.originalname);
+
     const fileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-    
-    // Create file in bucket
-    const cloudFile = bucket.file(fileName);
-    
-    // Use simple upload instead of resumable for smaller files
-    const stream = cloudFile.createWriteStream({
-      metadata: {
-        contentType: file.mimetype,
-        cacheControl: 'public, max-age=31536000'
-      },
-      public: true,
-      validation: false, // Disable validation for faster upload
-      resumable: false // Use simple upload for files under 5MB
-    });
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        stream.destroy();
-        reject(new Error('Upload timeout after 30 seconds'));
-      }, 30000);
-
-      stream.on('error', (error) => {
-        clearTimeout(timeout);
-        console.error('Stream error:', error);
-        reject(error);
-      });
-
-      stream.on('finish', async () => {
-        clearTimeout(timeout);
-        try {
-          // Make file public
-          await cloudFile.makePublic();
-          const publicUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
-          console.log('File uploaded successfully to:', publicUrl);
-          resolve(publicUrl);
-        } catch (error) {
-          console.error('Error making file public:', error);
-          reject(error);
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: 'image',
+          folder: 'yepper_websites',
+          public_id: fileName,
+        },
+        (error, result) => {
+          if (error) {
+            console.error('Cloudinary upload error:', error);
+            return reject(new Error(`Upload failed: ${error.message}`));
+          }
+          console.log('File uploaded successfully to:', result.secure_url);
+          resolve(result.secure_url);
         }
-      });
-
-      stream.end(file.buffer);
+      );
+      uploadStream.end(file.buffer);
     });
 
   } catch (error) {
-    console.error('GCS upload error:', error);
+    console.error('Cloudinary upload error:', error);
     throw new Error(`Upload failed: ${error.message}`);
   }
 };
@@ -155,7 +100,7 @@ exports.prepareWebsite = [upload.single('file'), authenticateToken, async (req, 
           size: req.file.size
         });
         
-        imageUrl = await uploadToGCS(req.file);
+        imageUrl = await uploadToCloudinary(req.file);
         console.log('Upload completed successfully');
       } catch (uploadError) {
         console.error('File upload failed:', uploadError);
@@ -209,8 +154,8 @@ exports.uploadWebsiteImage = [
         return res.status(403).json({ message: 'Unauthorized' });
       }
 
-      // Upload to GCS
-      const imageUrl = await uploadToGCS(req.file);
+      // Upload to Cloudinary
+      const imageUrl = await uploadToCloudinary(req.file);
 
       // Update website with image URL
       website.imageUrl = imageUrl;
@@ -315,7 +260,7 @@ exports.createWebsite = [upload.single('file'), authenticateToken, async (req, r
 
     if (req.file) {
       try {
-        imageUrl = await uploadToGCS(req.file);
+        imageUrl = await uploadToCloudinary(req.file);
       } catch (uploadError) {
         console.error('File upload failed:', uploadError);
         return res.status(500).json({ 

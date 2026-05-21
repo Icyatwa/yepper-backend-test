@@ -76,7 +76,7 @@ exports.displayAd = async (req, res) => {
       })
       .filter(html => html)
       .join('');
-	  
+    
     const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
     return res.json({ html: finalHtml });
   } catch (error) {
@@ -94,11 +94,11 @@ exports.searchAd = async (req, res) => {
     //const { categoryId } = req.query;
     const { categoryId,searchTerm } = req.query;
     //const { categoryId,searchTerm } = req.params;
-	
-	// Escape any special characters (if needed)
-	let searchEscape = searchTerm.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
-	// Create the regex pattern
-	let searchRegex = new RegExp("([\\s\\S]*?)"+searchEscape.split(" ").join("([\\s\\S]*?)")+"([\\s\\S]*?)");
+  
+  // Escape any special characters (if needed)
+  let searchEscape = searchTerm.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
+  // Create the regex pattern
+  let searchRegex = new RegExp("([\\s\\S]*?)"+searchEscape.split(" ").join("([\\s\\S]*?)")+"([\\s\\S]*?)");
 
     const adCategory = await AdCategory.findById(categoryId);
     if (!adCategory) {
@@ -115,11 +115,11 @@ exports.searchAd = async (req, res) => {
         }
       },
       'confirmed': true,
-	  $or: [
-		{businessName: searchRegex},
-		{businessLink: searchRegex},
-		{adDescription: searchRegex}
-	  ]
+    $or: [
+    {businessName: searchRegex},
+    {businessLink: searchRegex},
+    {adDescription: searchRegex}
+    ]
     });
     if (!ads || ads.length === 0) {
       return res.json({message:"No Ads Found"});
@@ -150,21 +150,21 @@ exports.searchAd = async (req, res) => {
             description.substring(0, 80) + '...' : description;
 
           // Add data attributes for tracking with new design
-			//return `{"ad_id":"${ad._id}","category_id":"${categoryId}","website_id":"${adCategory.websiteId}","link":"${targetUrl}","cover":"${imageUrl}","business_name":"${ad.businessName}","description":"${shortDescription}"}`;
-			/*return {"ad_id":ad._id,
-				"category_id":categoryId,
-				"website_id":adCategory.websiteId,
-				"link":targetUrl,
+      //return `{"ad_id":"${ad._id}","category_id":"${categoryId}","website_id":"${adCategory.websiteId}","link":"${targetUrl}","cover":"${imageUrl}","business_name":"${ad.businessName}","description":"${shortDescription}"}`;
+      /*return {"ad_id":ad._id,
+        "category_id":categoryId,
+        "website_id":adCategory.websiteId,
+        "link":targetUrl,
                 "cover":imageUrl,
-				"business_name":ad.businessName,
-				"description":shortDescription
-			};*/
-			return {
-				"title":ad.businessName,
-				"link":targetUrl,
-				"description":shortDescription,
+        "business_name":ad.businessName,
+        "description":shortDescription
+      };*/
+      return {
+        "title":ad.businessName,
+        "link":targetUrl,
+        "description":shortDescription,
                 "image":imageUrl,
-			};
+      };
         } catch (error) {
           console.error('Error generating ad JSON:', error);
           return {"message":`Error generating ad JSON: ${error}`};
@@ -172,10 +172,10 @@ exports.searchAd = async (req, res) => {
       })
       //.filter(html => html)
       //.join('');
-	console.log(adsJSON);
-	console.log("AdsJSON LEN? ",adsJSON.length);
+  console.log(adsJSON);
+  console.log("AdsJSON LEN? ",adsJSON.length);
     //const finalJSON = adsJSON[0];
-	const finalJSON = adsJSON.length ? adsJSON[0] : { message: 'No matching ads found' };
+  const finalJSON = adsJSON.length ? adsJSON[0] : { message: 'No matching ads found' };
     //return res.json({link: finalJSON[0].link,cover: finalJSON[0].cover,type:"ad"});
     return res.json(finalJSON);
   } catch (error) {
@@ -204,7 +204,7 @@ exports.incrementView = async (req, res) => {
 
     // Use a transaction to ensure both updates succeed or fail together
     const session = await ImportAd.startSession();
-	console.log(session);
+  console.log(session);
     await session.withTransaction(async () => {
       // Increment views on the ad
       const updatedAd = await ImportAd.findByIdAndUpdate(
@@ -218,27 +218,27 @@ exports.incrementView = async (req, res) => {
       }
 
       // Update the payment tracker's view count
-	  /*
-	  const updatedTracker = await PaymentTracker.findOneAndUpdate(
+    /*
+    const updatedTracker = await PaymentTracker.findOneAndUpdate(
         { adId },
         { $inc: { currentViews: 1 } },
         { new: true, session }
       );
-	  */
-	  const updatedTracker = await PaymentTracker.findOneAndUpdate(
-		  { adId },
-		  {
-			$inc: { currentViews: 1 },
-			$setOnInsert: {
-			  userId: updatedAd.userId,
-			  categoryId: updatedAd.categoryId,
-			  paymentDate: new Date(),
-			  amount: 0,
-			  viewsRequired: 0,
-			}
-		  },
-		  { new: true, upsert: true }
-		);
+    */
+    const updatedTracker = await PaymentTracker.findOneAndUpdate(
+      { adId },
+      {
+      $inc: { currentViews: 1 },
+      $setOnInsert: {
+        userId: updatedAd.userId,
+        categoryId: updatedAd.categoryId,
+        paymentDate: new Date(),
+        amount: 0,
+        viewsRequired: 0,
+      }
+      },
+      { new: true, upsert: true }
+    );
 
       if (!updatedTracker) {
         throw new Error('Payment tracker not found');

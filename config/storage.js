@@ -1,15 +1,11 @@
 // storage.js
-const { Storage } = require('@google-cloud/storage');
+const cloudinary = require('cloudinary').v2;
 require('dotenv').config();
 
-const storage = new Storage({
-  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-  credentials: {
-    client_email: process.env.GOOGLE_CLOUD_CLIENT_EMAIL,
-    private_key: process.env.GOOGLE_CLOUD_PRIVATE_KEY
-  }
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const bucket = storage.bucket(process.env.GOOGLE_CLOUD_BUCKET_NAME);
-
-module.exports = bucket;
+module.exports = cloudinary;

@@ -8,15 +8,18 @@ const router = express.Router();
 
 // Register
 router.post('/register', authController.register);
+router.post('/register-waitlist', authController.registerWaitlist);
 
 // Login
 router.post('/login', authController.login);
 
 // Verify email
 router.get('/verify-email', authController.verifyEmail);
+router.get('/verify-waitlist-email', authController.verifyWaitlistEmail);
 
 // Resend verification
 router.post('/resend-verification', authController.resendVerification);
+router.post('/resend-waitlist-verification', authController.resendWaitlistVerification);
 
 // Get profile (protected route)
 router.get('/profile', authMiddleware, authController.getProfile);

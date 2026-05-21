@@ -10,7 +10,7 @@ const Website = require('../../AdPromoter/models/CreateWebsiteModel');
 const { Wallet, WalletTransaction } = require('../../AdPromoter/models/walletModel');
 const mongoose = require('mongoose');
 
-const flw = new Flutterwave(process.env.FLW_TEST_PUBLIC_KEY, process.env.FLW_TEST_SECRET_KEY);
+const flw = new Flutterwave(process.env.FLW_PUBLIC_KEY, process.env.FLW_SECRET_KEY);
 
 const retryTransaction = async (operation, maxRetries = 3, baseDelay = 1000) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -42,352 +42,6 @@ const retryTransaction = async (operation, maxRetries = 3, baseDelay = 1000) => 
     }
   }
 };
-
-// exports.initiatePayment = async (req, res) => {
-//   try {
-//     const { adId, websiteId, categoryId } = req.body;
-//     const userId = req.user.userId || req.user.id || req.user._id;
-
-//     // Get ad and category details
-//     const ad = await ImportAd.findById(adId);
-//     const category = await AdCategory.findById(categoryId).populate('websiteId');
-//     const website = await Website.findById(websiteId);
-
-//     if (!ad || !category || !website) {
-//       return res.status(404).json({ error: 'Ad, category, or website not found' });
-//     }
-
-//     // Verify the ad belongs to the user
-//     if (ad.userId !== userId) {
-//       return res.status(403).json({ error: 'Unauthorized access to ad' });
-//     }
-
-//     // Check if this combination is already paid
-//     const existingSelection = ad.websiteSelections.find(
-//       sel => sel.websiteId.toString() === websiteId && 
-//              sel.categories.includes(categoryId) &&
-//              ['paid', 'active'].includes(sel.status)
-//     );
-
-//     if (existingSelection) {
-//       return res.status(400).json({ error: 'This ad space is already paid for' });
-//     }
-
-//     const amount = category.price;
-//     const tx_ref = `ad_${adId}_${websiteId}_${categoryId}_${Date.now()}`;
-    
-//     const paymentData = {
-//       tx_ref: tx_ref,
-//       amount: amount,
-//       currency: 'USD',
-//       redirect_url: `${process.env.FRONTEND_URL}/payment/callback`,
-//       customer: {
-//         email: ad.adOwnerEmail,
-//         name: ad.businessName
-//       },
-//       customizations: {
-//         title: `Advertisement on ${website.websiteName}`,
-//         description: `Payment for ad space: ${category.categoryName}`,
-//         logo: process.env.LOGO_URL || ""
-//       },
-//       meta: {
-//         adId: adId,
-//         websiteId: websiteId,
-//         categoryId: categoryId,
-//         webOwnerId: website.ownerId,
-//         advertiserId: userId
-//       }
-//     };
-
-//     // Direct API call to Flutterwave
-//     const apiResponse = await axios.post('https://api.flutterwave.com/v3/payments', paymentData, {
-//       headers: {
-//         'Authorization': `Bearer ${process.env.FLW_TEST_SECRET_KEY}`,
-//         'Content-Type': 'application/json'
-//       }
-//     });
-    
-//     const response = {
-//       status: apiResponse.data.status,
-//       data: apiResponse.data.data
-//     };
-
-//     if (response.status === 'success') {
-//       // Create payment record with both tx_ref and temporary paymentId
-//       const payment = new Payment({
-//         paymentId: tx_ref, // Will be updated with actual transaction ID after verification
-//         tx_ref: tx_ref, // Store the transaction reference
-//         adId: adId,
-//         advertiserId: userId,
-//         webOwnerId: website.ownerId,
-//         websiteId: websiteId,
-//         categoryId: categoryId,
-//         amount: amount,
-//         status: 'pending',
-//         flutterwaveData: response.data
-//       });
-
-//       await payment.save();
-
-//       res.status(200).json({
-//         success: true,
-//         paymentUrl: response.data.link,
-//         paymentId: payment._id,
-//         tx_ref: tx_ref
-//       });
-//     } else {
-//       res.status(400).json({ error: 'Payment initiation failed', details: response });
-//     }
-
-//   } catch (error) {
-//     console.error('Payment initiation error:', error);
-//     res.status(500).json({ error: 'Internal server error', message: error.message });
-//   }
-// };
-
-// exports.verifyPayment = async (req, res) => {
-//   try {
-//     const { transaction_id, tx_ref } = req.body;
-    
-//     // Use tx_ref if transaction_id is not provided
-//     const identifier = transaction_id || tx_ref;
-    
-//     if (!identifier) {
-//       return res.status(400).json({ error: 'Transaction ID or reference required' });
-//     }
-
-//     // Verify with Flutterwave first (outside transaction)
-//     const response = await flw.Transaction.verify({ id: identifier });
-
-//     if (response.status === 'success' && response.data.status === 'successful') {
-//       // Find payment by tx_ref first, then by paymentId (outside transaction)
-//       let payment = await Payment.findOne({ 
-//         $or: [
-//           { tx_ref: response.data.tx_ref },
-//           { paymentId: identifier }
-//         ]
-//       });
-
-//       if (!payment) {
-//         return res.status(404).json({ error: 'Payment record not found' });
-//       }
-
-//       // Check if already processed
-//       if (payment.status === 'successful') {
-//         return res.status(200).json({ 
-//           success: true, 
-//           message: 'Payment already processed',
-//           payment: payment 
-//         });
-//       }
-
-//       // Execute the database operations with retry logic
-//       const result = await retryTransaction(async (session) => {
-//         // Re-fetch payment within transaction to avoid stale data
-//         const currentPayment = await Payment.findById(payment._id).session(session);
-        
-//         if (!currentPayment) {
-//           throw new Error('Payment not found during transaction');
-//         }
-
-//         // Double-check status within transaction
-//         if (currentPayment.status === 'successful') {
-//           return { alreadyProcessed: true, payment: currentPayment };
-//         }
-
-//         // Update payment with actual Flutterwave transaction ID
-//         currentPayment.paymentId = response.data.id;
-//         currentPayment.status = 'successful';
-//         currentPayment.paidAt = new Date();
-//         currentPayment.flutterwaveData.set('verification', response.data);
-//         await currentPayment.save({ session });
-
-//         // Get required data
-//         const ad = await ImportAd.findById(currentPayment.adId).session(session);
-//         const website = await Website.findById(currentPayment.websiteId).session(session);
-//         const category = await AdCategory.findById(currentPayment.categoryId).session(session);
-
-//         if (!ad || !website || !category) {
-//           throw new Error('Required documents not found');
-//         }
-
-//         // Handle advertiser wallet
-//         const advertiser = await User.findById(currentPayment.advertiserId).session(session);
-//         if (!advertiser) {
-//           throw new Error('Advertiser not found');
-//         }
-
-//         await Wallet.findOneAndUpdate(
-//           { ownerId: currentPayment.advertiserId, ownerType: 'advertiser' },
-//           {
-//             $inc: { totalSpent: currentPayment.amount },
-//             $setOnInsert: {
-//               ownerId: currentPayment.advertiserId,
-//               ownerEmail: advertiser.email,
-//               ownerType: 'advertiser',
-//               balance: 0,
-//               totalEarned: 0,
-//               totalRefunded: 0
-//             },
-//             $set: { lastUpdated: new Date() }
-//           },
-//           { upsert: true, session }
-//         );
-
-//         // Update ad website selection
-//         const selectionIndex = ad.websiteSelections.findIndex(
-//           sel => sel.websiteId.toString() === currentPayment.websiteId.toString() &&
-//                  sel.categories.includes(currentPayment.categoryId)
-//         );
-
-//         const rejectionDeadline = new Date();
-//         rejectionDeadline.setMinutes(rejectionDeadline.getMinutes() + 2);
-
-//         if (selectionIndex !== -1) {
-//           ad.websiteSelections[selectionIndex].status = 'active';
-//           ad.websiteSelections[selectionIndex].approved = true;
-//           ad.websiteSelections[selectionIndex].approvedAt = new Date();
-//           ad.websiteSelections[selectionIndex].publishedAt = new Date();
-//           ad.websiteSelections[selectionIndex].paymentId = currentPayment._id;
-//           ad.websiteSelections[selectionIndex].rejectionDeadline = rejectionDeadline;
-//         } else {
-//           ad.websiteSelections.push({
-//             websiteId: currentPayment.websiteId,
-//             categories: [currentPayment.categoryId],
-//             approved: true,
-//             approvedAt: new Date(),
-//             publishedAt: new Date(),
-//             paymentId: currentPayment._id,
-//             status: 'active',
-//             rejectionDeadline: rejectionDeadline
-//           });
-//         }
-
-//         // Check if all selections are approved
-//         const allApproved = ad.websiteSelections.every(sel => sel.approved);
-//         if (allApproved) {
-//           ad.confirmed = true;
-//         }
-
-//         await ad.save({ session });
-
-//         // Add ad to category's selectedAds (use $addToSet to avoid duplicates)
-//         await AdCategory.findByIdAndUpdate(
-//           currentPayment.categoryId,
-//           { $addToSet: { selectedAds: currentPayment.adId } },
-//           { session }
-//         );
-
-//         // Handle web owner wallet with proper email fallback
-//         const ownerEmail = category.webOwnerEmail || website.ownerEmail;
-//         if (!ownerEmail) {
-//           // Try to get owner email from user collection
-//           const webOwner = await User.findById(currentPayment.webOwnerId).session(session);
-//           if (!webOwner) {
-//             throw new Error('Website owner information not found');
-//           }
-//           ownerEmail = webOwner.email;
-//         }
-
-//         // Update web owner wallet
-//         const webOwnerWallet = await Wallet.findOneAndUpdate(
-//           { ownerId: currentPayment.webOwnerId, ownerType: 'webOwner' },
-//           {
-//             $inc: { 
-//               balance: currentPayment.amount,
-//               totalEarned: currentPayment.amount
-//             },
-//             $setOnInsert: {
-//               ownerId: currentPayment.webOwnerId,
-//               ownerEmail: ownerEmail,
-//               ownerType: 'webOwner',
-//               totalSpent: 0,
-//               totalRefunded: 0
-//             },
-//             $set: { lastUpdated: new Date() }
-//           },
-//           {
-//             upsert: true,
-//             new: true,
-//             session
-//           }
-//         );
-
-//         // Create wallet transaction
-//         const walletTransaction = new WalletTransaction({
-//           walletId: webOwnerWallet._id,
-//           paymentId: currentPayment._id,
-//           adId: currentPayment.adId,
-//           amount: currentPayment.amount,
-//           type: 'credit',
-//           description: `Payment for ad: ${ad.businessName} on category: ${category.categoryName}`
-//         });
-
-//         await walletTransaction.save({ session });
-
-//         return { success: true, payment: currentPayment };
-//       });
-
-//       // Handle the result
-//       if (result.alreadyProcessed) {
-//         return res.status(200).json({ 
-//           success: true, 
-//           message: 'Payment already processed',
-//           payment: result.payment 
-//         });
-//       }
-
-//       res.status(200).json({
-//         success: true,
-//         message: 'Payment verified and ad published successfully',
-//         payment: result.payment
-//       });
-
-//     } else {
-//       // Payment failed - update status (no transaction needed for this)
-//       await Payment.findOneAndUpdate(
-//         { 
-//           $or: [
-//             { tx_ref: identifier },
-//             { paymentId: identifier },
-//             { tx_ref: response.data?.tx_ref }
-//           ]
-//         },
-//         { 
-//           status: 'failed',
-//           flutterwaveData: response.data 
-//         }
-//       );
-
-//       res.status(400).json({ 
-//         success: false, 
-//         message: 'Payment verification failed',
-//         details: response.data 
-//       });
-//     }
-
-//   } catch (error) {
-//     console.error('Payment verification error:', error);
-    
-//     // Provide more specific error messages
-//     let errorMessage = 'Internal server error';
-//     let statusCode = 500;
-    
-//     if (error.code === 251) { // NoSuchTransaction
-//       errorMessage = 'Transaction was aborted due to conflicts. Please try again.';
-//       statusCode = 409; // Conflict
-//     } else if (error.hasErrorLabel && error.hasErrorLabel('TransientTransactionError')) {
-//       errorMessage = 'Temporary transaction error. Please try again.';
-//       statusCode = 503; // Service Temporarily Unavailable
-//     }
-    
-//     res.status(statusCode).json({ 
-//       error: errorMessage, 
-//       message: error.message,
-//       retryable: error.hasErrorLabel && error.hasErrorLabel('TransientTransactionError')
-//     });
-//   }
-// };
 
 exports.initiatePayment = async (req, res) => {
   try {
@@ -489,7 +143,7 @@ exports.initiatePayment = async (req, res) => {
     // Call Flutterwave API
     const apiResponse = await axios.post('https://api.flutterwave.com/v3/payments', paymentData, {
       headers: {
-        'Authorization': `Bearer ${process.env.FLW_TEST_SECRET_KEY}`,
+        'Authorization': `Bearer ${process.env.FLW_SECRET_KEY}`,
         'Content-Type': 'application/json'
       }
     });
@@ -1241,7 +895,7 @@ exports.initiatePaymentWithRefund = async (req, res) => {
     // Direct API call to Flutterwave
     const apiResponse = await axios.post('https://api.flutterwave.com/v3/payments', paymentData, {
       headers: {
-        'Authorization': `Bearer ${process.env.FLW_TEST_SECRET_KEY}`,
+        'Authorization': `Bearer ${process.env.FLW_SECRET_KEY}`,
         'Content-Type': 'application/json'
       }
     });
@@ -1847,11 +1501,11 @@ exports.processWalletPaymentInternal = async (data, session = null) => {
 exports.generateFlutterwavePaymentUrl = async (paymentData) => {
   try {
     // Check if Flutterwave secret key is configured
-    const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || process.env.FLW_TEST_SECRET_KEY;
+    const flutterwaveSecretKey = process.env.FLW_SECRET_KEY || process.env.FLW_SECRET_KEY;
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     
     if (!flutterwaveSecretKey) {
-      console.error('Neither FLUTTERWAVE_SECRET_KEY nor FLW_TEST_SECRET_KEY environment variable is set');
+      console.error('Neither FLW_SECRET_KEY nor FLW_SECRET_KEY environment variable is set');
       throw new Error('Payment service configuration missing. Please contact support.');
     }
 

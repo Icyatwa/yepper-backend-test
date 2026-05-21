@@ -14,10 +14,6 @@ const AdCategory = require('../../AdPromoter/models/CreateCategoryModel');
 const { Wallet } = require('../../AdPromoter/models/walletModel');
 
 router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
-// router.post('/auto-resize', authMiddleware, WebAdvertiseController.autoResizeImage);
-// router.post('/generate-image-ai', authMiddleware, WebAdvertiseController.generateImageWithAI);
-// router.get('/usage', authMiddleware, WebAdvertiseController.getUserUsage);
-
 router.put('/ads/:adId/update-selections', authMiddleware, WebAdvertiseController.updateAdSelections);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);
 router.get('/ad-details/:adId', WebAdvertiseController.getAd);
@@ -31,7 +27,7 @@ router.get('/mixed/:userId', WebAdvertiseController.getUserMixedAds);
 router.get('/:adId/refund-info', authMiddleware, WebAdvertiseController.getAdRefundInfo);
 router.get('/reassignable', authMiddleware, WebAdvertiseController.getReassignableAds);
 router.post('/:adId/reassign', authMiddleware, WebAdvertiseController.reassignAdWithRefund);
-router.post('/category-requirements', authMiddleware, WebAdvertiseController.getCategoryRequirements);
+
 
 router.use('/payment/*', (req, res, next) => {
   console.log('=== PAYMENT ROUTE HIT ===');

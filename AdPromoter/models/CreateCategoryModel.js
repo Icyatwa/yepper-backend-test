@@ -15,18 +15,6 @@ const adCategorySchema = new mongoose.Schema({
     enum: ['english', 'french', 'kinyarwanda', 'kiswahili', 'chinese', 'spanish'],
     default: 'english' 
   },
-  // NEW: Ad size field
-  adSize: {
-    width: { type: Number, required: true },
-    height: { type: Number, required: true },
-    label: { type: String, required: true } // e.g., "Medium Rectangle", "Leaderboard"
-  },
-  // NEW: Ad types allowed for this category
-  allowedAdTypes: [{
-    type: String,
-    enum: ['image', 'gif', 'video', 'html5', 'text'],
-    required: true
-  }],
   customAttributes: { type: Map, of: String },
   apiCodes: {
     HTML: { type: String },
