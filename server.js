@@ -11,19 +11,6 @@ require('./config/passport');
 const authRoutes = require('./routes/authRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const aiRoutes = require('./routes/aiRoutes');
-// const campaignRoutes = require('./routes/campaignRoutes');
-
-const campaignSelectionRoutes = require('./campaigns/routes/campaignSelectionRoutes');
-const adultCampaignRoutes = require('./campaigns/adultCampaigns/routes/campaignSelectionRoutes');
-const carOwnersCampaignRoutes = require('./campaigns/carOwnersCampaigns/routes/campaignSelectionRoutes');
-const countrySideCampaignRoutes = require('./campaigns/countrySideCampaigns/routes/campaignSelectionRoutes');
-const parentsCampaignRoutes = require('./campaigns/parentsCampaigns/routes/campaignSelectionRoutes');
-const transportCampaignRoutes = require('./campaigns/transportersCampaigns/routes/campaignSelectionRoutes');
-const youthCampaignRoutes = require('./campaigns/youthCampaigns/routes/campaignSelectionRoutes');
-
-// Personal Brand
-const brandAuth = require('./brand/routes/auth');
-const brandAnalytics = require('./brand/routes/analytics');
 
 // Ad Promoter
 const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
@@ -48,11 +35,9 @@ const allowedOrigins = [
   'http://yepper.cc',
   'http://localhost:3000',
   'https://www.yepper.cc',
-  'https://yepper-backend-ll50.onrender.com',
+  'https://yepper-backend-test.onrender.com',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
-  'https://waitlist.yepper.cc',
-  'https://radiant.yepper.cc',
 ];
 
 const allowNullOriginPaths = [
@@ -152,21 +137,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/ai', aiRoutes);
 
-// campaigns
-app.use('/api/campaign-selections', campaignSelectionRoutes);
-app.use('/api/adult-campaign', adultCampaignRoutes);
-app.use('/api/carOwners-campaign', carOwnersCampaignRoutes);
-app.use('/api/countrySide-campaign', countrySideCampaignRoutes);
-app.use('/api/parents-campaign', parentsCampaignRoutes);
-app.use('/api/transport-campaign', transportCampaignRoutes);
-app.use('/api/youth-campaign', youthCampaignRoutes);
-
 // Password Reset Routes
 app.use('/api/password', passwordRoutes);
-
-// Personal Brand
-app.use('/api/brandAuth', brandAuth);
-app.use('/api/brandAnalytics', brandAnalytics);
 
 // AdPromoter Routes
 app.use('/api/createWebsite', createWebsiteRoutes);
