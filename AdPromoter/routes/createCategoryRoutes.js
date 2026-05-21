@@ -65,7 +65,7 @@ router.get('/categoriees/:categoryId', authMiddleware, async (req, res) => {
 
 router.put('/categoriees/:categoryId/customization', authMiddleware, async (req, res) => {
   try {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+    res.header('Access-Control-Allow-Origin', 'https://www.yepper.cc');
     res.header('Access-Control-Allow-Methods', 'PUT, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
     res.header('Access-Control-Allow-Credentials', 'true');

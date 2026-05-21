@@ -34,7 +34,7 @@ exports.forgotPassword = async (req, res) => {
     console.log('Reset token saved for user:', user.email);
 
     // Create reset URL
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/reset-password?token=${resetToken}`;
 
     console.log('Sending reset email to:', email);
 

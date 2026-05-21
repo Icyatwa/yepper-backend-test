@@ -35,7 +35,7 @@ const sendVerificationEmail = async (email, token, returnUrl = null) => {
       throw new Error('RESEND_API_KEY not configured');
     }
 
-    let verificationUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify-email?token=${token}`;
+    let verificationUrl = `${process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com'}/api/auth/verify-email?token=${token}`;
     if (returnUrl) {
       verificationUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
@@ -112,7 +112,7 @@ const sendWaitlistVerificationEmail = async (email, token, returnUrl = null) => 
       throw new Error('RESEND_API_KEY not configured');
     }
 
-    let verificationUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify-waitlist-email?token=${token}`;
+    let verificationUrl = `${process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com'}/api/auth/verify-waitlist-email?token=${token}`;
     if (returnUrl) {
       verificationUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
@@ -331,7 +331,7 @@ exports.verifyEmail = async (req, res) => {
     const { token, returnUrl } = req.query;
 
     if (!token) {
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=missing_token`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/verify-error?reason=missing_token`);
     }
 
     const user = await User.findOne({
@@ -340,7 +340,7 @@ exports.verifyEmail = async (req, res) => {
     });
 
     if (!user) {
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=invalid_token`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/verify-error?reason=invalid_token`);
     }
 
     // Verify user and clear verification tokens
@@ -353,7 +353,7 @@ exports.verifyEmail = async (req, res) => {
     const authToken = generateToken(user._id);
 
     // NEW: Always redirect to verify-success page, but include returnUrl info
-    let redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-success?token=${authToken}&auto_login=true`;
+    let redirectUrl = `${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/verify-success?token=${authToken}&auto_login=true`;
     
     if (returnUrl) {
       // Add a flag to indicate this came from DirectAdvertise
@@ -363,7 +363,7 @@ exports.verifyEmail = async (req, res) => {
     res.redirect(redirectUrl);
   } catch (error) {
     console.error('Email verification error:', error);
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-error?reason=server_error`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/verify-error?reason=server_error`);
   }
 };
 
@@ -651,12 +651,12 @@ exports.getCurrentUser = async (req, res) => {
 exports.googleSuccess = async (req, res) => {
   if (req.user) {
     const token = generateToken(req.user._id);
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?token=${token}`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/success?token=${token}`);
   } else {
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=google_auth_failed`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/login?error=google_auth_failed`);
   }
 };
 
 exports.googleFailure = (req, res) => {
-  res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=google_auth_failed`);
+  res.redirect(`${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/login?error=google_auth_failed`);
 };
