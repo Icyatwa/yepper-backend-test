@@ -35,7 +35,7 @@ const sendVerificationEmail = async (email, token, returnUrl = null) => {
       throw new Error('RESEND_API_KEY not configured');
     }
 
-    let verificationUrl = `${process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com'}/api/auth/verify-email?token=${token}`;
+    let verificationUrl = `${process.env.FRONTEND_URL || 'https://www.yepper.cc'}/verify-email?token=${token}`;
     if (returnUrl) {
       verificationUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
@@ -112,7 +112,7 @@ const sendWaitlistVerificationEmail = async (email, token, returnUrl = null) => 
       throw new Error('RESEND_API_KEY not configured');
     }
 
-    let verificationUrl = `${process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com'}/api/auth/verify-waitlist-email?token=${token}`;
+    let verificationUrl = `${process.env.WAITLIST_FRONTEND_URL || 'https://waitlist.yepper.cc'}/verify-email?token=${token}`;
     if (returnUrl) {
       verificationUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
