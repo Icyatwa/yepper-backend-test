@@ -10,8 +10,15 @@ const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tr
 const Payment = require('../../AdOwner/models/PaymentModel');
 
 const generateScriptTag = (categoryId) => {
+  const BACKEND = process.env.BACKEND_URL || 'http://localhost:5000';
+  const src = `${BACKEND}/api/ads/script/${categoryId}`;
   return {
-    script: `<script src="https://yepper-backend-test.onrender.com/api/ads/script/${categoryId}"></script>`
+    // Universal script — works on ANY framework or language.
+    // Place as many of these as you have ad spaces, each with its own categoryId.
+    script: `<script src="${src}" async></script>`,
+    // Optional: add a placement hint so the script knows exactly where to inject
+    // <div data-yepper-space="${categoryId}"></div>
+    // Then drop the script anywhere in your <head> or before </body>
   };
 };
 
@@ -210,11 +217,84 @@ exports.createCategory = async (req, res) => {
     const { script } = generateScriptTag(savedCategory._id.toString());
 
     // Update with API codes
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const adSrc = `${backendUrl}/api/ads/script/${savedCategory._id}`;
+
     savedCategory.apiCodes = {
-      HTML: script,
-      JavaScript: `const script = document.createElement('script');\nscript.src = "https://yepper-backend-test.onrender.com/api/ads/script/${savedCategory._id}";\ndocument.body.appendChild(script);`,
-      PHP: `<?php echo '${script}'; ?>`,
-      Python: `print('${script}')`
+      // ── OPTION 1: Auto-placement ──────────────────────────────────────
+      HTML: [
+        `<!-- Yepper Ad: ${savedCategory.categoryName} — Auto-Placement -->`,
+        `<!-- Drop this ONE tag anywhere. The script places itself by your chosen spaceType. -->`,
+        `<script src="${adSrc}" async></script>`,
+      ].join('\n'),
+
+      JavaScript: [
+        `// Yepper Ad — Auto-placement (React / Vue / Next.js / Svelte / Angular)`,
+        `// Paste in your root component. The script finds the right spot itself.`,
+        `useEffect(() => {`,
+        `  const s = document.createElement('script');`,
+        `  s.src = '${adSrc}';`,
+        `  s.async = true;`,
+        `  document.body.appendChild(s);`,
+        `  return () => { try { document.body.removeChild(s); } catch(e){} };`,
+        `}, []);`,
+      ].join('\n'),
+
+      PHP: [
+        `<?php /* Yepper Ad: ${savedCategory.categoryName} — Auto-Placement */ ?>`,
+        `<!-- Drop anywhere in your template. The script finds the right spot. -->`,
+        `<script src="${adSrc}" async></script>`,
+      ].join('\n'),
+
+      Python: [
+        `# Yepper Ad: ${savedCategory.categoryName} — Auto-Placement`,
+        `# Paste in your Django/Flask base template anywhere inside <body>.`,
+        `ad_tag = '<script src="${adSrc}" async></script>'`,
+        `# Django: {% autoescape off %}{{ ad_tag }}{% endautoescape %}`,
+      ].join('\n'),
+
+      // ── OPTION 2: Manual placement ────────────────────────────────────
+      HTML_manual: [
+        `<!-- Yepper Ad: ${savedCategory.categoryName} — Manual Placement -->`,
+        `<!-- Step 1: Place this div exactly where you want the ad to appear -->`,
+        `<div data-yepper-space="${savedCategory._id}"></div>`,
+        ``,
+        `<!-- Step 2: Add the script once anywhere (head or before </body>) -->`,
+        `<script src="${adSrc}" async></script>`,
+      ].join('\n'),
+
+      JavaScript_manual: [
+        `// Yepper Ad — Manual placement (React / Vue / Next.js / Svelte / Angular)`,
+        `// Step 1: Place this div in your JSX exactly where you want the ad:`,
+        `// <div data-yepper-space="${savedCategory._id}"></div>`,
+        ``,
+        `// Step 2: Load the script once in your root component:`,
+        `useEffect(() => {`,
+        `  const s = document.createElement('script');`,
+        `  s.src = '${adSrc}';`,
+        `  s.async = true;`,
+        `  document.body.appendChild(s);`,
+        `  return () => { try { document.body.removeChild(s); } catch(e){} };`,
+        `}, []);`,
+      ].join('\n'),
+
+      PHP_manual: [
+        `<?php /* Yepper Ad: ${savedCategory.categoryName} — Manual Placement */ ?>`,
+        `<!-- Step 1: Place this div exactly where you want the ad -->`,
+        `<div data-yepper-space="${savedCategory._id}"></div>`,
+        `<!-- Step 2: Add script once anywhere in your template -->`,
+        `<script src="${adSrc}" async></script>`,
+      ].join('\n'),
+
+      Python_manual: [
+        `# Yepper Ad: ${savedCategory.categoryName} — Manual Placement`,
+        `# Step 1: Place this div where you want the ad in your template:`,
+        `placement_div = '<div data-yepper-space="${savedCategory._id}"></div>'`,
+        `# Step 2: Load the script once anywhere in the page:`,
+        `ad_script = '<script src="${adSrc}" async></script>'`,
+        `# Django: {% autoescape off %}{{ placement_div }}{{ ad_script }}{% endautoescape %}`,
+      ].join('\n'),
     };
 
     const finalCategory = await savedCategory.save();
