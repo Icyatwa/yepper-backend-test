@@ -29,6 +29,7 @@ const websiteSchema = new mongoose.Schema({
     default: []
   },
   isBusinessCategoriesSelected: { type: Boolean, default: false },
+  siteScript: { type: String, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 

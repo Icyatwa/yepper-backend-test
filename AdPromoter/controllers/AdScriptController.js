@@ -169,8 +169,8 @@ exports.serveAdScript = async (req, res) => {
 
     if (!adCategory) return res.status(404).send('// Ad space not found');
 
-    const BACKEND  = process.env.BACKEND_URL || 'http://localhost:5000';
-    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const BACKEND  = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+    const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
     const categoryPrice   = adCategory.price;
     const defaultLanguage = adCategory.defaultLanguage || 'english';

@@ -16,11 +16,17 @@ const adCategorySchema = new mongoose.Schema({
     default: 'english' 
   },
   customAttributes: { type: Map, of: String },
+  placementMode: { type: String, enum: ['auto', 'manual'], default: 'auto' },
+  placeholderDiv: { type: String, default: null },
   apiCodes: {
     HTML: { type: String },
     JavaScript: { type: String },
     PHP: { type: String },
     Python: { type: String },
+    HTML_manual: { type: String },
+    JavaScript_manual: { type: String },
+    PHP_manual: { type: String },
+    Python_manual: { type: String },
   },
   selectedAds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ImportAd' }],
   webOwnerEmail: { type: String, required: true },

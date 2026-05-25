@@ -11,6 +11,21 @@ const authMiddleware = require('../../middleware/authmiddleware');
 router.get('/category/:categoryId', categoryController.getCategoryById);
 router.get('/:websiteId/advertiser', categoryController.getCategoriesByWebsiteForAdvertisers);
 
+// Public endpoint — called by the site script to get category config for manual divs
+router.get('/space/:categoryId', async (req, res) => {
+  try {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    const category = await AdCategory.findById(req.params.categoryId)
+      .select('categoryName spaceType price defaultLanguage placementMode')
+      .lean();
+    if (!category) return res.status(404).json({ error: 'Space not found' });
+    res.json(category);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch space' });
+  }
+});
+
 router.get('/ads/customization/:categoryId', async (req, res) => {
   try {
     res.header('Access-Control-Allow-Origin', '*');

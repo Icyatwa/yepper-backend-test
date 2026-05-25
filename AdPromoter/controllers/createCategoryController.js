@@ -1,7 +1,8 @@
 // createCategoryController.js
 const mongoose = require('mongoose');
 const crypto = require('crypto');
-const AdCategory = require('../models/CreateCategoryModel');
+const AdCategory          = require('../models/CreateCategoryModel');
+const { generateSiteScript } = require('./SiteScriptController');
 const { Wallet, WalletTransaction } = require('../models/walletModel');
 const User = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
@@ -10,7 +11,7 @@ const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tr
 const Payment = require('../../AdOwner/models/PaymentModel');
 
 const generateScriptTag = (categoryId) => {
-  const BACKEND = process.env.BACKEND_URL || 'http://localhost:5000';
+  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
   const src = `${BACKEND}/api/ads/script/${categoryId}`;
   return {
     // Universal script — works on ANY framework or language.
@@ -163,6 +164,7 @@ exports.createCategory = async (req, res) => {
       price,
       customAttributes,
       spaceType,
+      placementMode,
       userCount,
       instructions,
       visitorRange,
@@ -204,6 +206,7 @@ exports.createCategory = async (req, res) => {
       description,
       price,
       spaceType,
+      placementMode: placementMode || 'auto',
       userCount: userCount || 0,
       instructions,
       customAttributes: customAttributes || {},
@@ -217,8 +220,8 @@ exports.createCategory = async (req, res) => {
     const { script } = generateScriptTag(savedCategory._id.toString());
 
     // Update with API codes
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const backendUrl = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://yepper.cc';
     const adSrc = `${backendUrl}/api/ads/script/${savedCategory._id}`;
 
     savedCategory.apiCodes = {
@@ -298,6 +301,8 @@ exports.createCategory = async (req, res) => {
     };
 
     const finalCategory = await savedCategory.save();
+
+    try { await generateSiteScript(websiteId); } catch(e) { console.error("Site script regen:", e.message); }
 
     res.status(201).json({
       success: true,
