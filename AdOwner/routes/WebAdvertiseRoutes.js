@@ -74,42 +74,42 @@ router.post('/payment/verify-with-refund', authMiddleware, async (req, res) => {
       });
     }
 
-    // FIXED: Use correct Flutterwave API endpoint and method
-    const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || process.env.FLW_TEST_SECRET_KEY;
+    // FIXED: Use correct XentriPay API endpoint and method
+    const xentriPayApiKey = process.env.XENTRIPAY_API_KEY;
     
-    if (!flutterwaveSecretKey) {
-      console.error('Flutterwave secret key missing');
+    if (!xentriPayApiKey) {
+      console.error('XentriPay secret key missing');
       return res.status(500).json({ 
         success: false,
         error: 'Payment service configuration missing' 
       });
     }
 
-    console.log('Verifying transaction with Flutterwave:', identifier);
-    console.log('Using API key ending with:', flutterwaveSecretKey.slice(-4));
+    console.log('Verifying transaction with XentriPay:', identifier);
+    console.log('Using API key ending with:', xentriPayApiKey.slice(-4));
 
     // FIXED: Use GET request instead of POST for verification
-    const flutterwaveResponse = await axios.get(
-      `https://api.flutterwave.com/v3/transactions/${identifier}/verify`,
+    const xentripayResponse = await axios.get(
+      `https://api.xentripay.com/v1/collections/${identifier}`,
       {
         headers: {
-          'Authorization': `Bearer ${flutterwaveSecretKey}`,
+          'Authorization': `Bearer ${xentriPayApiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 30000
       }
     );
 
-    console.log('Flutterwave response status:', flutterwaveResponse.status);
-    console.log('Flutterwave response data:', flutterwaveResponse.data);
+    console.log('XentriPay response status:', xentripayResponse.status);
+    console.log('XentriPay response data:', xentripayResponse.data);
 
-    if (flutterwaveResponse.data.status === 'success' && flutterwaveResponse.data.data.status === 'successful') {
-      const flwData = flutterwaveResponse.data.data;
+    if (xentripayResponse.data.status === 'success' && xentripayResponse.data.data.status === 'successful') {
+      const xpData = xentripayResponse.data.data;
       
       // Find payment record
       const payment = await Payment.findOne({ 
         $or: [
-          { tx_ref: flwData.tx_ref },
+          { tx_ref: xpData.tx_ref },
           { paymentId: identifier },
           { tx_ref: tx_ref } // Also try the provided tx_ref
         ]
@@ -117,7 +117,7 @@ router.post('/payment/verify-with-refund', authMiddleware, async (req, res) => {
 
       if (!payment) {
         console.log('Payment record not found. Searched for:', {
-          flw_tx_ref: flwData.tx_ref,
+          flw_tx_ref: xpData.tx_ref,
           provided_tx_ref: tx_ref,
           transaction_id: identifier
         });
@@ -125,7 +125,7 @@ router.post('/payment/verify-with-refund', authMiddleware, async (req, res) => {
           success: false,
           error: 'Payment record not found in database',
           searched: {
-            flw_tx_ref: flwData.tx_ref,
+            flw_tx_ref: xpData.tx_ref,
             provided_tx_ref: tx_ref,
             transaction_id: identifier
           }
@@ -154,8 +154,8 @@ router.post('/payment/verify-with-refund', authMiddleware, async (req, res) => {
         // Update payment status
         payment.status = 'successful';
         payment.paidAt = new Date();
-        payment.paymentId = flwData.id;
-        payment.flutterwaveData = new Map(Object.entries(flwData));
+        payment.paymentId = xpData.id;
+        payment.xentriPayData = new Map(Object.entries(xpData));
         await payment.save({ session });
 
         console.log('Updated payment status to successful');
@@ -262,29 +262,29 @@ router.post('/payment/verify-with-refund', authMiddleware, async (req, res) => {
         success: true,
         message: `Payment verified successfully! ${payment.isReassignment ? 'Ad reassignment' : 'New ad placement'} is now active.`,
         payment: processedPayment.getPaymentSummary(),
-        flutterwaveData: {
-          transactionId: flwData.id,
-          amount: flwData.amount,
-          currency: flwData.currency,
-          status: flwData.status
+        xentriPayData: {
+          transactionId: xpData.id,
+          amount: xpData.amount,
+          currency: xpData.currency,
+          status: xpData.status
         }
       });
 
     } else {
-      console.log('Flutterwave verification failed:', flutterwaveResponse.data);
+      console.log('XentriPay verification failed:', xentripayResponse.data);
       return res.status(400).json({ 
         success: false, 
-        message: 'Payment verification failed with Flutterwave',
-        details: flutterwaveResponse.data 
+        message: 'Payment verification failed with XentriPay',
+        details: xentripayResponse.data 
       });
     }
 
   } catch (error) {
     console.error('Payment verification error:', error);
     
-    // Handle Flutterwave API errors specifically
+    // Handle XentriPay API errors specifically
     if (error.response) {
-      console.error('Flutterwave API error details:', {
+      console.error('XentriPay API error details:', {
         status: error.response.status,
         statusText: error.response.statusText,
         data: error.response.data,
@@ -295,12 +295,12 @@ router.post('/payment/verify-with-refund', authMiddleware, async (req, res) => {
         return res.status(500).json({ 
           success: false, 
           error: 'Payment service authentication failed - invalid API key',
-          message: 'Flutterwave API authentication failed'
+          message: 'XentriPay API authentication failed'
         });
       } else if (error.response.status === 404) {
         return res.status(404).json({ 
           success: false, 
-          error: 'Transaction not found on Flutterwave',
+          error: 'Transaction not found on XentriPay',
           message: `Transaction ${identifier} not found on payment gateway`
         });
       } else if (error.response.status === 429) {
@@ -340,54 +340,54 @@ router.post('/payment/verify-callback', async (req, res) => {
       });
     }
 
-    // Verify with Flutterwave
-    const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || process.env.FLW_TEST_SECRET_KEY;
+    // Verify with XentriPay
+    const xentriPayApiKey = process.env.XENTRIPAY_API_KEY;
     
-    if (!flutterwaveSecretKey) {
+    if (!xentriPayApiKey) {
       return res.status(500).json({ 
         success: false,
         error: 'Payment service configuration missing' 
       });
     }
 
-    console.log('Verifying with Flutterwave:', identifier);
+    console.log('Verifying with XentriPay:', identifier);
 
-    const flutterwaveResponse = await axios.get(
-      `https://api.flutterwave.com/v3/transactions/${identifier}/verify`,
+    const xentripayResponse = await axios.get(
+      `https://api.xentripay.com/v1/collections/${identifier}`,
       {
         headers: {
-          'Authorization': `Bearer ${flutterwaveSecretKey}`,
+          'Authorization': `Bearer ${xentriPayApiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 30000
       }
     );
 
-    console.log('Flutterwave verification response:', {
-      status: flutterwaveResponse.status,
-      dataStatus: flutterwaveResponse.data.status,
-      transactionStatus: flutterwaveResponse.data.data?.status
+    console.log('XentriPay verification response:', {
+      status: xentripayResponse.status,
+      dataStatus: xentripayResponse.data.status,
+      transactionStatus: xentripayResponse.data.data?.status
     });
 
-    if (flutterwaveResponse.data.status === 'success' && flutterwaveResponse.data.data.status === 'successful') {
-      const flwData = flutterwaveResponse.data.data;
+    if (xentripayResponse.data.status === 'success' && xentripayResponse.data.data.status === 'successful') {
+      const xpData = xentripayResponse.data.data;
       
       // FIXED: Search by baseReference instead of tx_ref
-      // The tx_ref from Flutterwave is the baseReference we used for the payment URL
+      // The tx_ref from XentriPay is the baseReference we used for the payment URL
       const payments = await Payment.find({ 
-        baseReference: flwData.tx_ref, // Use baseReference to find grouped payments
+        baseReference: xpData.tx_ref, // Use baseReference to find grouped payments
         status: 'pending'
       }).sort({ createdAt: 1 });
 
-      console.log(`Searching for payments with baseReference: ${flwData.tx_ref}`);
+      console.log(`Searching for payments with baseReference: ${xpData.tx_ref}`);
       console.log(`Found ${payments.length} pending payment records`);
 
       if (!payments || payments.length === 0) {
-        console.log('No pending payment records found for baseReference:', flwData.tx_ref);
+        console.log('No pending payment records found for baseReference:', xpData.tx_ref);
         
         // Check if already processed using baseReference
         const processedPayments = await Payment.find({
-          baseReference: flwData.tx_ref,
+          baseReference: xpData.tx_ref,
           status: 'successful'
         });
         
@@ -399,13 +399,13 @@ router.post('/payment/verify-callback', async (req, res) => {
             message: 'Payment already processed successfully',
             alreadyProcessed: true,
             paymentsCount: processedPayments.length,
-            baseReference: flwData.tx_ref
+            baseReference: xpData.tx_ref
           });
         }
         
         // Also try searching by tx_ref as fallback for old records
         const fallbackPayments = await Payment.find({
-          tx_ref: flwData.tx_ref,
+          tx_ref: xpData.tx_ref,
           $or: [
             { status: 'pending' },
             { status: 'successful' }
@@ -432,13 +432,13 @@ router.post('/payment/verify-callback', async (req, res) => {
           return res.status(404).json({ 
             success: false,
             error: 'No payment records found in database',
-            baseReference: flwData.tx_ref,
+            baseReference: xpData.tx_ref,
             searched: {
-              baseReference: flwData.tx_ref,
-              tx_ref: flwData.tx_ref,
+              baseReference: xpData.tx_ref,
+              tx_ref: xpData.tx_ref,
               transaction_id: transaction_id
             },
-            message: 'Payment records may not have been created before Flutterwave redirect'
+            message: 'Payment records may not have been created before XentriPay redirect'
           });
         }
       }
@@ -459,11 +459,11 @@ router.post('/payment/verify-callback', async (req, res) => {
             categoryId: payment.categoryId
           });
 
-          // Update payment status and add Flutterwave data
+          // Update payment status and add XentriPay data
           payment.status = 'successful';
           payment.paidAt = new Date();
-          payment.paymentId = `${flwData.id}_${i}`; // Make unique for each payment in group
-          payment.flutterwaveData = new Map(Object.entries(flwData));
+          payment.paymentId = `${xpData.id}_${i}`; // Make unique for each payment in group
+          payment.xentriPayData = new Map(Object.entries(xpData));
           await payment.save({ session });
 
           // Deduct wallet if used (for each payment separately)
@@ -594,30 +594,30 @@ router.post('/payment/verify-callback', async (req, res) => {
         message: `Payment verified successfully! ${payments.length} ad placement(s) now active.`,
         paymentsProcessed: processedResults.length,
         isReassignment: payments[0]?.isReassignment || false,
-        baseReference: flwData.tx_ref,
+        baseReference: xpData.tx_ref,
         summary: {
           totalAmount: totalAmount,
           walletUsed: totalWalletUsed,
           refundUsed: totalRefundUsed,
-          cardAmount: flwData.amount,
+          cardAmount: xpData.amount,
           paymentsCount: processedResults.length
         },
-        flutterwaveData: {
-          transactionId: flwData.id,
-          amount: flwData.amount,
-          currency: flwData.currency,
-          status: flwData.status,
-          tx_ref: flwData.tx_ref
+        xentriPayData: {
+          transactionId: xpData.id,
+          amount: xpData.amount,
+          currency: xpData.currency,
+          status: xpData.status,
+          tx_ref: xpData.tx_ref
         },
         results: processedResults
       });
 
     } else {
-      console.log('Flutterwave verification failed:', flutterwaveResponse.data);
+      console.log('XentriPay verification failed:', xentripayResponse.data);
       return res.status(400).json({ 
         success: false, 
-        message: 'Payment verification failed with Flutterwave',
-        details: flutterwaveResponse.data 
+        message: 'Payment verification failed with XentriPay',
+        details: xentripayResponse.data 
       });
     }
 
@@ -625,7 +625,7 @@ router.post('/payment/verify-callback', async (req, res) => {
     console.error('Payment callback verification error:', error);
     
     if (error.response && error.response.data) {
-      console.error('Flutterwave API error:', error.response.data);
+      console.error('XentriPay API error:', error.response.data);
     }
     
     let errorMessage = 'Payment verification failed';
@@ -635,7 +635,7 @@ router.post('/payment/verify-callback', async (req, res) => {
       errorMessage = 'Payment service authentication failed - check API keys';
       statusCode = 500;
     } else if (error.response?.status === 404) {
-      errorMessage = 'Transaction not found on Flutterwave';
+      errorMessage = 'Transaction not found on XentriPay';
       statusCode = 404;
     } else if (error.code === 11000) {
       errorMessage = 'Duplicate payment processing attempt';
@@ -654,37 +654,37 @@ router.post('/payment/verify-callback', async (req, res) => {
 });
 
 router.get('/payment/debug-config', (req, res) => {
-  const flwTestKey = process.env.FLW_TEST_SECRET_KEY;
-  const flwProdKey = process.env.FLUTTERWAVE_SECRET_KEY;
+  const flwTestKey = process.env.XENTRIPAY_API_KEY;
+  const flwProdKey = process.env.XENTRIPAY_API_KEY;
   
   res.json({
-    hasTestKey: !!flwTestKey,
-    hasProductionKey: !!flwProdKey,
-    testKeyPrefix: flwTestKey ? flwTestKey.substring(0, 15) + '...' : null,
-    prodKeyPrefix: flwProdKey ? flwProdKey.substring(0, 15) + '...' : null,
-    keyBeingUsed: flwProdKey ? 'production' : (flwTestKey ? 'test' : 'none'),
-    nodeEnv: process.env.NODE_ENV || 'development'
+    hasApiKey: !!xpKey,
+    keyPrefix: xpKey ? xpKey.substring(0, 10) + '...' : null,
+    testMode: testMode,
+    baseUrl: testMode ? 'https://api.test.xentripay.com/v1' : 'https://api.xentripay.com/v1',
+    nodeEnv: process.env.NODE_ENV || 'development',
+    paymentGateway: 'XentriPay'
   });
 });
 
-// Test the Flutterwave API connection
-router.get('/payment/test-flutterwave', async (req, res) => {
+// Test the XentriPay API connection
+router.get('/payment/test-xentripay', async (req, res) => {
   try {
-    const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || process.env.FLW_TEST_SECRET_KEY;
+    const xentriPayApiKey = process.env.XENTRIPAY_API_KEY;
     
-    if (!flutterwaveSecretKey) {
+    if (!xentriPayApiKey) {
       return res.status(500).json({ 
         success: false,
-        error: 'No Flutterwave secret key configured'
+        error: 'No XentriPay secret key configured'
       });
     }
 
     // Test API connection with a simple request
     const testResponse = await axios.get(
-      'https://api.flutterwave.com/v3/transactions?status=successful&limit=1',
+      'https://api.xentripay.com/v1/collections?status=successful&limit=1',
       {
         headers: {
-          'Authorization': `Bearer ${flutterwaveSecretKey}`,
+          'Authorization': `Bearer ${xentriPayApiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 10000
@@ -693,18 +693,18 @@ router.get('/payment/test-flutterwave', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Flutterwave API connection successful',
+      message: 'XentriPay API connection successful',
       status: testResponse.status,
       apiWorking: true,
       keyValid: true
     });
 
   } catch (error) {
-    console.error('Flutterwave test error:', error);
+    console.error('XentriPay test error:', error);
     
     res.status(400).json({
       success: false,
-      error: 'Flutterwave API test failed',
+      error: 'XentriPay API test failed',
       details: {
         status: error.response?.status,
         message: error.message,

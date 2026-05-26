@@ -5,6 +5,8 @@ const User = require('../../models/User'); // CHANGE: Added User model import fo
 const path = require('path');
 const jwt = require('jsonwebtoken'); // ADD THIS LINE - Missing import
 const cloudinary = require('../../config/storage');
+const dns = require('dns').promises;
+const crypto = require('crypto');
 require('dotenv').config();
 
 const upload = multer({
@@ -74,6 +76,124 @@ const authenticateToken = async (req, res, next) => {
     return res.status(403).json({ message: 'Invalid token' });
   }
 };
+
+
+// Compute traffic tier from monthly visitors
+function computeTrafficTier(visitors) {
+  const v = parseInt(visitors) || 0;
+  if (v <= 2000) return 'starter';
+  if (v <= 10000) return 'basic';
+  if (v <= 50000) return 'standard';
+  if (v <= 200000) return 'premium';
+  return 'elite';
+}
+
+// ─── Domain helpers ───────────────────────────────────────────────────────────
+
+function normalizeDomain(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return u.hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+function buildTxtRecord(token) {
+  return `yepper-verify=${token}`;
+}
+
+// ─── Initiate domain verification ────────────────────────────────────────────
+// POST /api/createWebsite/initiate-verification
+// Body: { websiteLink }
+// Returns: { verificationToken, txtRecord, txtHost } — no DB write yet
+exports.initiateVerification = [authenticateToken, async (req, res) => {
+  try {
+    const { websiteLink } = req.body;
+    if (!websiteLink) {
+      return res.status(400).json({ message: 'websiteLink is required' });
+    }
+
+    const domain = normalizeDomain(websiteLink);
+    if (!domain) {
+      return res.status(400).json({ message: 'Invalid website URL' });
+    }
+
+    // Reuse existing token if the same owner already started for this domain
+    let existing = await Website.findOne({
+      websiteLink,
+      ownerId: req.user._id.toString(),
+      verificationStatus: 'pending',
+    }).lean();
+
+    const token = existing?.verificationToken || crypto.randomBytes(24).toString('hex');
+
+    res.status(200).json({
+      domain,
+      verificationToken: token,
+      txtRecord: buildTxtRecord(token),
+      txtHost: `_yepper-challenge`,
+      instructions: [
+        `Log in to your DNS provider (e.g. Namecheap, Cloudflare, GoDaddy).`,
+        `Add a new TXT record with the host/name: _yepper-challenge`,
+        `Set the value to: ${buildTxtRecord(token)}`,
+        `Save the record. DNS propagation can take a few minutes — click "Verify" when done.`,
+      ],
+    });
+  } catch (error) {
+    console.error('initiateVerification error:', error);
+    res.status(500).json({ message: 'Failed to initiate domain verification', error: error.message });
+  }
+}];
+
+// ─── Check domain verification ────────────────────────────────────────────────
+// POST /api/createWebsite/verify-domain
+// Body: { websiteLink, verificationToken }
+exports.verifyDomain = [authenticateToken, async (req, res) => {
+  try {
+    const { websiteLink, verificationToken } = req.body;
+    if (!websiteLink || !verificationToken) {
+      return res.status(400).json({ message: 'websiteLink and verificationToken are required' });
+    }
+
+    const domain = normalizeDomain(websiteLink);
+    if (!domain) {
+      return res.status(400).json({ message: 'Invalid website URL' });
+    }
+
+    const expectedTxt = buildTxtRecord(verificationToken);
+    const lookupHost = `_yepper-challenge.${domain}`;
+
+    let found = false;
+    try {
+      const records = await dns.resolveTxt(lookupHost);
+      // records is string[][]
+      found = records.some(rdata => rdata.join('').includes(expectedTxt));
+    } catch (dnsErr) {
+      // ENOTFOUND / ENODATA — record not yet present
+      found = false;
+    }
+
+    if (!found) {
+      return res.status(200).json({
+        verified: false,
+        message: `TXT record not found yet. Make sure you added "_yepper-challenge" with value "${expectedTxt}" to your DNS and allow a few minutes for propagation.`,
+      });
+    }
+
+    // Mark token as verified (upsert so it survives even if website doc doesn't exist yet)
+    // We store it in a lightweight way — the full website document is created in createWebsiteWithCategories
+    res.status(200).json({
+      verified: true,
+      verificationToken,
+      domain,
+      message: 'Domain verified successfully!',
+    });
+  } catch (error) {
+    console.error('verifyDomain error:', error);
+    res.status(500).json({ message: 'Failed to verify domain', error: error.message });
+  }
+}];
 
 exports.prepareWebsite = [upload.single('file'), authenticateToken, async (req, res) => {
   try {
@@ -178,12 +298,18 @@ exports.uploadWebsiteImage = [
 
 exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
   try {
-    const { websiteName, websiteLink, imageUrl, businessCategories } = req.body;
+    const { websiteName, websiteLink, imageUrl, businessCategories, monthlyTraffic, verificationToken } = req.body;
     const ownerId = req.user._id.toString();
 
     if (!websiteName || !websiteLink || !businessCategories || !Array.isArray(businessCategories)) {
       return res.status(400).json({ 
         message: 'Website name, link, and business categories are required' 
+      });
+    }
+
+    if (!verificationToken) {
+      return res.status(400).json({
+        message: 'Domain must be verified before creating a website. Please complete domain verification first.',
       });
     }
 
@@ -197,6 +323,26 @@ exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
     const existingWebsite = await Website.findOne({ websiteLink }).lean();
     if (existingWebsite) {
       return res.status(409).json({ message: 'Website URL already exists' });
+    }
+
+    // Re-verify TXT record server-side before saving (prevents token replay)
+    const domain = normalizeDomain(websiteLink);
+    const expectedTxt = buildTxtRecord(verificationToken);
+    const lookupHost = `_yepper-challenge.${domain}`;
+
+    let verified = false;
+    try {
+      const records = await dns.resolveTxt(lookupHost);
+      verified = records.some(rdata => rdata.join('').includes(expectedTxt));
+    } catch {
+      verified = false;
+    }
+
+    if (!verified) {
+      return res.status(400).json({
+        message: 'Domain ownership could not be re-confirmed. Please re-verify your domain and try again.',
+        code: 'DOMAIN_VERIFICATION_FAILED',
+      });
     }
 
     // Validate business categories against allowed enum values
@@ -214,14 +360,19 @@ exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
       });
     }
 
-    // Now create and save the website (imageUrl is already uploaded from prepareWebsite step)
+    // Now create and save the website
     const newWebsite = new Website({
       ownerId,
       websiteName,
       websiteLink,
-      imageUrl: imageUrl || '', // Use the imageUrl from prepareWebsite step
+      imageUrl: imageUrl || '',
       businessCategories,
-      isBusinessCategoriesSelected: true
+      isBusinessCategoriesSelected: true,
+      monthlyTraffic: parseInt(monthlyTraffic) || 0,
+      trafficTier: computeTrafficTier(monthlyTraffic),
+      verificationToken,
+      verificationStatus: 'verified',
+      verifiedAt: new Date(),
     });
 
     const savedWebsite = await newWebsite.save();

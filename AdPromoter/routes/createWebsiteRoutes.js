@@ -5,6 +5,8 @@ const websiteController = require('../controllers/createWebsiteController');
 
 router.post('/', websiteController.createWebsite);
 router.post('/prepareWebsite', websiteController.prepareWebsite);
+router.post('/initiate-verification', websiteController.initiateVerification);
+router.post('/verify-domain', websiteController.verifyDomain);
 router.post('/upload/:websiteId', websiteController.uploadWebsiteImage);
 router.post('/createWebsiteWithCategories', websiteController.createWebsiteWithCategories);
  

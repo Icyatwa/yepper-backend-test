@@ -6,8 +6,8 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const mongoose = require('mongoose');
 const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
 
-const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
-const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
+const BACKEND  = process.env.BACKEND_URL  || 'http://localhost:5000';
+const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 async function run() {
   await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {

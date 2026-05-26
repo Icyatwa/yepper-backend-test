@@ -29,7 +29,16 @@ const websiteSchema = new mongoose.Schema({
     default: []
   },
   isBusinessCategoriesSelected: { type: Boolean, default: false },
+  monthlyTraffic: { type: Number, default: 0 },
+  trafficTier: { type: String, enum: ['starter','basic','standard','premium','elite'], default: 'starter' },
   siteScript: { type: String, default: null },
+  verificationToken: { type: String, default: null },
+  verificationStatus: {
+    type: String,
+    enum: ['pending', 'verified', 'failed'],
+    default: 'pending',
+  },
+  verifiedAt: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 

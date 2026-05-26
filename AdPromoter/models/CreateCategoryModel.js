@@ -36,7 +36,7 @@ const adCategorySchema = new mongoose.Schema({
   },
   tier: {
     type: String,
-    enum: ['bronze', 'silver', 'gold', 'platinum'],
+    enum: ['starter', 'basic', 'standard', 'premium', 'elite'],
     required: true
   },
   customization: {

@@ -17,6 +17,7 @@ const createWebsiteRoutes = require('./AdPromoter/routes/createWebsiteRoutes');
 const createCategoryRoutes = require('./AdPromoter/routes/createCategoryRoutes');
 const adDisplayRoutes = require('./AdPromoter/routes/AdDisplayRoutes');
 const businessCategoriesRoutes = require('./AdPromoter/routes/businessCategoriesRoutes');
+const analyticsRoutes = require('./AdPromoter/routes/analyticsRoutes');
 
 // Password Reset
 const passwordRoutes = require('./routes/passwordRoutes');
@@ -34,7 +35,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5000',
   'http://yepper.cc',
-  'http://localhost:3000',
+  'https://yepper.cc',
   'https://www.yepper.cc',
   'https://yepper-backend-test.onrender.com',
   'http://127.0.0.1:3000',
@@ -46,7 +47,8 @@ const allowNullOriginPaths = [
   '/api/ads/view',
   '/api/ads/click',
   '/api/ads/script',
-  '/api/ad-categories/ads/customization'
+  '/api/ad-categories/ads/customization',
+  '/api/analytics/track',
 ];
 
 const normalizeOrigin = (origin) => {
@@ -146,6 +148,7 @@ app.use('/api/createWebsite', createWebsiteRoutes);
 app.use('/api/business-categories', businessCategoriesRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // AdOwner Routes
 app.use('/api/web-advertise', webAdvertiseRoutes);

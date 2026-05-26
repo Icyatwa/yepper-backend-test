@@ -57,8 +57,8 @@ exports.serveSiteScript = async (req, res) => {
     if (!website) return res.status(404).send('// Website not found');
     if (!categories.length) return res.status(200).send('// No ad spaces configured yet');
 
-    const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
-    const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
+    const BACKEND  = process.env.BACKEND_URL  || 'http://localhost:5000';
+    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -78,6 +78,33 @@ exports.serveSiteScript = async (req, res) => {
     }));
 
     const spacesJSON = JSON.stringify(spaces);
+
+    // Analytics tracking snippet — fires once per page load, fire-and-forget
+    const trackingSnippet = `
+  /* ── Yepper Analytics tracker ──────────────────────────────── */
+  (function(){
+    try {
+      var _ref = document.referrer || '';
+      var _path = location.pathname || '/';
+      var _payload = JSON.stringify({ websiteId: _wid, path: _path, referrer: _ref });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(
+          _b + '/analytics/track',
+          new Blob([JSON.stringify(_pv)], { type: 'application/json' })
+        );
+      } else {
+        fetch(_b + '/analytics/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(_pv),
+          mode: 'cors',
+          credentials: 'omit'
+        }).catch(function(){});
+      }
+    } catch(e) { /* tracking failure is non-fatal */ }
+  })();
+  /* ──────────────────────────────────────────────────────────── */
+`;
 
     const script = `
 (function(){
@@ -334,13 +361,31 @@ exports.serveSiteScript = async (req, res) => {
     /* 1. Load all pre-configured spaces */
     _spaces.forEach(function(sp){ loadSpace(sp); });
 
-    /* 2. Scan DOM for any data-yepper-space divs not already covered.
-          This handles cases where the div is on the page but the category
-          wasn't in the pre-baked list (e.g. stale script cache, new space added). */
+    /* 2. Scan DOM for any data-yepper-space divs not already covered. */
     var divs=D.querySelectorAll('[data-yepper-space]');
     for(var i=0;i<divs.length;i++){
       loadSpaceById(divs[i].getAttribute('data-yepper-space'));
     }
+
+    /* 3. Fire analytics pageview ping */
+    try{
+      var _pv={
+        websiteId:_wid,
+        path: location.pathname || '/',
+        referrer:D.referrer||''
+      };
+      if(navigator.sendBeacon){
+        navigator.sendBeacon(_b+'/analytics/track',JSON.stringify(_pv));
+      } else {
+        fetch(_b+'/analytics/track',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(_pv),
+          mode:'cors',
+          credentials:'omit'
+        }).catch(function(){});
+      }
+    }catch(e){}
   }
 
   D.readyState==='loading'
@@ -358,7 +403,7 @@ exports.serveSiteScript = async (req, res) => {
 
 /* Generate and save the site script tag on the website record */
 exports.generateSiteScript = async (websiteId) => {
-  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+  const BACKEND = process.env.BACKEND_URL || 'http://localhost:5000';
   const src = `${BACKEND}/api/ads/script/site/${websiteId}`;
   const tag = `<script src="${src}" async></script>`;
   await require('../models/CreateWebsiteModel').findByIdAndUpdate(websiteId, { siteScript: tag });

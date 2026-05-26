@@ -34,7 +34,7 @@ exports.forgotPassword = async (req, res) => {
     console.log('Reset token saved for user:', user.email);
 
     // Create reset URL
-    const resetUrl = `${process.env.FRONTEND_URL || 'https://yepper.cc'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
     console.log('Sending reset email to:', email);
 
@@ -113,7 +113,7 @@ exports.waitlistForgotPassword = async (req, res) => {
     console.log('Reset token saved for user:', user.email);
 
     // Create reset URL
-    const resetUrl = `${process.env.WAITLIST_FRONTEND_URL || 'https://yepper.cc'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.WAITLIST_FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
     console.log('Sending reset email to:', email);
 
