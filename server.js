@@ -96,6 +96,18 @@ app.use((req, res, next) => {
     return next();
   }
   
+  // Handle public endpoints — allow ANY origin (third-party sites posting analytics/ad data)
+  if (shouldAllowNullOrigin(req.path)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    res.header('Access-Control-Allow-Credentials', 'false');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    return next();
+  }
+
   // Handle requests with specified origin
   const normalizedOrigin = normalizeOrigin(origin);
   

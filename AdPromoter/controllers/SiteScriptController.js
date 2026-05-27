@@ -375,7 +375,7 @@ exports.serveSiteScript = async (req, res) => {
         referrer:D.referrer||''
       };
       if(navigator.sendBeacon){
-        navigator.sendBeacon(_b+'/analytics/track',JSON.stringify(_pv));
+        navigator.sendBeacon(_b+'/analytics/track',new Blob([JSON.stringify(_pv)],{type:'application/json'}));
       } else {
         fetch(_b+'/analytics/track',{
           method:'POST',
