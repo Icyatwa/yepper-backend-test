@@ -66,70 +66,51 @@ const shouldAllowNullOrigin = (path) => {
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  
-  console.log('Request:', {
-    method: req.method,
-    path: req.path,
-    origin: origin
-  });
-  
-  // Handle requests with null origin
+
+  // ── No origin header (curl, mobile app, server-to-server, sendBeacon with no origin) ──
   if (!origin || origin === 'null') {
+    // Public ad/analytics endpoints: use * (no credentials needed for these fire-and-forget calls)
     if (shouldAllowNullOrigin(req.path)) {
-      console.log('✓ Allowing null origin for ad endpoint:', req.path);
       res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
-      res.header('Access-Control-Allow-Credentials', 'false');
-      
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-      }
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') return res.sendStatus(200);
       return next();
     }
-    
-    // Allow other null origin requests (mobile apps, curl, etc.)
-    console.log('✓ Allowing null origin request');
+    // Everything else with no origin: allow through
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
-    
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
-    return next();
-  }
-  
-  // Handle public endpoints — allow ANY origin (third-party sites posting analytics/ad data)
-  if (shouldAllowNullOrigin(req.path)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
     return next();
   }
 
-  // Handle requests with specified origin
   const normalizedOrigin = normalizeOrigin(origin);
-  
+
+  // ── Public ad/analytics endpoints: accept ANY real origin ──
+  // Must echo back the exact origin (not *) and set credentials true
+  // because browsers send these with credentials mode include
+  if (shouldAllowNullOrigin(req.path)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    return next();
+  }
+
+  // ── Known dashboard/app origins ──
   if (allowedOrigins.includes(normalizedOrigin)) {
-    console.log('✓ Origin allowed:', normalizedOrigin);
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
     res.header('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
-    
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
     return next();
   }
-  
-  // Origin not allowed
+
+  // ── Origin not allowed ──
   console.error('✗ Origin rejected:', origin);
   return res.status(403).json({
     error: 'CORS Error',
