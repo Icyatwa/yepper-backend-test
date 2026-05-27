@@ -189,7 +189,7 @@ function getNoAdsHtml() {
     <div class="yepper-ad-container">
       <div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">
         <div class="yepper-ad-empty-title font-bold tracking-wide">Available Advertising Space</div>
-        <a href="http://localhost:3000/select" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">
+        <a href="https://yepper.cc/select" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">
           <div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
           <span class="relative z-10 uppercase tracking-wider">Advertise Here</span>
         </a>

@@ -57,8 +57,8 @@ exports.serveSiteScript = async (req, res) => {
     if (!website) return res.status(404).send('// Website not found');
     if (!categories.length) return res.status(200).send('// No ad spaces configured yet');
 
-    const BACKEND  = process.env.BACKEND_URL  || 'http://localhost:5000';
-    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
+    const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -403,7 +403,7 @@ exports.serveSiteScript = async (req, res) => {
 
 /* Generate and save the site script tag on the website record */
 exports.generateSiteScript = async (websiteId) => {
-  const BACKEND = process.env.BACKEND_URL || 'http://localhost:5000';
+  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
   const src = `${BACKEND}/api/ads/script/site/${websiteId}`;
   const tag = `<script src="${src}" async></script>`;
   await require('../models/CreateWebsiteModel').findByIdAndUpdate(websiteId, { siteScript: tag });

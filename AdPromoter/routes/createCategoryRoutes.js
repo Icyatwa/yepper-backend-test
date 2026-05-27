@@ -7,6 +7,11 @@ const WalletController = require('../controllers/WalletController');
 const WithdrawalController = require('../controllers/WithdrawalController');
 const adRejectionController = require('../controllers/AdRejectionController');
 const authMiddleware = require('../../middleware/authmiddleware');
+const earningsController = require('../controllers/earningsController');
+
+// Earnings endpoints — require auth, return earnings based on real detected traffic
+// Returns { available: false } when script not installed / no traffic yet
+router.get('/earnings/:categoryId', authMiddleware, earningsController.getCategoryEarnings);
 
 router.get('/category/:categoryId', categoryController.getCategoryById);
 router.get('/:websiteId/advertiser', categoryController.getCategoriesByWebsiteForAdvertisers);
@@ -61,6 +66,12 @@ router.post('/reject/:adId/:websiteId/:categoryId', authMiddleware, categoryCont
 router.put('/:categoryId/reset-user-count', categoryController.resetUserCount);
 router.delete('/:categoryId', categoryController.deleteCategory);
 router.get('/', categoryController.getCategories);
+
+router.get('/wallet', authMiddleware, WalletController.getWallet);
+router.get('/wallet/transactions', authMiddleware, WalletController.getWalletTransactions);
+router.get('/wallet/:ownerType/balance', authMiddleware, WalletController.getWalletBalance);
+router.get('/wallet/:ownerType/transactions', authMiddleware, WalletController.getTransactionHistory);
+
 router.get('/:websiteId', categoryController.getCategoriesByWebsite);
 router.patch('/category/:categoryId/language', categoryController.updateCategoryLanguage);
 router.get('/pending/:ownerId', categoryController.getPendingAds);
@@ -123,11 +134,6 @@ router.put('/categoriees/:categoryId/customization', authMiddleware, async (req,
   }
 });
 
-router.get('/wallet', authMiddleware, WalletController.getWallet);
-router.get('/wallet/transactions', authMiddleware, WalletController.getWalletTransactions);
-
-router.get('/wallet/:ownerType/balance', authMiddleware, WalletController.getWalletBalance);
-router.get('/wallet/:ownerType/transactions', authMiddleware, WalletController.getTransactionHistory);
 
 router.post('/wallet/:ownerType/withdrawal-request', authMiddleware, WithdrawalController.createWithdrawalRequest);
 router.get('/wallet/:ownerType/withdrawal-requests', authMiddleware, WithdrawalController.getUserWithdrawalRequests);

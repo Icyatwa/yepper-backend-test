@@ -410,7 +410,7 @@ exports.verifyPaymentNonTransactional = async (req, res) => {
 exports.generateXentriPayPaymentUrl = async (paymentData) => {
   try {
     const apiKey = process.env.XENTRIPAY_API_KEY;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://yepper.cc';
 
     if (!apiKey) throw new Error('XentriPay API key not configured. Please contact support.');
 
