@@ -31,9 +31,7 @@ async function getAuthUser(req) {
 // Called by the site script on every page load (fire-and-forget from the browser)
 exports.trackPageView = async (req, res) => {
   // Always respond immediately so the visitor's page isn't blocked
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // (CORS headers are set by the server-level middleware in server.js)
   res.status(202).json({ ok: true });
 
   try {

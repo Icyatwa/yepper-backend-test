@@ -5,9 +5,7 @@ const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
 
 exports.displayAd = async (req, res) => {
   try {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    // CORS is handled by server-level middleware in server.js
     
     const { categoryId } = req.query;
     
@@ -87,9 +85,7 @@ exports.displayAd = async (req, res) => {
 
 exports.searchAd = async (req, res) => {
   try {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    // CORS is handled by server-level middleware in server.js
     
     //const { categoryId } = req.query;
     const { categoryId,searchTerm } = req.query;
