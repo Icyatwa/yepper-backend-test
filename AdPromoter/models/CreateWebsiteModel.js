@@ -46,6 +46,13 @@ const websiteSchema = new mongoose.Schema({
   gscRefreshToken: { type: String, default: null },
   gscSiteUrl:      { type: String, default: null },  // matched GSC property URL
   gscConnectedAt:  { type: Date,   default: null },
+
+  // Script installation & GSC verification tracking
+  scriptInstalled:  { type: Boolean, default: false },   // true once the Yepper script sends its first ping
+  scriptInstalledAt:{ type: Date,    default: null },
+  gscVerified:      { type: Boolean, default: false },   // true when site is found in GSC
+  gscVerifiedAt:    { type: Date,    default: null },
+  unverifiedSince:  { type: Date,    default: null },    // when scriptInstalled became true but gscVerified is false
 });
 
 websiteSchema.index({ ownerId: 1 });

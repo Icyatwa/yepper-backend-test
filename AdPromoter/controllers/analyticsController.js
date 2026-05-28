@@ -92,7 +92,32 @@ exports.trackPageView = async (req, res) => {
     else if (monthlyCount > 10000) trafficTier = 'standard';
     else if (monthlyCount > 2000)  trafficTier = 'basic';
 
-    await Website.findByIdAndUpdate(websiteId, { monthlyTraffic: monthlyCount, trafficTier });
+    // Fetch website to check scriptInstalled / gscVerified state
+    const website = await Website.findById(websiteId).lean();
+    if (!website) return;
+
+    const updatePayload = { monthlyTraffic: monthlyCount, trafficTier };
+    const now = new Date();
+
+    // Mark script as installed the first time a ping arrives
+    if (!website.scriptInstalled) {
+      updatePayload.scriptInstalled   = true;
+      updatePayload.scriptInstalledAt = now;
+    }
+
+    // GSC-verified means the OAuth flow has set gscSiteUrl on the website record
+    const isGscVerified = !!(website.gscSiteUrl && website.gscSiteUrl.trim());
+
+    if (isGscVerified && !website.gscVerified) {
+      updatePayload.gscVerified     = true;
+      updatePayload.gscVerifiedAt   = now;
+      updatePayload.unverifiedSince = null;
+    } else if (!isGscVerified && !website.unverifiedSince) {
+      // Start the 7-day unverified clock from the moment the script first pings
+      updatePayload.unverifiedSince = now;
+    }
+
+    await Website.findByIdAndUpdate(websiteId, updatePayload);
   } catch (err) {
     console.error('trackPageView error:', err.message);
   }
