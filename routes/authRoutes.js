@@ -29,7 +29,15 @@ router.get('/me', authMiddleware, authController.getCurrentUser);
 
 // Google OAuth routes
 router.get('/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
+  passport.authenticate('google', {
+    scope: [
+      'profile',
+      'email',
+      'https://www.googleapis.com/auth/webmasters.readonly',
+    ],
+    accessType: 'offline',
+    prompt: 'consent',   // always show consent so refresh_token is returned
+  })
 );
 
 router.get('/google/callback',

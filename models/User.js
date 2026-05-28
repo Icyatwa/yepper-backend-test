@@ -48,7 +48,11 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: {
     type: Date,
     default: null
-  }
+  },
+  // Google Search Console tokens — populated when user signs in with Google
+  // (passport requests webmasters.readonly scope at login time)
+  gscAccessToken:  { type: String, default: null },
+  gscRefreshToken: { type: String, default: null },
 }, {
   timestamps: true
 });
