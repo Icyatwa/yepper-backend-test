@@ -40,6 +40,12 @@ const websiteSchema = new mongoose.Schema({
   },
   verifiedAt: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
+
+  // Google Search Console integration
+  gscAccessToken:  { type: String, default: null },
+  gscRefreshToken: { type: String, default: null },
+  gscSiteUrl:      { type: String, default: null },  // matched GSC property URL
+  gscConnectedAt:  { type: Date,   default: null },
 });
 
 websiteSchema.index({ ownerId: 1 });
