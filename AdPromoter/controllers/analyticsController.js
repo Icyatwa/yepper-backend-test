@@ -223,11 +223,20 @@ exports.getAnalytics = async (req, res) => {
       ip: { $ne: '' },
     }).then(ips => ips.length);
 
+    // Compute tier live from stored traffic (don't trust old cached trafficTier field)
+    const mt = website.monthlyTraffic || 0;
+    let liveTier = 'unverified';
+    if (mt >= 200001)  liveTier = 'elite';
+    else if (mt >= 50001)  liveTier = 'premium';
+    else if (mt >= 10001)  liveTier = 'standard';
+    else if (mt >= 2001)   liveTier = 'basic';
+    else if (mt >= 500)    liveTier = 'starter';
+
     res.json({
       totalViews,
       uniqueVisitors,
-      monthlyTraffic: website.monthlyTraffic || 0,
-      trafficTier:    website.trafficTier    || 'unverified',
+      monthlyTraffic: mt,
+      trafficTier:    liveTier,
       byCountry:      byCountry.map(r => ({ country: r._id, countryCode: r.countryCode, count: r.count })),
       byDevice:       byDevice.map(r => ({ device: r._id, count: r.count })),
       byDay:          byDay.map(r => ({ date: r._id, count: r.count })),

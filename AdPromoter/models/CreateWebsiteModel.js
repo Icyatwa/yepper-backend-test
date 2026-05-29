@@ -30,7 +30,7 @@ const websiteSchema = new mongoose.Schema({
   },
   isBusinessCategoriesSelected: { type: Boolean, default: false },
   monthlyTraffic: { type: Number, default: 0 },
-  trafficTier: { type: String, enum: ['starter','basic','standard','premium','elite'], default: 'starter' },
+  trafficTier: { type: String, enum: ['unverified','starter','basic','standard','premium','elite'], default: 'unverified' },
   siteScript: { type: String, default: null },
   verificationToken: { type: String, default: null },
   verificationStatus: {
