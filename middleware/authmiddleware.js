@@ -84,15 +84,6 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    // FIXED: Check if user is still active/verified if needed
-    if (!user.isVerified) {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Account not verified',
-        requiresVerification: true
-      });
-    }
-
     // Set user information in request
     req.user = {
       userId: decoded.userId,
@@ -104,6 +95,7 @@ const authMiddleware = async (req, res, next) => {
       userObject: user,
       ...decoded
     };
+    next();
     
     next();
   } catch (error) {
