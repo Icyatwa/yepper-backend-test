@@ -37,6 +37,7 @@ const FORMAT_MULTIPLIERS = {
 };
 
 function getTierFromTraffic(v) {
+  if (!v || v < 500) return { tier: 'unverified', min: 0, max: 0, basePrice: 0 };
   return TRAFFIC_TIERS.find(t => v >= t.min && v <= t.max) || TRAFFIC_TIERS[0];
 }
 

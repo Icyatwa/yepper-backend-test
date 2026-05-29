@@ -86,11 +86,12 @@ exports.trackPageView = async (req, res) => {
     const monthlyCount = await PageView.countDocuments({ websiteId, timestamp: { $gte: since } });
 
     // Compute tier
-    let trafficTier = 'starter';
-    if (monthlyCount > 200000) trafficTier = 'elite';
-    else if (monthlyCount > 50000) trafficTier = 'premium';
-    else if (monthlyCount > 10000) trafficTier = 'standard';
-    else if (monthlyCount > 2000)  trafficTier = 'basic';
+    let trafficTier = 'unverified';
+    if (monthlyCount >= 200001)  trafficTier = 'elite';
+    else if (monthlyCount >= 50001)  trafficTier = 'premium';
+    else if (monthlyCount >= 10001)  trafficTier = 'standard';
+    else if (monthlyCount >= 2001)   trafficTier = 'basic';
+    else if (monthlyCount >= 500)    trafficTier = 'starter';
 
     // Fetch website to check scriptInstalled / gscVerified state
     const website = await Website.findById(websiteId).lean();
@@ -226,7 +227,7 @@ exports.getAnalytics = async (req, res) => {
       totalViews,
       uniqueVisitors,
       monthlyTraffic: website.monthlyTraffic || 0,
-      trafficTier:    website.trafficTier    || 'starter',
+      trafficTier:    website.trafficTier    || 'unverified',
       byCountry:      byCountry.map(r => ({ country: r._id, countryCode: r.countryCode, count: r.count })),
       byDevice:       byDevice.map(r => ({ device: r._id, count: r.count })),
       byDay:          byDay.map(r => ({ date: r._id, count: r.count })),
