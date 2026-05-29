@@ -96,8 +96,6 @@ const authMiddleware = async (req, res, next) => {
       ...decoded
     };
     next();
-    
-    next();
   } catch (error) {
     console.error('Auth middleware unexpected error:', error);
     
