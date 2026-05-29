@@ -11,7 +11,7 @@ const extractEntities = (text) => {
   for (const match of people) {
     if (match[1] && match[1].split(' ').length >= 2) {
       entities.add(match[1]);
-    }
+    } 
   }
   
   // 2. Extract company/brand names (capitalized single or multi-word)

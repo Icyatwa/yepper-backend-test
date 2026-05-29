@@ -40,26 +40,13 @@ function getTierFromTraffic(v) {
   return TRAFFIC_TIERS.find(t => v >= t.min && v <= t.max) || TRAFFIC_TIERS[0];
 }
 
-function computeEarnings(monthlyTraffic, spaceType, isGscVerified, unverifiedSince) {
+function computeEarnings(monthlyTraffic, spaceType) {
   const tier       = getTierFromTraffic(monthlyTraffic);
   const multiplier = FORMAT_MULTIPLIERS[(spaceType || '').toLowerCase()] || 1.0;
-  const baseTotal  = Math.round(tier.basePrice * multiplier);
-
-  // If NOT GSC-verified and 7+ days have passed since script was installed,
-  // ad spaces are priced at 4× the normal rate (unverified tier surcharge)
-  const UNVERIFIED_GRACE_DAYS = 7;
-  let unverifiedSurcharge = false;
-  if (!isGscVerified && unverifiedSince) {
-    const daysSince = (Date.now() - new Date(unverifiedSince).getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSince >= UNVERIFIED_GRACE_DAYS) {
-      unverifiedSurcharge = true;
-    }
-  }
-
-  const totalPrice = unverifiedSurcharge ? baseTotal * 4 : baseTotal;
+  const totalPrice = Math.round(tier.basePrice * multiplier);
   const ownerEarns = Math.round(totalPrice * 0.70);
   const yepperCut  = totalPrice - ownerEarns;
-  return { tier: tier.tier, totalPrice, ownerEarns, yepperCut, monthlyTraffic, unverifiedSurcharge };
+  return { tier: tier.tier, totalPrice, ownerEarns, yepperCut, monthlyTraffic };
 }
 
 async function getAuthUser(req) {
@@ -99,8 +86,7 @@ exports.getCategoryEarnings = async (req, res) => {
       });
     }
 
-    const isGscVerified = !!(website.gscVerified || (website.gscSiteUrl && website.gscSiteUrl.trim()));
-    const earnings = computeEarnings(monthlyTraffic, category.spaceType, isGscVerified, website.unverifiedSince);
+    const earnings = computeEarnings(monthlyTraffic, category.spaceType);
     return res.json({ available: true, ...earnings });
 
   } catch (err) {
@@ -132,36 +118,23 @@ exports.getWebsiteEarningsSummary = async (req, res) => {
         reason: 'no_traffic',
         message: 'Install your Yepper script to start tracking traffic. Earnings will appear once visitors are detected.',
         monthlyTraffic: 0,
-        scriptInstalled: false,
-        gscVerified: false,
-        unverifiedSince: null,
-        unverifiedSurchargeActive: false,
         categories: categories.map(c => ({ categoryId: c._id, name: c.categoryName, available: false }))
       });
     }
 
-    const isGscVerified = !!(website.gscVerified || (website.gscSiteUrl && website.gscSiteUrl.trim()));
     const summary = categories.map(c => {
-      const e = computeEarnings(monthlyTraffic, c.spaceType, isGscVerified, website.unverifiedSince);
+      const e = computeEarnings(monthlyTraffic, c.spaceType);
       return { categoryId: c._id, name: c.categoryName, available: true, ...e };
     });
 
     const totalOwnerEarns = summary.reduce((s, c) => s + (c.ownerEarns || 0), 0);
     const tier = getTierFromTraffic(monthlyTraffic);
 
-    const totalOwnerEarnsPerMonth_base = summary.reduce((s, c) => s + (c.ownerEarns || 0), 0);
-    const unverifiedSurchargeActive = !isGscVerified && !!website.unverifiedSince &&
-      ((Date.now() - new Date(website.unverifiedSince).getTime()) / (1000 * 60 * 60 * 24)) >= 7;
-
     return res.json({
       available: true,
       monthlyTraffic,
       trafficTier: tier.tier,
-      totalOwnerEarnsPerMonth: totalOwnerEarnsPerMonth_base,
-      scriptInstalled: !!website.scriptInstalled,
-      gscVerified: isGscVerified,
-      unverifiedSince: website.unverifiedSince || null,
-      unverifiedSurchargeActive,
+      totalOwnerEarnsPerMonth: totalOwnerEarns,
       categories: summary
     });
 
