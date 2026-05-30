@@ -36,7 +36,7 @@ const adCategorySchema = new mongoose.Schema({
   },
   tier: {
     type: String,
-    enum: ['starter', 'basic', 'standard', 'premium', 'elite'],
+    enum: ['starter', 'basic', 'standard', 'premium', 'elite', 'unverified'],
     required: true
   },
   customization: {
