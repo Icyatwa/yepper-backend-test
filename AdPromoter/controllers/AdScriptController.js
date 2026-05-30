@@ -176,15 +176,17 @@ exports.serveAdScript = async (req, res) => {
 
     if (!adCategory) return res.status(404).send('// Ad space not found');
 
-    const registeredLink = adCategory.websiteId?.websiteLink;
-    if (registeredLink) {
-      const referer    = req.headers.referer || req.headers.origin || '';
-      const registered = extractDomain(registeredLink);
-      const incoming   = referer ? extractDomain(referer) : null;
+    const registeredDomain = adCategory.websiteId?.websiteLink
+      ? extractDomain(adCategory.websiteId.websiteLink)
+      : null;
 
-      if (!incoming || registered !== incoming) {
+    // Server-side referer check (first layer)
+    if (registeredDomain) {
+      const referer = req.headers.referer || req.headers.origin || '';
+      const incoming = referer ? extractDomain(referer) : null;
+      if (!incoming || incoming !== registeredDomain) {
         res.setHeader('Content-Type', 'application/javascript');
-        return res.send('/* invalid domain */'); // silent no-op, not a 403
+        return res.send('/* invalid domain */');
       }
     }
 
@@ -212,6 +214,12 @@ exports.serveAdScript = async (req, res) => {
 
     const script = `
 (function(){
+  var _allowed = "${registeredDomain || ''}";
+  if (_allowed) {
+    var _current = window.location.hostname.replace(/^www\\./, '');
+    if (_current !== _allowed) return; // wrong site — bail, nothing runs
+  }
+
   /* Yepper display unit — ${categoryName} */
   var D=document,
       _i="${scriptId}",
