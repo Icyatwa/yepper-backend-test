@@ -82,6 +82,10 @@ exports.serveSiteScript = async (req, res) => {
     const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
     const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
+    // Stealth paths to avoid ad-blocker filter lists
+    const API_BASE = `${BACKEND}/api/p`;
+    const CAT_BASE = `${BACKEND}/api/c`;
+
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -139,7 +143,8 @@ exports.serveSiteScript = async (req, res) => {
 
   var D=document,
       _wid="${websiteId}",
-      _b="${BACKEND}/api",
+      _b="${API_BASE}",
+      _c="${CAT_BASE}",
       _f="${FRONTEND}",
       _spaces=${spacesJSON},
       _rot=5000;
@@ -237,7 +242,7 @@ exports.serveSiteScript = async (req, res) => {
     /* Last resort: after script tag */
     var scripts=D.getElementsByTagName('script');
     for(var si=scripts.length-1;si>=0;si--){
-      if(scripts[si].src&&scripts[si].src.indexOf('/api/ads/script/site/')>-1){
+      if(scripts[si].src&&(scripts[si].src.indexOf('/api/p/site/')>-1||scripts[si].src.indexOf('/api/ads/script/site/')>-1)){
         scripts[si].parentNode.insertBefore(host,scripts[si].nextSibling);
         return host;
       }
@@ -261,15 +266,15 @@ exports.serveSiteScript = async (req, res) => {
     }
 
     var html=data.html
-      .replace(/yepper-ad-container|yepper-ad-item/g,sp.px+'-ad')
-      .replace(/yepper-ad-link/g,sp.px+'-link')
-      .replace(/yepper-ad-content/g,sp.px+'-inner')
-      .replace(/yepper-ad-image-wrapper/g,sp.px+'-img-wrap')
-      .replace(/yepper-ad-image/g,sp.px+'-img')
-      .replace(/yepper-ad-text-content/g,sp.px+'-text')
-      .replace(/yepper-ad-business-name/g,sp.px+'-title')
-      .replace(/yepper-ad-description/g,sp.px+'-desc')
-      .replace(/yepper-ad-cta/g,sp.px+'-cta');
+      .replace(/sp-container|sp-item/g,sp.px+'-ad')
+      .replace(/sp-link/g,sp.px+'-link')
+      .replace(/sp-content/g,sp.px+'-inner')
+      .replace(/sp-image-wrapper/g,sp.px+'-img-wrap')
+      .replace(/sp-image/g,sp.px+'-img')
+      .replace(/sp-text-content/g,sp.px+'-text')
+      .replace(/sp-business-name/g,sp.px+'-title')
+      .replace(/sp-description/g,sp.px+'-desc')
+      .replace(/sp-cta/g,sp.px+'-cta');
 
     host.innerHTML='<div class="'+sp.px+'-credit">Ad by <a href="'+_f+'" target="_blank" rel="noopener">Yepper</a></div>'+html;
 
@@ -279,8 +284,8 @@ exports.serveSiteScript = async (req, res) => {
     items.forEach(function(el,idx){el.style.display=idx===0?'block':'none';});
 
     function trackView(adId){
-      try{navigator.sendBeacon(_b+'/ads/view/'+adId,'{}');}
-      catch(e){fetch(_b+'/ads/view/'+adId,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});}
+      try{navigator.sendBeacon(_b+'/ev/'+adId,'{}');}
+      catch(e){fetch(_b+'/ev/'+adId,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});}
     }
 
     items.forEach(function(el){
@@ -292,7 +297,7 @@ exports.serveSiteScript = async (req, res) => {
       lnk.style.cursor='pointer';
       lnk.addEventListener('click',function(ev){
         ev.preventDefault();
-        try{navigator.sendBeacon(_b+'/ads/click/'+adId,'{}');}catch(e){}
+        try{navigator.sendBeacon(_b+'/ec/'+adId,'{}');}catch(e){}
         setTimeout(function(){window.open(href,'_blank','noopener');},80);
       });
     });
@@ -324,7 +329,7 @@ exports.serveSiteScript = async (req, res) => {
   function loadSpace(sp){
     var ck='?z='+sp.id+'&r='+Math.random().toString(36).slice(2);
 
-    fetch(_b+'/ad-categories/ads/customization/'+sp.id+ck,{cache:'no-store'})
+    fetch(_c+'/ads/customization/'+sp.id+ck,{cache:'no-store'})
       .then(function(r){return r.ok?r.json():Promise.resolve({});})
       .then(function(d){
         var custom=d.customization||{};
@@ -332,7 +337,7 @@ exports.serveSiteScript = async (req, res) => {
         var host=getHost(sp);
         if(!host)return; /* manual with no placeholder — skip */
 
-        fetch(_b+'/ads/display?categoryId='+sp.id+'&r='+Date.now(),{cache:'no-store'})
+        fetch(_b+'/feed?categoryId='+sp.id+'&r='+Date.now(),{cache:'no-store'})
           .then(function(r){return r.ok?r.json():null;})
           .then(function(data){renderAds(host,sp,data,custom);})
           .catch(function(){renderAds(host,sp,null,{});});
@@ -341,7 +346,7 @@ exports.serveSiteScript = async (req, res) => {
         injectStyles(sp,{});
         var host=getHost(sp);
         if(!host)return;
-        fetch(_b+'/ads/display?categoryId='+sp.id,{cache:'no-store'})
+        fetch(_b+'/feed?categoryId='+sp.id,{cache:'no-store'})
           .then(function(r){return r.ok?r.json():null;})
           .then(function(data){renderAds(host,sp,data,{});})
           .catch(function(){renderAds(host,sp,null,{});});
@@ -356,7 +361,7 @@ exports.serveSiteScript = async (req, res) => {
     }
     /* Fetch the real category config from the API so we have correct
        price, spaceType, lang etc. before rendering */
-    fetch(_b+'/ad-categories/space/'+categoryId+'?r='+Date.now(),{cache:'no-store'})
+    fetch(_c+'/space/'+categoryId+'?r='+Date.now(),{cache:'no-store'})
       .then(function(r){return r.ok?r.json():null;})
       .then(function(cat){
         var px='yw'+categoryId.slice(-6);
@@ -403,9 +408,9 @@ exports.serveSiteScript = async (req, res) => {
         referrer:D.referrer||''
       };
       if(navigator.sendBeacon){
-        navigator.sendBeacon(_b+'/analytics/track',new Blob([JSON.stringify(_pv)],{type:'application/json'}));
+        navigator.sendBeacon(_b.replace('/p','') + '/analytics/track',new Blob([JSON.stringify(_pv)],{type:'application/json'}));
       } else {
-        fetch(_b+'/analytics/track',{
+        fetch(_b.replace('/p','') + '/analytics/track',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify(_pv),
@@ -432,7 +437,8 @@ exports.serveSiteScript = async (req, res) => {
 /* Generate and save the site script tag on the website record */
 exports.generateSiteScript = async (websiteId) => {
   const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
-  const src = `${BACKEND}/api/ads/script/site/${websiteId}`;
+  // Use stealth path /api/p/site/ so the <script src> doesn't match ad-blocker rules
+  const src = `${BACKEND}/api/p/site/${websiteId}`;
   const tag = `<script src="${src}" async></script>`;
   await require('../models/CreateWebsiteModel').findByIdAndUpdate(websiteId, { siteScript: tag });
   return tag;

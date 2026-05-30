@@ -66,24 +66,24 @@ exports.displayAd = async (req, res) => {
             ad.businessLink : `https://${ad.businessLink}`;
           
           return `
-            <div class="yepper-ad-item" 
+            <div class="sp-item" 
                   data-ad-id="${ad._id}"
                   data-category-id="${categoryId}"
                   data-website-id="${adCategory.websiteId}">
               <a href="${targetUrl}" 
-                  class="yepper-ad-link" 
+                  class="sp-link" 
                   target="_blank" 
                   rel="noopener"
                   data-tracking="true">
-                <div class="yepper-ad-content">
-                    <img class="yepper-ad-image" 
+                <div class="sp-content">
+                    <img class="sp-image" 
                          src="${imageUrl}" 
                          alt="${ad.businessName}" 
                          loading="lazy">
-                  <div class="yepper-ad-text-content">
-                    <h3 class="yepper-ad-business-name">${ad.businessName}</h3>
-                    <p class="yepper-ad-description">${ad.adDescription}</p>
-                    <button class="yepper-ad-cta" type="button">
+                  <div class="sp-text-content">
+                    <h3 class="sp-business-name">${ad.businessName}</h3>
+                    <p class="sp-description">${ad.adDescription}</p>
+                    <button class="sp-cta" type="button">
                       Visit Website
                     </button>
                   </div>
@@ -99,7 +99,7 @@ exports.displayAd = async (req, res) => {
       .filter(html => html)
       .join('');
     
-    const finalHtml = `<div class="yepper-ad-container">${adsHtml}</div>`;
+    const finalHtml = `<div class="sp-container">${adsHtml}</div>`;
     return res.json({ html: finalHtml });
   } catch (error) {
     console.error('Error displaying ad:', error);

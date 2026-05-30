@@ -53,6 +53,9 @@ const allowNullOriginPaths = [
   '/api/ads/script',
   '/api/ad-categories/ads/customization',
   '/api/analytics/track',
+  // Stealth paths — neutral names that bypass ad-blocker filter lists
+  '/api/p/',
+  '/api/c/',
 ];
 
 const normalizeOrigin = (origin) => {
@@ -146,6 +149,12 @@ app.use('/api/business-categories', businessCategoriesRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);
 app.use('/api/analytics', analyticsRoutes);
+
+// ── Stealth mounts — same handlers, neutral URL prefixes ──────────────────
+// /api/p  mirrors /api/ads     (avoids "ads" in the path)
+// /api/c  mirrors /api/ad-categories  (avoids "ad-categories" in the path)
+app.use('/api/p', adDisplayRoutes);
+app.use('/api/c', createCategoryRoutes);
 
 // AdOwner Routes
 app.use('/api/web-advertise', webAdvertiseRoutes);

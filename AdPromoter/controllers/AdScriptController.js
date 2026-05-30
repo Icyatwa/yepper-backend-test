@@ -193,6 +193,11 @@ exports.serveAdScript = async (req, res) => {
     const BACKEND  = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
     const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
+    // Use stealth API paths (/api/p, /api/c) so generated URLs don't match
+    // common ad-blocker filter patterns like "/api/ads/" or "/ad-categories/"
+    const API_BASE  = `${BACKEND}/api/p`;
+    const CAT_BASE  = `${BACKEND}/api/c`;
+
     const categoryPrice   = adCategory.price;
     const defaultLanguage = adCategory.defaultLanguage || 'english';
     const websiteId       = adCategory.websiteId._id;
@@ -224,7 +229,8 @@ exports.serveAdScript = async (req, res) => {
   var D=document,
       _i="${scriptId}",
       _w="${websiteId}",
-      _b="${BACKEND}/api",
+      _b="${API_BASE}",
+      _c="${CAT_BASE}",
       _f="${FRONTEND}",
       _p=${categoryPrice},
       _l="${defaultLanguage}",
@@ -350,7 +356,7 @@ exports.serveAdScript = async (req, res) => {
     /* Fallback: insert after the current script tag */
     var scripts=D.getElementsByTagName('script');
     for(var si=scripts.length-1;si>=0;si--){
-      if(scripts[si].src&&scripts[si].src.indexOf('/api/ads/script/'+_i)>-1){
+      if(scripts[si].src&&(scripts[si].src.indexOf('/api/p/unit/'+_i)>-1||scripts[si].src.indexOf('/api/ads/script/'+_i)>-1)){
         scripts[si].parentNode.insertBefore(host,scripts[si].nextSibling);
         return host;
       }
@@ -398,16 +404,16 @@ exports.serveAdScript = async (req, res) => {
 
     /* Remap generic class names to scoped prefix */
     var html=data.html
-      .replace(/yepper-ad-container/g,_px+'-ad')
-      .replace(/yepper-ad-item/g,_px+'-ad')
-      .replace(/yepper-ad-link/g,_px+'-link')
-      .replace(/yepper-ad-content/g,_px+'-inner')
-      .replace(/yepper-ad-image-wrapper/g,_px+'-img-wrap')
-      .replace(/yepper-ad-image/g,_px+'-img')
-      .replace(/yepper-ad-text-content/g,_px+'-text')
-      .replace(/yepper-ad-business-name/g,_px+'-title')
-      .replace(/yepper-ad-description/g,_px+'-desc')
-      .replace(/yepper-ad-cta/g,_px+'-cta');
+      .replace(/sp-container/g,_px+'-ad')
+      .replace(/sp-item/g,_px+'-ad')
+      .replace(/sp-link/g,_px+'-link')
+      .replace(/sp-content/g,_px+'-inner')
+      .replace(/sp-image-wrapper/g,_px+'-img-wrap')
+      .replace(/sp-image/g,_px+'-img')
+      .replace(/sp-text-content/g,_px+'-text')
+      .replace(/sp-business-name/g,_px+'-title')
+      .replace(/sp-description/g,_px+'-desc')
+      .replace(/sp-cta/g,_px+'-cta');
 
     host.innerHTML=credit()+html;
 
@@ -420,9 +426,9 @@ exports.serveAdScript = async (req, res) => {
     /* Track views + clicks */
     function trackView(adId){
       try{
-        navigator.sendBeacon(_b+'/ads/view/'+adId+'?cid='+_i,'{}');
+        navigator.sendBeacon(_b+'/ev/'+adId+'?cid='+_i,'{}');
       }catch(e){
-        fetch(_b+'/ads/view/'+adId+'?cid='+_i,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});
+        fetch(_b+'/ev/'+adId+'?cid='+_i,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});
       }
     }
 
@@ -435,7 +441,7 @@ exports.serveAdScript = async (req, res) => {
       lnk.style.cursor='pointer';
       lnk.addEventListener('click',function(ev){
         ev.preventDefault();
-        try{navigator.sendBeacon(_b+'/ads/click/'+adId+'?cid='+_i,'{}');}catch(e){}
+        try{navigator.sendBeacon(_b+'/ec/'+adId+'?cid='+_i,'{}');}catch(e){}
         setTimeout(function(){window.open(href,'_blank','noopener');},80);
       });
     });
@@ -469,14 +475,14 @@ exports.serveAdScript = async (req, res) => {
     /* Use a neutral param name to avoid common blocker rules */
     var ck='?z='+_i+'&r='+Math.random().toString(36).slice(2);
 
-    fetch(_b+'/ad-categories/ads/customization/'+_i+ck,{cache:'no-store'})
+    fetch(_c+'/ads/customization/'+_i+ck,{cache:'no-store'})
       .then(function(r){return r.ok?r.json():Promise.resolve({});})
       .then(function(d){
         var custom=d.customization||{};
         injectStyles(custom);
         var host=getHost();
 
-        fetch(_b+'/ads/display?categoryId='+_i+'&r='+Date.now(),{cache:'no-store'})
+        fetch(_b+'/feed?categoryId='+_i+'&r='+Date.now(),{cache:'no-store'})
           .then(function(r){return r.ok?r.json():null;})
           .then(function(data){renderAds(host,data);})
           .catch(function(){emptyState(host);});
@@ -484,7 +490,7 @@ exports.serveAdScript = async (req, res) => {
       .catch(function(){
         injectStyles({});
         var host=getHost();
-        fetch(_b+'/ads/display?categoryId='+_i,{cache:'no-store'})
+        fetch(_b+'/feed?categoryId='+_i,{cache:'no-store'})
           .then(function(r){return r.ok?r.json():null;})
           .then(function(data){renderAds(host,data);})
           .catch(function(){emptyState(host);});
