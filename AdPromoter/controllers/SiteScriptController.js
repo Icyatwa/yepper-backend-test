@@ -287,6 +287,7 @@ exports.serveSiteScript = async (req, res) => {
       var _ev=_b+'/ev/'+adId+'?cid='+sp.id;
       try{navigator.sendBeacon(_ev,'{}');}
       catch(e){fetch(_ev,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});}
+    }
 
     items.forEach(function(el){
       var adId=el.dataset.adId;
