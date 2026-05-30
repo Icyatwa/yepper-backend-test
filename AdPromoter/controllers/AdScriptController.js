@@ -184,7 +184,8 @@ exports.serveAdScript = async (req, res) => {
     if (registeredDomain) {
       const referer = req.headers.referer || req.headers.origin || '';
       const incoming = referer ? extractDomain(referer) : null;
-        if (!incoming || incoming !== registeredDomain) {
+      if (incoming && incoming !== registeredDomain) {
+        res.setHeader('Content-Type', 'application/javascript');
         return res.send('/* invalid domain */');
       }
     }
@@ -215,7 +216,7 @@ exports.serveAdScript = async (req, res) => {
 (function(){
   var _allowed = "${registeredDomain || ''}";
   if (_allowed) {
-    var _current = window.location.hostname.replace(/^www\./, '');
+    var _current = window.location.hostname.replace(/^www\\./, '');
     if (_current !== _allowed) return; // wrong site — bail, nothing runs
   }
 

@@ -72,7 +72,7 @@ exports.serveSiteScript = async (req, res) => {
     if (registeredDomain) {
       const referer = req.headers.referer || req.headers.origin || '';
       const incoming = referer ? extractDomain(referer) : null;
-      if (!incoming || incoming !== registeredDomain) {
+      if (incoming && incoming !== registeredDomain) {
         res.setHeader('Content-Type', 'application/javascript');
         return res.send('/* invalid domain */');
       }
