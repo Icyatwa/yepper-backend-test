@@ -45,6 +45,13 @@ function placementCSS(spaceType, px) {
   return base + (map[spaceType.toLowerCase()] || '');
 }
 
+function extractDomain(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return u.hostname.replace(/^www\./, '');
+  } catch { return null; }
+}
+
 exports.serveSiteScript = async (req, res) => {
   try {
     const { websiteId } = req.params;
@@ -56,6 +63,21 @@ exports.serveSiteScript = async (req, res) => {
 
     if (!website) return res.status(404).send('// Website not found');
     if (!categories.length) return res.status(200).send('// No ad spaces configured yet');
+
+    // ── Domain verification ──────────────────────────────────────
+    const registeredDomain = website.websiteLink
+      ? extractDomain(website.websiteLink)
+      : null;
+
+    if (registeredDomain) {
+      const referer = req.headers.referer || req.headers.origin || '';
+      const incoming = referer ? extractDomain(referer) : null;
+      if (!incoming || incoming !== registeredDomain) {
+        res.setHeader('Content-Type', 'application/javascript');
+        return res.send('/* invalid domain */');
+      }
+    }
+    // ────────────────────────────────────────────────────────────
 
     const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
     const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
@@ -109,6 +131,12 @@ exports.serveSiteScript = async (req, res) => {
     const script = `
 (function(){
   /* Yepper Site Script — ${website.websiteName} */
+  var _allowed="${registeredDomain || ''}";
+  if(_allowed){
+    var _cur=window.location.hostname.replace(/^www\\./, '');
+    if(_cur!==_allowed)return;
+  }
+
   var D=document,
       _wid="${websiteId}",
       _b="${BACKEND}/api",
