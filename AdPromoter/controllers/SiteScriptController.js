@@ -284,9 +284,9 @@ exports.serveSiteScript = async (req, res) => {
     items.forEach(function(el,idx){el.style.display=idx===0?'block':'none';});
 
     function trackView(adId){
-      try{navigator.sendBeacon(_b+'/ev/'+adId,'{}');}
-      catch(e){fetch(_b+'/ev/'+adId,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});}
-    }
+      var _ev=_b+'/ev/'+adId+'?cid='+sp.id;
+      try{navigator.sendBeacon(_ev,'{}');}
+      catch(e){fetch(_ev,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});}
 
     items.forEach(function(el){
       var adId=el.dataset.adId;
@@ -297,7 +297,7 @@ exports.serveSiteScript = async (req, res) => {
       lnk.style.cursor='pointer';
       lnk.addEventListener('click',function(ev){
         ev.preventDefault();
-        try{navigator.sendBeacon(_b+'/ec/'+adId,'{}');}catch(e){}
+        try{navigator.sendBeacon(_b+'/ec/'+adId+'?cid='+sp.id,'{}');}catch(e){}
         setTimeout(function(){window.open(href,'_blank','noopener');},80);
       });
     });

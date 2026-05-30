@@ -224,8 +224,7 @@ exports.incrementView = async (req, res) => {
     const { cid } = req.query;
 
     if (cid) {
-      const referer = req.headers.referer || req.headers.origin || '';
-      const allowed = await isAllowedDomain(cid, referer);
+      const allowed = await isAllowedDomain(cid, req.headers);
       if (!allowed) {
         return res.status(403).json({ success: false, message: 'Domain not authorised' });
       }
@@ -288,8 +287,7 @@ exports.incrementClick = async (req, res) => {
     const { cid } = req.query;
 
     if (cid) {
-      const referer = req.headers.referer || req.headers.origin || '';
-      const allowed = await isAllowedDomain(cid, referer);
+      const allowed = await isAllowedDomain(cid, req.headers);
       if (!allowed) {
         return res.status(403).json({ success: false, message: 'Domain not authorised' });
       }
