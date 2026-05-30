@@ -1,7 +1,31 @@
 // AdDisplayController.js
 const AdCategory = require('../models/CreateCategoryModel');
+const Website = require('../models/CreateWebsiteModel');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
+
+function extractDomain(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return u.hostname.replace(/^www\./, '');
+  } catch { return null; }
+}
+
+async function isAllowedDomain(categoryId, reqHeaders) {
+  const referer = reqHeaders.referer || reqHeaders.origin || '';
+
+  // No referer at all = block. We know the registered domain, no reason to be lenient.
+  if (!referer) return false;
+
+  const category = await AdCategory.findById(categoryId).populate('websiteId').lean();
+  const registeredLink = category?.websiteId?.websiteLink;
+  if (!registeredLink) return false;
+
+  const registered = extractDomain(registeredLink);
+  const incoming   = extractDomain(referer);
+
+  return !!(registered && incoming && registered === incoming);
+}
 
 exports.displayAd = async (req, res) => {
   try {
@@ -197,10 +221,19 @@ function getNoAdsHtml() {
 exports.incrementView = async (req, res) => {
   try {
     const { adId } = req.params;
+    const { cid } = req.query;
+
+    if (cid) {
+      const referer = req.headers.referer || req.headers.origin || '';
+      const allowed = await isAllowedDomain(cid, referer);
+      if (!allowed) {
+        return res.status(403).json({ success: false, message: 'Domain not authorised' });
+      }
+    }
 
     // Use a transaction to ensure both updates succeed or fail together
     const session = await ImportAd.startSession();
-  console.log(session);
+    console.log(session);
     await session.withTransaction(async () => {
       // Increment views on the ad
       const updatedAd = await ImportAd.findByIdAndUpdate(
@@ -252,6 +285,15 @@ exports.incrementView = async (req, res) => {
 exports.incrementClick = async (req, res) => {
   try {
     const { adId } = req.params;
+    const { cid } = req.query;
+
+    if (cid) {
+      const referer = req.headers.referer || req.headers.origin || '';
+      const allowed = await isAllowedDomain(cid, referer);
+      if (!allowed) {
+        return res.status(403).json({ success: false, message: 'Domain not authorised' });
+      }
+    }
 
     const updatedAd = await ImportAd.findByIdAndUpdate(
       adId, 

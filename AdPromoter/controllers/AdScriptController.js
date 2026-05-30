@@ -5,6 +5,13 @@
 
 const AdCategory = require('../models/CreateCategoryModel');
 
+function extractDomain(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return u.hostname.replace(/^www\./, '');
+  } catch { return null; }
+}
+
 // ── Ad-blocker evasion: rotate neutral wrapper names ──────────
 const WRAPPER_ALIASES = [
   'content-widget', 'page-module', 'site-section',
@@ -168,6 +175,18 @@ exports.serveAdScript = async (req, res) => {
       .lean();
 
     if (!adCategory) return res.status(404).send('// Ad space not found');
+
+    const registeredLink = adCategory.websiteId?.websiteLink;
+    if (registeredLink) {
+      const referer    = req.headers.referer || req.headers.origin || '';
+      const registered = extractDomain(registeredLink);
+      const incoming   = referer ? extractDomain(referer) : null;
+
+      if (!incoming || registered !== incoming) {
+        res.setHeader('Content-Type', 'application/javascript');
+        return res.send('/* invalid domain */'); // silent no-op, not a 403
+      }
+    }
 
     const BACKEND  = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
     const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
@@ -393,10 +412,9 @@ exports.serveAdScript = async (req, res) => {
     /* Track views + clicks */
     function trackView(adId){
       try{
-        /* Use beacon for reliability and to avoid being flagged as xhr tracker */
-        navigator.sendBeacon(_b+'/ads/view/'+adId,'{}');
+        navigator.sendBeacon(_b+'/ads/view/'+adId+'?cid='+_i,'{}');
       }catch(e){
-        fetch(_b+'/ads/view/'+adId,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});
+        fetch(_b+'/ads/view/'+adId+'?cid='+_i,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});
       }
     }
 
@@ -409,7 +427,7 @@ exports.serveAdScript = async (req, res) => {
       lnk.style.cursor='pointer';
       lnk.addEventListener('click',function(ev){
         ev.preventDefault();
-        try{navigator.sendBeacon(_b+'/ads/click/'+adId,'{}');}catch(e){}
+        try{navigator.sendBeacon(_b+'/ads/click/'+adId+'?cid='+_i,'{}');}catch(e){}
         setTimeout(function(){window.open(href,'_blank','noopener');},80);
       });
     });
