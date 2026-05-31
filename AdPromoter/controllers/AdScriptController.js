@@ -190,7 +190,7 @@ exports.serveAdScript = async (req, res) => {
       }
     }
 
-    const BACKEND  = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+    const BACKEND  = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
     const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
     // Use stealth API paths (/api/p, /api/c) so generated URLs don't match

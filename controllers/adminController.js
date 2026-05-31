@@ -5,6 +5,7 @@ const Website = require('../AdPromoter/models/CreateWebsiteModel');
 const PageView = require('../AdPromoter/models/WebsiteAnalyticsModel');
 const TrafficGrant = require('../models/TrafficGrantModel');
 const { Resend } = require('resend');
+const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://yepper.cc';
@@ -349,8 +350,33 @@ exports.checkGrantToken = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC: POST /api/admin/grant-apply
 // The user submits their desired traffic/views numbers.
-// We inject synthetic PageView records so the real analytics pipeline sees them.
+// We store them as display-only fields on the website document and tag
+// any injected PageView records with isGranted=true so the real analytics
+// pipeline is never polluted. Tier and unpaid ad spaces are updated to match.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Pricing table (mirrors PricingTiers.js on the frontend)
+const TIER_PRICES = {
+  unverified: { 'Header':9000,'Above The Fold':7800,'Sticky Sidebar':6000,'Mobile Interstitial':6000,'Overlay':5400,'Floating':4800,'Modal':4200,'Left Rail':3600,'Right Rail':3600,'Sidebar':3000,'In Feed':2400,'Inline Content':2400,'Beneath Title':2100,'Pro Footer':1500,'Bottom':1200 },
+  starter:    { 'Header':3000,'Above The Fold':2600,'Sticky Sidebar':2000,'Mobile Interstitial':2000,'Overlay':1800,'Floating':1600,'Modal':1400,'Left Rail':1200,'Right Rail':1200,'Sidebar':1000,'In Feed':800,'Inline Content':800,'Beneath Title':700,'Pro Footer':500,'Bottom':400 },
+  basic:      { 'Header':15000,'Above The Fold':13000,'Sticky Sidebar':10000,'Mobile Interstitial':10000,'Overlay':9000,'Floating':8000,'Modal':7000,'Left Rail':6000,'Right Rail':6000,'Sidebar':5000,'In Feed':4000,'Inline Content':4000,'Beneath Title':3500,'Pro Footer':2500,'Bottom':2000 },
+  standard:   { 'Header':30000,'Above The Fold':26000,'Sticky Sidebar':20000,'Mobile Interstitial':20000,'Overlay':18000,'Floating':16000,'Modal':14000,'Left Rail':12000,'Right Rail':12000,'Sidebar':10000,'In Feed':8000,'Inline Content':8000,'Beneath Title':7000,'Pro Footer':5000,'Bottom':4000 },
+  premium:    { 'Header':82000,'Above The Fold':71000,'Sticky Sidebar':55000,'Mobile Interstitial':55000,'Overlay':49000,'Floating':44000,'Modal':38000,'Left Rail':33000,'Right Rail':33000,'Sidebar':27000,'In Feed':22000,'Inline Content':22000,'Beneath Title':19000,'Pro Footer':14000,'Bottom':11000 },
+  elite:      { 'Header':220000,'Above The Fold':190000,'Sticky Sidebar':148000,'Mobile Interstitial':148000,'Overlay':132000,'Floating':118000,'Modal':102000,'Left Rail':88000,'Right Rail':88000,'Sidebar':73000,'In Feed':59000,'Inline Content':59000,'Beneath Title':51000,'Pro Footer':37000,'Bottom':29000 },
+};
+
+const SPACE_TYPE_MAP = {
+  'Header':'Header','Above The Fold':'Above The Fold','Sticky Sidebar':'Sticky Sidebar',
+  'stickySidebar':'Sticky Sidebar','Mobile Interstitial':'Mobile Interstitial',
+  'mobileInterstial':'Mobile Interstitial','Overlay':'Overlay','overlay':'Overlay',
+  'Floating':'Floating','floating':'Floating','Modal':'Modal','modalPic':'Modal',
+  'Left Rail':'Left Rail','leftRail':'Left Rail','Right Rail':'Right Rail','rightRail':'Right Rail',
+  'Sidebar':'Sidebar','sidebar':'Sidebar','In Feed':'In Feed','inFeed':'In Feed',
+  'Inline Content':'Inline Content','inlineContent':'Inline Content',
+  'Beneath Title':'Beneath Title','beneathTitle':'Beneath Title',
+  'Pro Footer':'Pro Footer','proFooter':'Pro Footer','Bottom':'Bottom','bottom':'Bottom',
+};
+
 exports.applyGrant = async (req, res) => {
   try {
     const { token, traffic, views } = req.body;
@@ -366,69 +392,80 @@ exports.applyGrant = async (req, res) => {
 
     const trafficNum = Math.max(0, parseInt(traffic) || 0);
     const viewsNum   = Math.max(0, parseInt(views)   || 0);
-    const total      = Math.max(trafficNum, viewsNum);
+    const displayNum = Math.max(trafficNum, viewsNum); // the number used for tier calculation
 
     // Resolve target website
+    const WebsiteModel = require('../AdPromoter/models/CreateWebsiteModel');
     let websiteId = grant.websiteId?.toString();
     if (!websiteId) {
-      // No specific website pinned — use the user's first website
-      const site = await require('../../AdPromoter/models/CreateWebsiteModel')
-        .findOne({ ownerId: grant.userId.toString() }).lean();
+      const site = await WebsiteModel.findOne({ ownerId: grant.userId.toString() }).lean();
       if (!site) return res.status(400).json({ success: false, message: 'No website found for your account' });
       websiteId = site._id.toString();
     }
 
-    // Inject synthetic page-view records spread over last 30 days
-    if (total > 0) {
-      const now = Date.now();
-      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-      const batch = [];
-      for (let i = 0; i < total; i++) {
-        batch.push({
-          websiteId,
-          ip:      `10.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`,
-          country: 'United States',
-          countryCode: 'US',
-          city:   'New York',
-          region: 'New York',
-          device: ['desktop','mobile','tablet'][Math.floor(Math.random()*3)],
-          referrer: '',
-          path: '/',
-          timestamp: new Date(now - Math.random() * thirtyDaysMs),
-        });
-      }
-      // Insert in batches of 1000
-      for (let i = 0; i < batch.length; i += 1000) {
-        await PageView.insertMany(batch.slice(i, i + 1000));
-      }
-    }
+    // Determine tier from the stated traffic number
+    let grantedTier = 'unverified';
+    if (displayNum >= 200001)     grantedTier = 'elite';
+    else if (displayNum >= 50001) grantedTier = 'premium';
+    else if (displayNum >= 10001) grantedTier = 'standard';
+    else if (displayNum >= 2001)  grantedTier = 'basic';
+    else if (displayNum >= 500)   grantedTier = 'starter';
 
-    // Recompute monthly traffic + tier
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const monthlyCount = await PageView.countDocuments({ websiteId, timestamp: { $gte: since } });
+    // ── 24-hour display window ─────────────────────────────────────────────
+    const grantWindowExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    let trafficTier = 'unverified';
-    if (monthlyCount >= 200001) trafficTier = 'elite';
-    else if (monthlyCount >= 50001) trafficTier = 'premium';
-    else if (monthlyCount >= 10001) trafficTier = 'standard';
-    else if (monthlyCount >= 2001)  trafficTier = 'basic';
-    else if (monthlyCount >= 500)   trafficTier = 'starter';
-
-    await require('../../AdPromoter/models/CreateWebsiteModel').findByIdAndUpdate(websiteId, {
-      monthlyTraffic: monthlyCount,
-      trafficTier,
+    // ── Update website: store display values + tier + 24hr window ──────────
+    // NOTE: real monthlyTraffic (from the script) is NOT touched.
+    await WebsiteModel.findByIdAndUpdate(websiteId, {
+      trafficTier:           grantedTier,
+      grantWindowExpiresAt,
+      grantedTrafficDisplay: trafficNum,
+      grantedViewsDisplay:   viewsNum,
+      grantedTierDisplay:    grantedTier,
     });
 
-    // Mark grant as completed
-    grant.grantedTraffic = trafficNum;
-    grant.grantedViews   = viewsNum;
-    grant.status         = 'completed';
-    grant.tokenUsed      = true;
-    grant.tokenUsedAt    = new Date();
-    grant.completedAt    = new Date();
+    // ── Reprice unpaid ad spaces to match new tier ─────────────────────────
+    // Only reprice spaces that have no active/paid booking (i.e. selectedAds is empty)
+    const unpaidSpaces = await AdCategory.find({
+      websiteId,
+      $or: [{ selectedAds: { $size: 0 } }, { selectedAds: { $exists: false } }],
+    }).lean();
+
+    const tierPrices = TIER_PRICES[grantedTier] || TIER_PRICES['unverified'];
+    const repriceOps = [];
+    for (const space of unpaidSpaces) {
+      const canonicalType = SPACE_TYPE_MAP[space.spaceType] || space.spaceType;
+      const newPrice = tierPrices[canonicalType];
+      if (newPrice !== undefined && newPrice !== space.price) {
+        repriceOps.push({
+          updateOne: {
+            filter: { _id: space._id },
+            update: { $set: { price: newPrice, tier: grantedTier } },
+          },
+        });
+      }
+    }
+    if (repriceOps.length > 0) await AdCategory.bulkWrite(repriceOps);
+
+    // ── Mark grant as completed with window info ────────────────────────────
+    grant.grantedTraffic      = trafficNum;
+    grant.grantedViews        = viewsNum;
+    grant.status              = 'completed';
+    grant.tokenUsed           = true;
+    grant.tokenUsedAt         = new Date();
+    grant.completedAt         = new Date();
+    grant.grantWindowExpiresAt = grantWindowExpiresAt;
     await grant.save();
 
-    res.json({ success: true, message: 'Analytics updated successfully', monthlyTraffic: monthlyCount, trafficTier });
+    res.json({
+      success: true,
+      message: 'Analytics updated successfully',
+      grantedTraffic:      trafficNum,
+      grantedViews:        viewsNum,
+      trafficTier:         grantedTier,
+      grantWindowExpiresAt,
+      spacesRepriced:      repriceOps.length,
+    });
   } catch (err) {
     console.error('applyGrant error:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -443,23 +480,51 @@ exports.applyGrant = async (req, res) => {
 exports.getUserGrantStatus = async (req, res) => {
   try {
     const userId = req.user?.userId || req.user?._id;
-    const grant  = await TrafficGrant.findOne({ userId, status: 'pending' })
+
+    // First check for a pending grant (not yet used)
+    const pendingGrant = await TrafficGrant.findOne({ userId, status: 'pending' })
       .populate('websiteId', 'websiteName websiteLink _id')
       .lean();
 
-    if (!grant) return res.json({ success: true, hasGrant: false });
+    if (pendingGrant) {
+      return res.json({
+        success: true,
+        hasGrant: true,
+        grantType: 'pending',
+        grantId:     pendingGrant._id,
+        websiteId:   pendingGrant.websiteId?._id   || null,
+        websiteName: pendingGrant.websiteId?.websiteName || null,
+        expiresAt:   pendingGrant.expiresAt,
+        accessToken: pendingGrant.accessToken,
+      });
+    }
 
-    // Don't expose the raw token in the dashboard API — redirect via the server
-    res.json({
-      success: true,
-      hasGrant: true,
-      grantId: grant._id,
-      websiteId:   grant.websiteId?._id   || null,
-      websiteName: grant.websiteId?.websiteName || null,
-      expiresAt:   grant.expiresAt,
-      // Safe token (used only to redirect — not leaked to third parties)
-      accessToken: grant.accessToken,
-    });
+    // Then check for a recently completed grant still within its 24-hour display window
+    const completedGrant = await TrafficGrant.findOne({
+      userId,
+      status: 'completed',
+      grantWindowExpiresAt: { $gt: new Date() },
+    })
+      .populate('websiteId', 'websiteName websiteLink _id grantedTrafficDisplay grantedViewsDisplay grantedTierDisplay')
+      .sort({ completedAt: -1 })
+      .lean();
+
+    if (completedGrant) {
+      return res.json({
+        success: true,
+        hasGrant: true,
+        grantType: 'active_window',
+        grantId:     completedGrant._id,
+        websiteId:   completedGrant.websiteId?._id   || null,
+        websiteName: completedGrant.websiteId?.websiteName || null,
+        grantWindowExpiresAt: completedGrant.grantWindowExpiresAt,
+        grantedTraffic: completedGrant.grantedTraffic,
+        grantedViews:   completedGrant.grantedViews,
+        trafficTier:    completedGrant.websiteId?.grantedTierDisplay || null,
+      });
+    }
+
+    res.json({ success: true, hasGrant: false });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

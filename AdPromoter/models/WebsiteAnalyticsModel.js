@@ -13,6 +13,7 @@ const pageViewSchema = new mongoose.Schema({
   device:     { type: String, enum: ['desktop', 'mobile', 'tablet', 'bot', 'unknown'], default: 'unknown' },
   referrer:   { type: String, default: '' },
   path:       { type: String, default: '/' },
+  isGranted:  { type: Boolean, default: false, index: true }, // true = injected via traffic grant
   timestamp:  { type: Date, default: Date.now, index: true },
 });
 

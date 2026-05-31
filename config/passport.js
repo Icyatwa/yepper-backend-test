@@ -15,7 +15,7 @@ const SCOPES = [
 passport.use(new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL:  `${process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com'}/api/auth/google/callback`,
+  callbackURL:  `${process.env.BACKEND_URL || 'https://yepper-backend.onrender.com'}/api/auth/google/callback`,
   // Ask for offline access so we get a refresh_token
   accessType:   'offline',
 }, async (accessToken, refreshToken, profile, done) => {

@@ -6,7 +6,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const mongoose = require('mongoose');
 const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
 
-const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
+const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend.onrender.com';
 const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
 async function run() {

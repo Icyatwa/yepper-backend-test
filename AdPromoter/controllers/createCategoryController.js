@@ -11,7 +11,7 @@ const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tr
 const Payment = require('../../AdOwner/models/PaymentModel');
 
 const generateScriptTag = (categoryId) => {
-  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
   const src = `${BACKEND}/api/ads/script/${categoryId}`;
   return {
     // Universal script — works on ANY framework or language.
@@ -220,7 +220,7 @@ exports.createCategory = async (req, res) => {
     const { script } = generateScriptTag(savedCategory._id.toString());
 
     // Update with API codes
-    const backendUrl = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+    const backendUrl = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
     const frontendUrl = process.env.FRONTEND_URL || 'https://yepper.cc';
     const adSrc = `${backendUrl}/api/ads/script/${savedCategory._id}`;
 

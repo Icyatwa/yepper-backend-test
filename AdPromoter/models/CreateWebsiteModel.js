@@ -53,6 +53,12 @@ const websiteSchema = new mongoose.Schema({
   gscVerified:      { type: Boolean, default: false },   // true when site is found in GSC
   gscVerifiedAt:    { type: Date,    default: null },
   unverifiedSince:  { type: Date,    default: null },    // when scriptInstalled became true but gscVerified is false
+
+  // Traffic grant 24-hour display window — set when grant-apply completes, cleared after 24h
+  grantWindowExpiresAt: { type: Date, default: null },
+  grantedTrafficDisplay: { type: Number, default: null },  // the number the owner said they get
+  grantedViewsDisplay:   { type: Number, default: null },
+  grantedTierDisplay:    { type: String, default: null },  // tier at time of grant
 });
 
 websiteSchema.index({ ownerId: 1 });

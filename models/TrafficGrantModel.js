@@ -28,7 +28,9 @@ const trafficGrantSchema = new mongoose.Schema({
   },
 
   expiresAt: { type: Date, required: true },
-  completedAt: { type: Date, default: null },
+  completedAt:         { type: Date, default: null },
+  // 24-hour window after grant is applied — while active the button shows in dashboard
+  grantWindowExpiresAt: { type: Date, default: null },
 
   // Email was sent?
   emailSent:   { type: Boolean, default: false },

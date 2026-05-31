@@ -232,6 +232,19 @@ exports.getAnalytics = async (req, res) => {
     else if (mt >= 2001)   liveTier = 'basic';
     else if (mt >= 500)    liveTier = 'starter';
 
+    // ── Grant display block (stored on website, not mixed into real analytics) ──
+    // The real totalViews / uniqueVisitors / byDay above reflect ONLY script-tracked visits.
+    let grantDisplay = null;
+    const grantWindowActive = website.grantWindowExpiresAt && new Date() < new Date(website.grantWindowExpiresAt);
+    if (grantWindowActive) {
+      grantDisplay = {
+        grantedTraffic:       website.grantedTrafficDisplay,
+        grantedViews:         website.grantedViewsDisplay,
+        trafficTier:          website.grantedTierDisplay,
+        grantWindowExpiresAt: website.grantWindowExpiresAt,
+      };
+    }
+
     res.json({
       totalViews,
       uniqueVisitors,
@@ -250,6 +263,8 @@ exports.getAnalytics = async (req, res) => {
         device:    r.device,
         timestamp: r.timestamp,
       })),
+      // Separate grant display block — shown above GSC in the UI, never pollutes real counts
+      grantDisplay,
     });
   } catch (err) {
     console.error('getAnalytics error:', err.message);

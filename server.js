@@ -38,7 +38,7 @@ const allowedOrigins = [
   'http://yepper.cc',
   'https://yepper.cc',
   'https://www.yepper.cc',
-  'https://yepper-backend-test.onrender.com',
+  'https://yepper-backend.onrender.com',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
   'https://yepper.cc',
@@ -238,3 +238,4 @@ app.listen(PORT, () => {
 });
 
 require('./keepAlive');
+require('./AdPromoter/jobs/expireGrantWindows');

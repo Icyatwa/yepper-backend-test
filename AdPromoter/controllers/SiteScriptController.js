@@ -79,7 +79,7 @@ exports.serveSiteScript = async (req, res) => {
     }
     // ────────────────────────────────────────────────────────────
 
-    const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend-test.onrender.com';
+    const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend.onrender.com';
     const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
 
     // Stealth paths to avoid ad-blocker filter lists
@@ -437,7 +437,7 @@ exports.serveSiteScript = async (req, res) => {
 
 /* Generate and save the site script tag on the website record */
 exports.generateSiteScript = async (websiteId) => {
-  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend-test.onrender.com';
+  const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
   // Use stealth path /api/p/site/ so the <script src> doesn't match ad-blocker rules
   const src = `${BACKEND}/api/p/site/${websiteId}`;
   const tag = `<script src="${src}" async></script>`;
