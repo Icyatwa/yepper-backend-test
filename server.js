@@ -24,6 +24,7 @@ const passwordRoutes = require('./routes/passwordRoutes');
 
 // AdOwner
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes');
+const adminRoutes = require('./admin/routes/adminRoutes');
 
 const app = express(); // ← INITIALIZE APP FIRST
 
@@ -158,6 +159,9 @@ app.use('/api/c', createCategoryRoutes);
 
 // AdOwner Routes
 app.use('/api/web-advertise', webAdvertiseRoutes);
+
+// Admin Panel
+app.use('/api/admin', adminRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ 
