@@ -411,14 +411,13 @@ exports.applyGrant = async (req, res) => {
     else if (displayNum >= 2001)  grantedTier = 'basic';
     else if (displayNum >= 500)   grantedTier = 'starter';
 
-    // ── 24-hour display window ─────────────────────────────────────────────
-    const grantWindowExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    // ── Update website: store display values + tier + 24hr window ──────────
+    // ── Update website: store display values + tier ────────────────────────
     // NOTE: real monthlyTraffic (from the script) is NOT touched.
+    // The grant display stays until the system's own traffic counting
+    // reaches/surpasses the tier the owner was granted (cleared in trackPageView).
     await WebsiteModel.findByIdAndUpdate(websiteId, {
       trafficTier:           grantedTier,
-      grantWindowExpiresAt,
+      grantWindowExpiresAt:  null,       // no time limit — cleared by real traffic
       grantedTrafficDisplay: trafficNum,
       grantedViewsDisplay:   viewsNum,
       grantedTierDisplay:    grantedTier,
@@ -454,7 +453,6 @@ exports.applyGrant = async (req, res) => {
     grant.tokenUsed           = true;
     grant.tokenUsedAt         = new Date();
     grant.completedAt         = new Date();
-    grant.grantWindowExpiresAt = grantWindowExpiresAt;
     await grant.save();
 
     res.json({
@@ -463,7 +461,6 @@ exports.applyGrant = async (req, res) => {
       grantedTraffic:      trafficNum,
       grantedViews:        viewsNum,
       trafficTier:         grantedTier,
-      grantWindowExpiresAt,
       spacesRepriced:      repriceOps.length,
     });
   } catch (err) {
@@ -499,17 +496,19 @@ exports.getUserGrantStatus = async (req, res) => {
       });
     }
 
-    // Then check for a recently completed grant still within its 24-hour display window
+    // Check for a completed grant that is still active.
+    // A grant stays active until the website's own real traffic counting catches up
+    // to the granted tier — at that point analyticsController clears the display fields.
     const completedGrant = await TrafficGrant.findOne({
       userId,
       status: 'completed',
-      grantWindowExpiresAt: { $gt: new Date() },
     })
       .populate('websiteId', 'websiteName websiteLink _id grantedTrafficDisplay grantedViewsDisplay grantedTierDisplay')
       .sort({ completedAt: -1 })
       .lean();
 
-    if (completedGrant) {
+    // Only show banner if the website still has grant data (not yet cleared by real traffic)
+    if (completedGrant && completedGrant.websiteId?.grantedTrafficDisplay != null) {
       return res.json({
         success: true,
         hasGrant: true,
@@ -517,7 +516,6 @@ exports.getUserGrantStatus = async (req, res) => {
         grantId:     completedGrant._id,
         websiteId:   completedGrant.websiteId?._id   || null,
         websiteName: completedGrant.websiteId?.websiteName || null,
-        grantWindowExpiresAt: completedGrant.grantWindowExpiresAt,
         grantedTraffic: completedGrant.grantedTraffic,
         grantedViews:   completedGrant.grantedViews,
         trafficTier:    completedGrant.websiteId?.grantedTierDisplay || null,

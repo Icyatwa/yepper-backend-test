@@ -118,6 +118,23 @@ exports.trackPageView = async (req, res) => {
       updatePayload.unverifiedSince = now;
     }
 
+    // ── Clear grant display once real traffic has caught up ─────────────────
+    // If the website has an active grant, check whether the real monthly count
+    // now meets or exceeds the tier the owner was granted.  If so, clear the
+    // grant display fields so the "Stated Traffic" section disappears naturally.
+    if (website.grantedTrafficDisplay != null) {
+      const grantedTierOrder = { unverified: 0, starter: 1, basic: 2, standard: 3, premium: 4, elite: 5 };
+      const grantedTierLevel = grantedTierOrder[website.grantedTierDisplay] ?? 0;
+      const realTierLevel    = grantedTierOrder[trafficTier] ?? 0;
+      if (realTierLevel >= grantedTierLevel) {
+        // Real traffic has caught up — wipe the grant display
+        updatePayload.grantedTrafficDisplay = null;
+        updatePayload.grantedViewsDisplay   = null;
+        updatePayload.grantedTierDisplay    = null;
+        updatePayload.grantWindowExpiresAt  = null;
+      }
+    }
+
     await Website.findByIdAndUpdate(websiteId, updatePayload);
   } catch (err) {
     console.error('trackPageView error:', err.message);
@@ -235,7 +252,7 @@ exports.getAnalytics = async (req, res) => {
     // ── Grant display block (stored on website, not mixed into real analytics) ──
     // The real totalViews / uniqueVisitors / byDay above reflect ONLY script-tracked visits.
     let grantDisplay = null;
-    const grantWindowActive = website.grantWindowExpiresAt && new Date() < new Date(website.grantWindowExpiresAt);
+    const grantWindowActive = website.grantedTrafficDisplay != null;
     if (grantWindowActive) {
       grantDisplay = {
         grantedTraffic:       website.grantedTrafficDisplay,

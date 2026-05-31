@@ -1,39 +1,15 @@
 // AdPromoter/jobs/expireGrantWindows.js
-// Runs every hour to clear expired grant display windows from website records.
-// Once grantWindowExpiresAt passes, the "Stated Traffic" section hides itself
-// automatically and the banner disappears.
-
-const Website = require('../models/CreateWebsiteModel');
+// Previously cleared grant display fields after 24 hours.
+// Now grants stay active until the website's real traffic counting (via the
+// Yepper script pings in analyticsController.trackPageView) reaches or surpasses
+// the tier the owner was granted.  That handler sets grantedTrafficDisplay=null
+// automatically, so no time-based job is needed.
+//
+// This file is kept as a no-op to avoid import errors in server.js.
 
 async function expireGrantWindows() {
-  try {
-    const result = await Website.updateMany(
-      {
-        grantWindowExpiresAt: { $lt: new Date() },
-        $or: [
-          { grantedTrafficDisplay: { $ne: null } },
-          { grantedViewsDisplay:   { $ne: null } },
-        ],
-      },
-      {
-        $set: {
-          grantWindowExpiresAt:  null,
-          grantedTrafficDisplay: null,
-          grantedViewsDisplay:   null,
-          grantedTierDisplay:    null,
-        },
-      }
-    );
-    if (result.modifiedCount > 0) {
-      console.log(`[grantWindow] Cleared ${result.modifiedCount} expired grant window(s).`);
-    }
-  } catch (err) {
-    console.error('[grantWindow] Error expiring grant windows:', err.message);
-  }
+  // No-op: grant expiry is now handled in analyticsController.trackPageView
+  // when real monthly traffic catches up to the granted tier.
 }
-
-// Run immediately on startup, then every hour
-expireGrantWindows();
-setInterval(expireGrantWindows, 60 * 60 * 1000);
 
 module.exports = expireGrantWindows;
