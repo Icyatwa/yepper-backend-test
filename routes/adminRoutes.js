@@ -2,7 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const adminAuth      = require('../middleware/adminAuth');
-const authMiddleware = require('../../middleware/authmiddleware');
+const authMiddleware = require('../middleware/authmiddleware');
 const ctrl = require('../controllers/adminController');
 
 // ── Public: credential verification — this is the login endpoint ─────────────

@@ -1,8 +1,8 @@
 // admin/controllers/adminController.js
 const crypto = require('crypto');
-const User = require('../../models/User');
-const Website = require('../../AdPromoter/models/CreateWebsiteModel');
-const PageView = require('../../AdPromoter/models/WebsiteAnalyticsModel');
+const User = require('../models/User');
+const Website = require('../AdPromoter/models/CreateWebsiteModel');
+const PageView = require('../AdPromoter/models/WebsiteAnalyticsModel');
 const TrafficGrant = require('../models/TrafficGrantModel');
 const { Resend } = require('resend');
 
