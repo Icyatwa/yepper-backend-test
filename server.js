@@ -24,7 +24,7 @@ const passwordRoutes = require('./routes/passwordRoutes');
 
 // AdOwner
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes');
-const adminRoutes = require('./admin/routes/adminRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express(); // ← INITIALIZE APP FIRST
 
