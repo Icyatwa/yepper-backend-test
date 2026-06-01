@@ -683,8 +683,11 @@ router.get('/payment/test-xentripay', async (req, res) => {
     }
 
     // Test API connection with a simple request
+    const xentriPayBaseUrl = process.env.XENTRIPAY_TEST_MODE === 'true'
+      ? 'https://api.test.xentripay.com/v1'
+      : 'https://api.xentripay.com/v1';
     const testResponse = await axios.get(
-      'https://api.xentripay.com/v1/collections?status=successful&limit=1',
+      `${xentriPayBaseUrl}/collections?status=successful&limit=1`,
       {
         headers: {
           'Authorization': `Bearer ${xentriPayApiKey}`,
