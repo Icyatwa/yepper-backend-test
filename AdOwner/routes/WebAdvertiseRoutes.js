@@ -654,16 +654,19 @@ router.post('/payment/verify-callback', async (req, res) => {
 });
 
 router.get('/payment/debug-config', (req, res) => {
-  const flwTestKey = process.env.XENTRIPAY_API_KEY;
-  const flwProdKey = process.env.XENTRIPAY_API_KEY;
-  
+  // FIX: define variables locally — they were referenced but never declared
+  const xpKey    = process.env.XENTRIPAY_API_KEY;
+  const testMode = process.env.XENTRIPAY_TEST_MODE === 'true';
+
   res.json({
-    hasApiKey: !!xpKey,
-    keyPrefix: xpKey ? xpKey.substring(0, 10) + '...' : null,
-    testMode: testMode,
-    baseUrl: testMode ? 'https://api.test.xentripay.com/v1' : 'https://api.xentripay.com/v1',
-    nodeEnv: process.env.NODE_ENV || 'development',
-    paymentGateway: 'XentriPay'
+    hasApiKey:        !!xpKey,
+    keyPrefix:        xpKey ? xpKey.substring(0, 8) + '...' : null,
+    testMode,
+    baseUrl:          testMode
+      ? 'https://api.test.xentripay.com/v1'
+      : 'https://api.xentripay.com/v1',
+    nodeEnv:          process.env.NODE_ENV || 'development',
+    paymentGateway:   'XentriPay',
   });
 });
 

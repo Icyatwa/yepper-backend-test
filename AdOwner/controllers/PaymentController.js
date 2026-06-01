@@ -25,24 +25,50 @@ const xentriPayHeaders = () => ({
  * Returns the hosted checkout URL the user should be redirected to.
  */
 const createXentriPayLink = async ({ tx_ref, amount, currency = 'RWF', customer, description, redirect_url }) => {
-  const response = await axios.post(
-    `${XENTRIPAY_BASE_URL}/collections/links`,
-    {
-      reference: tx_ref,
-      amount,
-      currency,
-      description,
-      redirect_url,
-      customer: {
-        email: customer.email,
-        name: customer.name,
+  // FIX: guard against missing API key before making the network call
+  if (!process.env.XENTRIPAY_API_KEY) {
+    throw new Error(
+      'XENTRIPAY_API_KEY is not set. ' +
+      'Add it as an environment variable on Render (Dashboard → your service → Environment).'
+    );
+  }
+
+  console.log(`[XentriPay] createLink — mode=${XENTRIPAY_TEST_MODE ? 'TEST' : 'LIVE'} amount=${amount} ${currency} ref=${tx_ref}`);
+
+  let response;
+  try {
+    response = await axios.post(
+      `${XENTRIPAY_BASE_URL}/collections/links`,
+      {
+        reference: tx_ref,
+        amount,
+        currency,
+        description,
+        redirect_url,
+        customer: {
+          email: customer.email,
+          name: customer.name,
+        },
       },
-    },
-    { headers: xentriPayHeaders(), timeout: 30000 }
-  );
+      { headers: xentriPayHeaders(), timeout: 30000 }
+    );
+  } catch (axiosErr) {
+    // Log the full XentriPay response body so you can see the real reason
+    console.error('[XentriPay] API call failed:', {
+      status: axiosErr.response?.status,
+      data: axiosErr.response?.data,
+      message: axiosErr.message,
+    });
+    throw new Error(
+      axiosErr.response?.data?.message ||
+      `XentriPay API error (${axiosErr.response?.status ?? 'network'}): ${axiosErr.message}`
+    );
+  }
 
   if (response.data.status === 'success' || response.data.success) {
-    return response.data.data?.payment_url || response.data.payment_url;
+    const url = response.data.data?.payment_url || response.data.payment_url;
+    console.log('[XentriPay] payment link created:', url);
+    return url;
   }
   throw new Error(`XentriPay link creation failed: ${response.data.message || 'Unknown error'}`);
 };
@@ -110,7 +136,7 @@ exports.initiatePayment = async (req, res) => {
 
     const ad = await ImportAd.findById(adId);
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
-    if (ad.userId !== userId) return res.status(403).json({ error: 'Unauthorized access to ad' });
+    if (ad.userId.toString() !== userId.toString()) return res.status(403).json({ error: 'Unauthorized access to ad' });
 
     let totalAmount = 0;
     const validatedSelections = [];
@@ -188,6 +214,7 @@ exports.initiatePayment = async (req, res) => {
       totalAmount,
       selectionsCount: validatedSelections.length,
       categoryDetails,
+      sandboxMode: XENTRIPAY_TEST_MODE,   // FIX: lets the frontend show the sandbox banner
     });
   } catch (error) {
     console.error('Bulk payment initiation error:', error);
