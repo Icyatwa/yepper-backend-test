@@ -12,14 +12,14 @@ const mongoose = require('mongoose');
 // ─── Flutterwave helpers ───────────────────────────────────────────────────
 const FLW_TEST_MODE = process.env.FLUTTERWAVE_TEST_MODE !== 'false'; // default sandbox
 
-const FLW_SECRET_KEY = FLW_TEST_MODE
+const FLW_TEST_SECRET_KEY = FLW_TEST_MODE
   ? process.env.FLW_TEST_SECRET_KEY
-  : process.env.FLW_SECRET_KEY;
+  : process.env.FLW_TEST_SECRET_KEY;
 
 const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
 
 const flwHeaders = () => ({
-  Authorization: `Bearer ${FLW_SECRET_KEY}`,
+  Authorization: `Bearer ${FLW_TEST_SECRET_KEY}`,
   'Content-Type': 'application/json',
 });
 
@@ -38,10 +38,10 @@ const createFlutterwaveLink = async ({
   redirect_url,
   payment_options = 'card,mobilemoney', // card + MoMo in one checkout
 }) => {
-  if (!FLW_SECRET_KEY) {
+  if (!FLW_TEST_SECRET_KEY) {
     throw new Error(
       'Flutterwave secret key is not set. ' +
-        'Add FLW_TEST_SECRET_KEY (sandbox) or FLW_SECRET_KEY (live) to your environment.'
+        'Add FLW_TEST_SECRET_KEY (sandbox) or FLW_TEST_SECRET_KEY (live) to your environment.'
     );
   }
 
@@ -641,7 +641,7 @@ exports.verifyPaymentNonTransactional = async (req, res) => {
 // ─── generateFlutterwavePaymentUrl ────────────────────────────────────────
 exports.generateFlutterwavePaymentUrl = async (paymentData) => {
   try {
-    if (!FLW_SECRET_KEY)
+    if (!FLW_TEST_SECRET_KEY)
       throw new Error('Flutterwave API key not configured. Please contact support.');
 
     console.log(`Using Flutterwave in ${FLW_TEST_MODE ? 'SANDBOX' : 'LIVE'} mode`);
