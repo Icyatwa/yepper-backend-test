@@ -654,19 +654,15 @@ router.post('/payment/verify-callback', async (req, res) => {
 });
 
 router.get('/payment/debug-config', (req, res) => {
-  // FIX: define variables locally — they were referenced but never declared
-  const xpKey    = process.env.XENTRIPAY_API_KEY;
-  const testMode = process.env.XENTRIPAY_TEST_MODE === 'true';
+  const flwKey     = process.env.FLW_TEST_SECRET_KEY;
+  const sandboxMode = process.env.FLUTTERWAVE_TEST_MODE !== 'false'; // default true
 
   res.json({
-    hasApiKey:        !!xpKey,
-    keyPrefix:        xpKey ? xpKey.substring(0, 8) + '...' : null,
-    testMode,
-    baseUrl:          testMode
-      ? 'https://api.test.xentripay.com/v1'
-      : 'https://api.xentripay.com/v1',
-    nodeEnv:          process.env.NODE_ENV || 'development',
-    paymentGateway:   'XentriPay',
+    hasApiKey:      !!flwKey,
+    keyPrefix:      flwKey ? flwKey.substring(0, 8) + '...' : null,
+    sandboxMode,
+    nodeEnv:        process.env.NODE_ENV || 'development',
+    paymentGateway: 'Flutterwave',
   });
 });
 

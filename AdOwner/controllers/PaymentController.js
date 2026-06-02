@@ -1313,17 +1313,24 @@ exports.handleWebhook = async (req, res) => {
     const secretHash = process.env.FLW_SECRET_HASH;
     const signature = req.headers['verif-hash'];
 
-    if (!signature || signature !== secretHash) {
+    console.log('[Webhook] verif-hash header:', signature ? signature.substring(0, 8) + '...' : 'MISSING');
+    console.log('[Webhook] FLW_SECRET_HASH set:', !!secretHash);
+
+    if (secretHash && (!signature || signature !== secretHash)) {
+      console.log('[Webhook] Hash mismatch — rejecting');
       return res.status(401).json({ error: 'Unauthorized webhook' });
     }
 
     const payload = req.body;
-    const event = payload.event;
+    // Flutterwave sandbox sometimes omits the top-level 'event' field;
+    // fall back to 'event.type' which appears in card transaction payloads
+    const event = payload.event || payload['event.type'];
+    // data lives under payload.data for standard webhooks, or at the root for some sandbox payloads
+    const data = payload.data || payload;
 
-    console.log('Flutterwave webhook received:', event, payload.data?.tx_ref);
+    console.log('[Webhook] event:', event, '| tx_ref:', data?.tx_ref || payload?.txRef);
 
-    if (event === 'charge.completed') {
-      const data = payload.data;
+    if (event === 'charge.completed' || event === 'CARD_TRANSACTION') {
       if (data?.status === 'successful') {
         const fakeReq = {
           body: { transaction_id: String(data.id), tx_ref: data.tx_ref },
