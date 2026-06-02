@@ -361,7 +361,7 @@ exports.verifyPayment = async (req, res) => {
           payment.status = 'successful';
           payment.paidAt = new Date();
           if (payment._id.equals(primaryPayment._id)) {
-            payment.flutterwaveData = new Map(Object.entries(flwData));
+            payment.flutterwaveData = flwData;  // just assign the plain object directly
           }
           await payment.save({ session });
 
@@ -446,7 +446,7 @@ exports.verifyPayment = async (req, res) => {
               adId: primaryPayment.adId,
               amount: pd.amount,
               type: 'credit',
-              description: `Payment for ad: ${ad.businessName} - ${pd.metadata?.get('categoryName')}`,
+              description: `Payment for ad: ${ad.businessName} - ${pd.metadata?.categoryName}`,
             }).save({ session });
           }
         }

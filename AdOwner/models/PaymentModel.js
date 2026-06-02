@@ -94,7 +94,7 @@ const paymentSchema = new mongoose.Schema({
   
   notes: { type: String },
   originalPaymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
-  metadata: { type: Map, of: mongoose.Schema.Types.Mixed },
+  metadata: { type: Object },
   
   rejectionDeadline: { type: Date },
   isRejectable: { type: Boolean, default: true },
