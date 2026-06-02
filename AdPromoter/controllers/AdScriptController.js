@@ -404,7 +404,7 @@ exports.serveAdScript = async (req, res) => {
 
     /* Remap generic class names to scoped prefix */
     var html=data.html
-      .replace(/sp-container/g,_px+'-ad')
+      .replace(/sp-container/g,_px+'-wrap')
       .replace(/sp-item/g,_px+'-ad')
       .replace(/sp-link/g,_px+'-link')
       .replace(/sp-content/g,_px+'-inner')
