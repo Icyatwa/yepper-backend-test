@@ -467,7 +467,8 @@ exports.serveAdScript = async (req, res) => {
         trackView(items[cur].dataset.adId);
       },_t);
     } else {
-      trackView(items[0].dataset.adId);
+      var firstId = items[0] && items[0].dataset && items[0].dataset.adId;
+      if (firstId && firstId !== 'undefined') trackView(firstId);
     }
   }
 

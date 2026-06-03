@@ -462,6 +462,15 @@ exports.verifyPayment = async (req, res) => {
         });
       }
 
+      if (result.payments?.length) {
+        for (const payment of result.payments) {
+          await AdCategory.findByIdAndUpdate(
+            payment.categoryId,
+            { $addToSet: { selectedAds: payment.adId } }
+          );
+        }
+      }
+
       res.status(200).json({
         success: true,
         message: `Payment verified and ${result.payments?.length} ad placements published successfully`,
