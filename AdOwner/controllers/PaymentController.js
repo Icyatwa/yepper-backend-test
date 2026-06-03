@@ -413,8 +413,8 @@ exports.verifyPayment = async (req, res) => {
           od.payments.push(payment._id);
         }
 
-        const allApproved = ad.websiteSelections.every((sel) => sel.approved);
-        if (allApproved) ad.confirmed = true;
+        const anyApproved = ad.websiteSelections.some((sel) => sel.approved);
+        if (anyApproved) ad.confirmed = true;
         await ad.save({ session });
 
         for (const [wId, info] of webOwnerPayments) {
@@ -554,7 +554,7 @@ exports.verifyPaymentNonTransactional = async (req, res) => {
               rejectionDeadline,
             });
           }
-          if (ad.websiteSelections.every((s) => s.approved)) ad.confirmed = true;
+          if (ad.websiteSelections.some((s) => s.approved)) ad.confirmed = true;
           await ad.save();
         }
         await AdCategory.findByIdAndUpdate(payment.categoryId, {

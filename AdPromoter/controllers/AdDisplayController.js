@@ -44,10 +44,10 @@ exports.displayAd = async (req, res) => {
         $elemMatch: {
           websiteId: adCategory.websiteId,
           categories: categoryId,
-          approved: true
+          approved: true,
+          status: 'active'
         }
-      },
-      'confirmed': true
+      }
     });
 
     if (!ads || ads.length === 0) {
@@ -131,10 +131,10 @@ exports.searchAd = async (req, res) => {
         $elemMatch: {
           websiteId: adCategory.websiteId,
           categories: categoryId,
-          approved: true
+          approved: true,
+          status: 'active'
         }
       },
-      'confirmed': true,
     $or: [
     {businessName: searchRegex},
     {businessLink: searchRegex},
