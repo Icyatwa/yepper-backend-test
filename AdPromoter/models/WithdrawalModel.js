@@ -1,97 +1,41 @@
-// models/WithdrawalModel.js
-const mongoose = require('mongoose');
+// AdPromoter/models/WithdrawalModel.js (PostgreSQL)
+const { query } = require('../../config/db');
 
-const withdrawalRequestSchema = new mongoose.Schema({
-  walletId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Wallet',
-    required: true,
-    index: true
+const WithdrawalRequest = {
+  async create(data) {
+    const { rows } = await query(
+      `INSERT INTO withdrawal_requests (wallet_id, user_id, user_email, owner_type, amount, bank_details, wallet_balance_at_request)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [data.walletId, data.userId, data.userEmail, data.ownerType, data.amount,
+       JSON.stringify(data.bankDetails), data.walletBalanceAtRequest]
+    );
+    return rows[0];
   },
-  userId: {
-    type: String,
-    required: true,
-    index: true
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM withdrawal_requests WHERE id = $1`, [id]);
+    return rows[0] || null;
   },
-  userEmail: {
-    type: String,
-    required: true
+  async findByUser(userId) {
+    const { rows } = await query(`SELECT * FROM withdrawal_requests WHERE user_id = $1 ORDER BY created_at DESC`, [userId]);
+    return rows;
   },
-  ownerType: {
-    type: String,
-    enum: ['webOwner', 'advertiser'],
-    required: true
+  async findAll(filter = {}) {
+    let q = `SELECT * FROM withdrawal_requests`;
+    const vals = [];
+    if (filter.status) { q += ` WHERE status = $1`; vals.push(filter.status); }
+    q += ` ORDER BY created_at DESC`;
+    const { rows } = await query(q, vals);
+    return rows;
   },
-  amount: {
-    type: Number,
-    required: true,
-    min: 0
+  async update(id, fields) {
+    const keys = Object.keys(fields);
+    const setClauses = keys.map((k,i) => `${toSnake(k)} = $${i+2}`).join(', ');
+    const { rows } = await query(
+      `UPDATE withdrawal_requests SET ${setClauses}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [id, ...keys.map(k=>fields[k])]
+    );
+    return rows[0] || null;
   },
-  bankDetails: {
-    bankName: {
-      type: String,
-      required: true
-    },
-    accountNumber: {
-      type: String,
-      required: true
-    },
-    accountName: {
-      type: String,
-      required: true
-    },
-    country: {
-      type: String,
-      required: true
-    },
-    routingNumber: {
-      type: String,
-      required: false
-    },
-    swiftCode: {
-      type: String,
-      required: false
-    }
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'approved', 'completed', 'rejected', 'cancelled'],
-    default: 'pending',
-    index: true
-  },
-  walletBalanceAtRequest: {
-    type: Number,
-    required: true
-  },
-  processedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  processedAt: {
-    type: Date,
-    default: null
-  },
-  adminNotes: {
-    type: String,
-    default: ''
-  },
-  rejectionReason: {
-    type: String,
-    default: ''
-  },
-  transactionId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'WalletTransaction',
-    default: null
-  }
-}, {
-  timestamps: true
-});
-
-withdrawalRequestSchema.index({ createdAt: -1 });
-withdrawalRequestSchema.index({ status: 1, createdAt: -1 });
-
-const WithdrawalRequest = mongoose.model('WithdrawalRequest', withdrawalRequestSchema);
-
+};
+function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }
 module.exports = WithdrawalRequest;

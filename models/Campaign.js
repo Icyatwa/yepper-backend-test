@@ -1,65 +1,41 @@
-// models/Campaign.js - Add userId field
-const mongoose = require('mongoose');
+// models/Campaign.js (PostgreSQL)
+const { query } = require('../config/db');
 
-const campaignSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+const Campaign = {
+  async create({ userId, fullName, businessName, phoneNumber, selectedChannels, selectedPlatforms = [], status = 'pending', notes }) {
+    const { rows } = await query(
+      `INSERT INTO campaigns (user_id, full_name, business_name, phone_number, selected_channels, selected_platforms, status, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [userId, fullName, businessName, phoneNumber, selectedChannels, JSON.stringify(selectedPlatforms), status, notes||null]
+    );
+    return rows[0];
   },
-  fullName: {
-    type: String,
-    required: [true, 'Full name is required'],
-    trim: true,
-    minlength: [2, 'Name must be at least 2 characters long']
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
+    return rows[0] || null;
   },
-  businessName: {
-    type: String,
-    required: [true, 'Business name is required'],
-    trim: true,
-    minlength: [2, 'Business name must be at least 2 characters long']
+  async findByUser(userId) {
+    const { rows } = await query(`SELECT * FROM campaigns WHERE user_id = $1 ORDER BY created_at DESC`, [userId]);
+    return rows;
   },
-  phoneNumber: {
-    type: String,
-    required: [true, 'Phone number is required'],
-    trim: true
+  async findAll(filters = {}) {
+    let q = `SELECT * FROM campaigns`;
+    const vals = [];
+    if (filters.status) { q += ` WHERE status = $1`; vals.push(filters.status); }
+    q += ` ORDER BY created_at DESC`;
+    const { rows } = await query(q, vals);
+    return rows;
   },
-  selectedChannels: [{
-    type: String,
-    enum: ['websites', 'tv', 'radio', 'billboards', 'influencers'],
-    required: true
-  }],
-  selectedPlatforms: [{
-    platformId: {
-      type: String,
-      required: true
-    },
-    platformName: {
-      type: String,
-      required: true
-    },
-    category: {
-      type: String,
-      enum: ['websites', 'tv', 'radio', 'billboards', 'influencers'],
-      required: true
-    }
-  }],
-  status: {
-    type: String,
-    enum: ['pending', 'contacted', 'in_progress', 'completed', 'cancelled'],
-    default: 'pending'
+  async update(id, fields) {
+    const keys = Object.keys(fields);
+    const setClauses = keys.map((k,i) => `${toSnake(k)} = $${i+2}`).join(', ');
+    const { rows } = await query(
+      `UPDATE campaigns SET ${setClauses}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [id, ...keys.map(k => typeof fields[k]==='object'?JSON.stringify(fields[k]):fields[k])]
+    );
+    return rows[0] || null;
   },
-  notes: {
-    type: String,
-    maxlength: [1000, 'Notes cannot exceed 1000 characters']
-  }
-}, {
-  timestamps: true
-});
-
-campaignSchema.index({ userId: 1 });
-campaignSchema.index({ phoneNumber: 1 });
-campaignSchema.index({ status: 1 });
-campaignSchema.index({ createdAt: -1 });
-
-module.exports = mongoose.model('Campaign', campaignSchema);
+  async delete(id) { await query(`DELETE FROM campaigns WHERE id = $1`, [id]); },
+};
+function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }
+module.exports = Campaign;

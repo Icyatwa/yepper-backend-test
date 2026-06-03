@@ -1,46 +1,40 @@
-// admin/models/TrafficGrantModel.js
-const mongoose = require('mongoose');
+// models/TrafficGrantModel.js (PostgreSQL)
+const { query } = require('../config/db');
 
-const trafficGrantSchema = new mongoose.Schema({
-  // Which user was granted this feature
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-
-  // Which website this grant is for (null = user can pick any of their sites)
-  websiteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Website', default: null },
-
-  // The traffic number the user chose to inject
-  grantedTraffic: { type: Number, default: null },
-  grantedViews:   { type: Number, default: null },
-
-  // One-time secure token embedded in the email link + dashboard button
-  accessToken: { type: String, required: true, unique: true },
-  tokenUsed:   { type: Boolean, default: false },
-  tokenUsedAt: { type: Date,   default: null },
-
-  // Admin who created the grant
-  grantedBy: { type: String, required: true }, // admin username
-
-  // Status
-  status: {
-    type: String,
-    enum: ['pending', 'completed', 'expired', 'revoked'],
-    default: 'pending',
+const TrafficGrant = {
+  async create(data) {
+    const { rows } = await query(
+      `INSERT INTO traffic_grants (user_id, website_id, granted_traffic, granted_views, access_token, granted_by, expires_at, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [data.userId, data.websiteId||null, data.grantedTraffic||null, data.grantedViews||null,
+       data.accessToken, data.grantedBy, data.expiresAt, data.notes||'']
+    );
+    return rows[0];
   },
-
-  expiresAt: { type: Date, required: true },
-  completedAt:         { type: Date, default: null },
-  // 24-hour window after grant is applied — while active the button shows in dashboard
-  grantWindowExpiresAt: { type: Date, default: null },
-
-  // Email was sent?
-  emailSent:   { type: Boolean, default: false },
-  emailSentAt: { type: Date,   default: null },
-
-  notes: { type: String, default: '' },
-}, { timestamps: true });
-
-trafficGrantSchema.index({ userId: 1 });
-trafficGrantSchema.index({ accessToken: 1 });
-trafficGrantSchema.index({ status: 1 });
-
-module.exports = mongoose.model('TrafficGrant', trafficGrantSchema);
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM traffic_grants WHERE id = $1`, [id]);
+    return rows[0] || null;
+  },
+  async findByToken(token) {
+    const { rows } = await query(`SELECT * FROM traffic_grants WHERE access_token = $1`, [token]);
+    return rows[0] || null;
+  },
+  async findByUser(userId) {
+    const { rows } = await query(`SELECT * FROM traffic_grants WHERE user_id = $1 ORDER BY created_at DESC`, [userId]);
+    return rows;
+  },
+  async update(id, fields) {
+    const keys = Object.keys(fields);
+    const setClauses = keys.map((k,i) => `${toSnake(k)} = $${i+2}`).join(', ');
+    const { rows } = await query(
+      `UPDATE traffic_grants SET ${setClauses}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [id, ...keys.map(k=>fields[k])]
+    );
+    return rows[0] || null;
+  },
+  async expireOld() {
+    return query(`UPDATE traffic_grants SET status='expired' WHERE expires_at < NOW() AND status='pending'`);
+  },
+};
+function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }
+module.exports = TrafficGrant;

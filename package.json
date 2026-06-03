@@ -1,11 +1,12 @@
 {
   "name": "auth-backend",
   "version": "1.0.0",
-  "description": "MERN Authentication Backend",
+  "description": "Yepper Backend - PostgreSQL",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "migrate": "node migrations/createTables.js"
   },
   "dependencies": {
     "axios": "^1.11.0",
@@ -16,9 +17,9 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
+    "googleapis": "^144.0.0",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.19.0",
-    "mongoose": "^7.5.0",
+    "mongoose": "^9.6.3",
     "multer": "^2.0.1",
     "node-cron": "^4.2.1",
     "node-fetch": "^3.3.2",
@@ -26,9 +27,9 @@
     "passport": "^0.6.0",
     "passport-google-oauth20": "^2.0.0",
     "path": "^0.12.7",
+    "pg": "^8.12.0",
     "punycode": "^2.3.1",
-    "resend": "^4.8.0",
-    "googleapis": "^144.0.0"
+    "resend": "^4.8.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

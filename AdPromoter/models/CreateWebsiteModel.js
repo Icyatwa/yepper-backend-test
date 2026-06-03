@@ -1,67 +1,48 @@
-// CreateWebsiteModel.js
-const mongoose = require('mongoose');
+// AdPromoter/models/CreateWebsiteModel.js (PostgreSQL)
+const { query } = require('../../config/db');
 
-const websiteSchema = new mongoose.Schema({
-  ownerId: { type: String, required: true },
-  websiteName: { type: String, required: true },
-  websiteLink: { type: String, required: true, unique: true },
-  imageUrl: { type: String },
-  businessCategories: {
-    type: [String],
-    enum: [
-      'any',
-      'technology',
-      'food-beverage',
-      'real-estate',
-      'automotive',
-      'health-wellness',
-      'entertainment',
-      'fashion',
-      'education',
-      'business-services',
-      'travel-tourism',
-      'arts-culture',
-      'photography',
-      'gifts-events',
-      'government-public',
-      'general-retail'
-    ],
-    default: []
+const Website = {
+  async create(data) {
+    const { rows } = await query(
+      `INSERT INTO websites (owner_id, website_name, website_link, image_url, business_categories,
+        is_business_categories_selected, monthly_traffic, traffic_tier, site_script,
+        verification_token, verification_status, gsc_access_token, gsc_refresh_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [data.ownerId, data.websiteName, data.websiteLink, data.imageUrl||null,
+       data.businessCategories||[], data.isBusinessCategoriesSelected||false,
+       data.monthlyTraffic||0, data.trafficTier||'unverified', data.siteScript||null,
+       data.verificationToken||null, data.verificationStatus||'pending',
+       data.gscAccessToken||null, data.gscRefreshToken||null]
+    );
+    return rows[0];
   },
-  isBusinessCategoriesSelected: { type: Boolean, default: false },
-  monthlyTraffic: { type: Number, default: 0 },
-  trafficTier: { type: String, enum: ['unverified','starter','basic','standard','premium','elite'], default: 'unverified' },
-  siteScript: { type: String, default: null },
-  verificationToken: { type: String, default: null },
-  verificationStatus: {
-    type: String,
-    enum: ['pending', 'verified', 'failed'],
-    default: 'pending',
+  async findById(id) {
+    const { rows } = await query(`SELECT * FROM websites WHERE id = $1`, [id]);
+    return rows[0] || null;
   },
-  verifiedAt: { type: Date, default: null },
-  createdAt: { type: Date, default: Date.now },
-
-  // Google Search Console integration
-  gscAccessToken:  { type: String, default: null },
-  gscRefreshToken: { type: String, default: null },
-  gscSiteUrl:      { type: String, default: null },  // matched GSC property URL
-  gscConnectedAt:  { type: Date,   default: null },
-
-  // Script installation & GSC verification tracking
-  scriptInstalled:  { type: Boolean, default: false },   // true once the Yepper script sends its first ping
-  scriptInstalledAt:{ type: Date,    default: null },
-  gscVerified:      { type: Boolean, default: false },   // true when site is found in GSC
-  gscVerifiedAt:    { type: Date,    default: null },
-  unverifiedSince:  { type: Date,    default: null },    // when scriptInstalled became true but gscVerified is false
-
-  // Traffic grant 24-hour display window — set when grant-apply completes, cleared after 24h
-  grantWindowExpiresAt: { type: Date, default: null },
-  grantedTrafficDisplay: { type: Number, default: null },  // the number the owner said they get
-  grantedViewsDisplay:   { type: Number, default: null },
-  grantedTierDisplay:    { type: String, default: null },  // tier at time of grant
-});
-
-websiteSchema.index({ ownerId: 1 });
-websiteSchema.index({ businessCategories: 1 });
-
-module.exports = mongoose.model('Website', websiteSchema);
+  async findByOwner(ownerId) {
+    const { rows } = await query(`SELECT * FROM websites WHERE owner_id = $1 ORDER BY created_at DESC`, [ownerId]);
+    return rows;
+  },
+  async findByLink(link) {
+    const { rows } = await query(`SELECT * FROM websites WHERE website_link = $1`, [link]);
+    return rows[0] || null;
+  },
+  async findAll() {
+    const { rows } = await query(`SELECT * FROM websites ORDER BY created_at DESC`);
+    return rows;
+  },
+  async update(id, fields) {
+    const keys = Object.keys(fields);
+    if (!keys.length) return this.findById(id);
+    const setClauses = keys.map((k,i) => `${toSnake(k)} = $${i+2}`).join(', ');
+    const { rows } = await query(
+      `UPDATE websites SET ${setClauses} WHERE id = $1 RETURNING *`,
+      [id, ...keys.map(k=>fields[k])]
+    );
+    return rows[0] || null;
+  },
+  async delete(id) { await query(`DELETE FROM websites WHERE id = $1`, [id]); },
+};
+function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }
+module.exports = Website;

@@ -1,11 +1,13 @@
 // server.js
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const session = require('express-session');
 const passport = require('passport');
 require('dotenv').config();
 require('./config/passport');
+
+// PostgreSQL connection (replaces mongoose)
+const { pool } = require('./config/db');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -26,9 +28,8 @@ const passwordRoutes = require('./routes/passwordRoutes');
 const webAdvertiseRoutes = require('./AdOwner/routes/WebAdvertiseRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 
-const app = express(); // ← INITIALIZE APP FIRST
+const app = express();
 
-// Middleware
 app.use(express.json());
 
 const allowedOrigins = [
@@ -56,7 +57,6 @@ const allowNullOriginPaths = [
   '/api/ads/script',
   '/api/ad-categories/ads/customization',
   '/api/analytics/track',
-  // Stealth paths — neutral names that bypass ad-blocker filter lists
   '/api/p/',
   '/api/c/',
 ];
@@ -72,10 +72,7 @@ const shouldAllowNullOrigin = (path) => {
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-
-  // ── No origin header (curl, mobile app, server-to-server, sendBeacon with no origin) ──
   if (!origin || origin === 'null') {
-    // Public ad/analytics endpoints: use * (no credentials needed for these fire-and-forget calls)
     if (shouldAllowNullOrigin(req.path)) {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -83,7 +80,6 @@ app.use((req, res, next) => {
       if (req.method === 'OPTIONS') return res.sendStatus(200);
       return next();
     }
-    // Everything else with no origin: allow through
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control, x-node-key, x-node-ref');
@@ -93,9 +89,6 @@ app.use((req, res, next) => {
 
   const normalizedOrigin = normalizeOrigin(origin);
 
-  // ── Public ad/analytics endpoints: accept ANY real origin ──
-  // Must echo back the exact origin (not *) and set credentials true
-  // because browsers send these with credentials mode include
   if (shouldAllowNullOrigin(req.path)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
@@ -105,7 +98,6 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // ── Known dashboard/app origins ──
   if (allowedOrigins.includes(normalizedOrigin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
@@ -116,20 +108,15 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // ── Origin not allowed ──
   console.error('✗ Origin rejected:', origin);
-  return res.status(403).json({
-    error: 'CORS Error',
-    message: `The CORS policy does not allow access from origin: ${origin}`,
-    allowedOrigins: allowedOrigins
-  });
+  return res.status(403).json({ error: 'CORS Error', message: `The CORS policy does not allow access from origin: ${origin}`, allowedOrigins });
 });
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
-  cookie: { 
+  cookie: {
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
@@ -138,100 +125,44 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Auth Routes
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/ai', aiRoutes);
-
-// Password Reset Routes
 app.use('/api/password', passwordRoutes);
 
-// AdPromoter Routes
+// AdPromoter
 app.use('/api/createWebsite', createWebsiteRoutes);
 app.use('/api/business-categories', businessCategoriesRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);
 app.use('/api/analytics', analyticsRoutes);
-
-// ── Stealth mounts — same handlers, neutral URL prefixes ──────────────────
-// /api/p  mirrors /api/ads     (avoids "ads" in the path)
-// /api/c  mirrors /api/ad-categories  (avoids "ad-categories" in the path)
 app.use('/api/p', adDisplayRoutes);
 app.use('/api/c', createCategoryRoutes);
 
-// AdOwner Routes
+// AdOwner
 app.use('/api/web-advertise', webAdvertiseRoutes);
-
-// Admin Panel
 app.use('/api/admin', adminRoutes);
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), environment: process.env.NODE_ENV || 'development' });
 });
 
-// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error Details:', {
-    message: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
-    origin: req.headers.origin
-  });
-  
-  // Handle CORS errors specifically
-  if (err.message && err.message.includes('CORS policy')) {
-    return res.status(403).json({
-      error: 'CORS Error',
-      message: err.message,
-      origin: req.headers.origin,
-      allowedOrigins: allowedOrigins
-    });
-  }
-  
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+  console.error('Error Details:', { message: err.message, stack: err.stack, url: req.url, method: req.method });
+  res.status(err.status || 500).json({ error: err.message || 'Internal Server Error' });
 });
 
-// 404 handler
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `Cannot ${req.method} ${req.url}`,
-    availableRoutes: [
-      '/api/auth',
-      '/api/conversations',
-      '/api/ai',
-      '/api/password',
-      '/api/campaign-selections',
-      '/api/adult-campaign',
-      '/api/carOwners-campaign',
-      '/api/countrySide-campaign',
-      '/api/parents-campaign',
-      '/api/transport-campaign',
-      '/api/youth-campaign',
-      '/api/createWebsite',
-      '/api/business-categories',
-      '/api/ad-categories',
-      '/api/ads',
-      '/api/web-advertise'
-    ]
-  });
+  res.status(404).json({ error: 'Not Found', message: `Cannot ${req.method} ${req.url}` });
 });
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB connected'))
-.catch(err => console.log('MongoDB connection error:', err));
+// PostgreSQL Connection Test
+pool.query('SELECT NOW()').then(() => {
+  console.log('✅ PostgreSQL connected');
+}).catch(err => {
+  console.error('❌ PostgreSQL connection error:', err.message);
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
