@@ -233,13 +233,6 @@ exports.incrementView = async (req, res) => {
     }
     const { cid } = req.query;
 
-    if (cid) {
-      const allowed = await isAllowedDomain(cid, req.headers);
-      if (!allowed) {
-        return res.status(403).json({ success: false, message: 'Domain not authorised' });
-      }
-    }
-
     // Use a transaction to ensure both updates succeed or fail together
     const session = await ImportAd.startSession();
     console.log(session);
@@ -298,13 +291,6 @@ exports.incrementClick = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid adId' });
     }
     const { cid } = req.query;
-
-    if (cid) {
-      const allowed = await isAllowedDomain(cid, req.headers);
-      if (!allowed) {
-        return res.status(403).json({ success: false, message: 'Domain not authorised' });
-      }
-    }
 
     const updatedAd = await ImportAd.findByIdAndUpdate(
       adId, 
