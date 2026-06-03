@@ -56,17 +56,24 @@ exports.serveSiteScript = async (req, res) => {
   try {
     const { websiteId } = req.params;
 
+  // Validate UUID format before hitting PostgreSQL
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(websiteId)) {
+    res.setHeader('Content-Type', 'application/javascript');
+    return res.status(400).send('// Invalid website ID format');
+  }
+
     const [website, categories] = await Promise.all([
-      Website.findById(websiteId).lean(),
-      AdCategory.find({ websiteId }).lean(),
+      Website.findById(websiteId),
+      AdCategory.findByWebsite(websiteId),
     ]);
 
     if (!website) return res.status(404).send('// Website not found');
     if (!categories.length) return res.status(200).send('// No ad spaces configured yet');
 
     // ── Domain verification ──────────────────────────────────────
-    const registeredDomain = website.websiteLink
-      ? extractDomain(website.websiteLink)
+    const registeredDomain = website.website_link||website.websiteLink
+      ? extractDomain(website.website_link||website.websiteLink)
       : null;
 
     if (registeredDomain) {
@@ -92,15 +99,15 @@ exports.serveSiteScript = async (req, res) => {
 
     // Build per-category config
     const spaces = categories.map(cat => ({
-      id:            cat._id.toString(),
-      name:          cat.categoryName,
-      spaceType:     cat.spaceType || 'inline content',
-      mode:          cat.placementMode || 'auto',
+      id:            ((cat.id||cat._id).toString()),
+      name:          (cat.category_name||cat.categoryName),
+      spaceType:     (cat.space_type||cat.spaceType) || 'inline content',
+      mode:          (cat.placement_mode||cat.placementMode) || 'auto',
       price:         cat.price,
-      lang:          cat.defaultLanguage || 'english',
-      px:            'yw' + cat._id.toString().slice(-6),
-      wrap:          neutralClass(cat._id.toString()),
-      css:           placementCSS(cat.spaceType || 'inline content', 'yw' + cat._id.toString().slice(-6)),
+      lang:          (cat.default_language||cat.defaultLanguage) || 'english',
+      px:            'yw' + ((cat.id||cat._id).toString()).slice(-6),
+      wrap:          neutralClass(((cat.id||cat._id).toString())),
+      css:           placementCSS((cat.space_type||cat.spaceType) || 'inline content', 'yw' + ((cat.id||cat._id).toString()).slice(-6)),
     }));
 
     const spacesJSON = JSON.stringify(spaces);
@@ -134,7 +141,7 @@ exports.serveSiteScript = async (req, res) => {
 
     const script = `
 (function(){
-  /* Yepper Site Script — ${website.websiteName} */
+  /* Yepper Site Script — ${website.website_name||website.websiteName} */
   var _allowed="${registeredDomain || ''}";
   if(_allowed){
     var _cur=window.location.hostname.replace(/^www\\./, '');
@@ -373,16 +380,16 @@ exports.serveSiteScript = async (req, res) => {
       .then(function(r){return r.ok?r.json():null;})
       .then(function(cat){
         var px='yw'+categoryId.slice(-6);
-        var st=(cat&&cat.spaceType)||'inline content';
+        var st=(cat&&(cat.space_type||cat.spaceType))||'inline content';
         var wrappers=['content-widget','page-module','site-section','layout-block','view-unit','frame-item'];
         var wrap=wrappers[parseInt(categoryId.slice(-2),16)%wrappers.length];
         var sp={
           id:        categoryId,
-          name:      (cat&&cat.categoryName)||'ad space',
+          name:      (cat&&(cat.category_name||cat.categoryName))||'ad space',
           spaceType: st,
           mode:      'manual',
           price:     (cat&&cat.price)||0,
-          lang:      (cat&&cat.defaultLanguage)||'english',
+          lang:      (cat&&(cat.default_language||cat.defaultLanguage))||'english',
           px:        px,
           wrap:      wrap,
           css:       '.'+px+'-host{display:block;width:100%;box-sizing:border-box;position:relative;overflow:visible;}'
@@ -448,6 +455,6 @@ exports.generateSiteScript = async (websiteId) => {
   // Use stealth path /api/p/site/ so the <script src> doesn't match ad-blocker rules
   const src = `${BACKEND}/api/p/site/${websiteId}`;
   const tag = `<script src="${src}" async></script>`;
-  await require('../models/CreateWebsiteModel').findByIdAndUpdate(websiteId, { siteScript: tag });
+  await require('../models/CreateWebsiteModel').update(websiteId, { siteScript: tag });
   return tag;
 };

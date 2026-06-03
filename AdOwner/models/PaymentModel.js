@@ -61,6 +61,35 @@ const Payment = {
     );
     return rows;
   },
+  // Fetch all payments for a specific ad, joined with website/category/ad info
+  async findByAd(adId) {
+    const { rows } = await query(
+      `SELECT p.*,
+              w.website_name,
+              c.category_name, c.price AS category_price,
+              ia.business_name AS ad_business_name
+       FROM payments p
+       LEFT JOIN websites w ON w.id = p.website_id
+       LEFT JOIN ad_categories c ON c.id = p.category_id
+       LEFT JOIN import_ads ia ON ia.id = p.ad_id
+       WHERE p.ad_id = $1 ORDER BY p.created_at DESC`,
+      [adId]
+    );
+    return rows;
+  },
+  // Fetch refund-eligible payments for a specific advertiser, joined with ad business name
+  async findRefundsByAdvertiser(advertiserId) {
+    const { rows } = await query(
+      `SELECT p.amount, p.refunded_at, p.refund_reason, p.refund_used,
+              ia.business_name AS ad_business_name
+       FROM payments p
+       LEFT JOIN import_ads ia ON ia.id = p.ad_id
+       WHERE p.advertiser_id = $1 AND p.status = 'refunded' AND p.refund_used IS NOT TRUE
+       ORDER BY p.refunded_at ASC`,
+      [advertiserId]
+    );
+    return rows;
+  },
   async update(id, fields) {
     const keys = Object.keys(fields);
     if (!keys.length) return this.findById(id);
