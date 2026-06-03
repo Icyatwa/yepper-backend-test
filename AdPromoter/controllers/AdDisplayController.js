@@ -228,6 +228,9 @@ function getNoAdsHtml() {
 exports.incrementView = async (req, res) => {
   try {
     const { adId } = req.params;
+    if (!adId || adId === 'undefined' || adId === 'null') {
+      return res.status(400).json({ success: false, message: 'Invalid adId' });
+    }
     const { cid } = req.query;
 
     if (cid) {
@@ -291,6 +294,9 @@ exports.incrementView = async (req, res) => {
 exports.incrementClick = async (req, res) => {
   try {
     const { adId } = req.params;
+    if (!adId || adId === 'undefined' || adId === 'null') {
+      return res.status(400).json({ success: false, message: 'Invalid adId' });
+    }
     const { cid } = req.query;
 
     if (cid) {

@@ -425,6 +425,7 @@ exports.serveAdScript = async (req, res) => {
 
     /* Track views + clicks */
     function trackView(adId){
+      if(!adId||adId==='undefined')return;
       try{
         navigator.sendBeacon(_b+'/ev/'+adId+'?cid='+_i,'{}');
       }catch(e){
@@ -441,7 +442,7 @@ exports.serveAdScript = async (req, res) => {
       lnk.style.cursor='pointer';
       lnk.addEventListener('click',function(ev){
         ev.preventDefault();
-        try{navigator.sendBeacon(_b+'/ec/'+adId+'?cid='+_i,'{}');}catch(e){}
+        if(adId&&adId!=='undefined'){try{navigator.sendBeacon(_b+'/ec/'+adId+'?cid='+_i,'{}');}catch(e){}}
         setTimeout(function(){window.open(href,'_blank','noopener');},80);
       });
     });
