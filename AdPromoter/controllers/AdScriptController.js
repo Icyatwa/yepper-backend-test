@@ -459,12 +459,14 @@ exports.serveAdScript = async (req, res) => {
 
     if(items.length>1){
       var cur=0;
-      trackView(items[cur].dataset.adId);
+      var firstAdId = items[cur].dataset.adId;
+      if(firstAdId && firstAdId !== 'undefined') trackView(firstAdId);
       setInterval(function(){
         items[cur].style.display='none';
         cur=(cur+1)%items.length;
         items[cur].style.display='block';
-        trackView(items[cur].dataset.adId);
+        var rotId = items[cur].dataset.adId;
+        if(rotId && rotId !== 'undefined') trackView(rotId);
       },_t);
     } else {
       var firstId = items[0] && items[0].dataset && items[0].dataset.adId;
