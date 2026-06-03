@@ -39,6 +39,8 @@ const allowedOrigins = [
   'https://yepper.cc',
   'https://www.yepper.cc',
   'https://yepper-backend.onrender.com',
+  'https://yep-strator.vercel.app',
+  'http://yep-strator.vercel.app',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
   'https://yepper.cc',
