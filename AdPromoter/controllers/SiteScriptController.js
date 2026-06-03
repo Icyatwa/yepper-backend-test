@@ -266,7 +266,8 @@ exports.serveSiteScript = async (req, res) => {
     }
 
     var html=data.html
-      .replace(/sp-container|sp-item/g,sp.px+'-ad')
+      .replace(/sp-container/g,sp.px+'-wrap')
+      .replace(/sp-item/g,sp.px+'-ad')
       .replace(/sp-link/g,sp.px+'-link')
       .replace(/sp-content/g,sp.px+'-inner')
       .replace(/sp-image-wrapper/g,sp.px+'-img-wrap')
@@ -284,6 +285,7 @@ exports.serveSiteScript = async (req, res) => {
     items.forEach(function(el,idx){el.style.display=idx===0?'block':'none';});
 
     function trackView(adId){
+      if(!adId||adId==='undefined'||adId==='null')return;
       var _ev=_b+'/ev/'+adId+'?cid='+sp.id;
       try{navigator.sendBeacon(_ev,'{}');}
       catch(e){fetch(_ev,{method:'POST',mode:'cors',credentials:'omit'}).catch(function(){});}
@@ -298,7 +300,9 @@ exports.serveSiteScript = async (req, res) => {
       lnk.style.cursor='pointer';
       lnk.addEventListener('click',function(ev){
         ev.preventDefault();
-        try{navigator.sendBeacon(_b+'/ec/'+adId+'?cid='+sp.id,'{}');}catch(e){}
+        if(adId&&adId!=='undefined'&&adId!=='null'){
+          try{navigator.sendBeacon(_b+'/ec/'+adId+'?cid='+sp.id,'{}');}catch(e){}
+        }
         setTimeout(function(){window.open(href,'_blank','noopener');},80);
       });
     });
@@ -314,15 +318,18 @@ exports.serveSiteScript = async (req, res) => {
 
     if(items.length>1){
       var cur=0;
-      trackView(items[cur].dataset.adId);
+      var firstAdId=items[cur].dataset.adId;
+      if(firstAdId&&firstAdId!=='undefined'&&firstAdId!=='null')trackView(firstAdId);
       setInterval(function(){
         items[cur].style.display='none';
         cur=(cur+1)%items.length;
         items[cur].style.display='block';
-        trackView(items[cur].dataset.adId);
+        var rotId=items[cur].dataset.adId;
+        if(rotId&&rotId!=='undefined'&&rotId!=='null')trackView(rotId);
       },_rot);
     } else {
-      trackView(items[0].dataset.adId);
+      var singleId=items[0]&&items[0].dataset&&items[0].dataset.adId;
+      if(singleId&&singleId!=='undefined'&&singleId!=='null')trackView(singleId);
     }
   }
 
