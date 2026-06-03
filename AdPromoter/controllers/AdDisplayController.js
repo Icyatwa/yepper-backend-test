@@ -1,4 +1,5 @@
 // AdDisplayController.js
+const mongoose = require('mongoose');
 const AdCategory = require('../models/CreateCategoryModel');
 const Website = require('../models/CreateWebsiteModel');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
@@ -32,8 +33,11 @@ exports.displayAd = async (req, res) => {
     // CORS is handled by server-level middleware in server.js
     
     const { categoryId } = req.query;
-    
-    const adCategory = await AdCategory.findById(categoryId);
+
+    let categoryObjId;
+    try { categoryObjId = new mongoose.Types.ObjectId(categoryId); } catch (e) { return res.json({ html: '' }); }
+
+    const adCategory = await AdCategory.findById(categoryObjId);
     if (!adCategory) {
       return res.json({ html: '' });
     }
@@ -43,7 +47,7 @@ exports.displayAd = async (req, res) => {
       'websiteSelections': {
         $elemMatch: {
           websiteId: adCategory.websiteId,
-          categories: categoryId,
+          categories: categoryObjId,
           approved: true,
           status: 'active'
         }
@@ -114,7 +118,10 @@ exports.searchAd = async (req, res) => {
     //const { categoryId } = req.query;
     const { categoryId,searchTerm } = req.query;
     //const { categoryId,searchTerm } = req.params;
-  
+
+    let categoryObjId2;
+    try { categoryObjId2 = new mongoose.Types.ObjectId(categoryId); } catch (e) { return res.json({ message: 'Invalid categoryId' }); }
+
   // Escape any special characters (if needed)
   let searchEscape = searchTerm.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
   // Create the regex pattern
@@ -130,7 +137,7 @@ exports.searchAd = async (req, res) => {
       'websiteSelections': {
         $elemMatch: {
           websiteId: adCategory.websiteId,
-          categories: categoryId,
+          categories: categoryObjId2,
           approved: true,
           status: 'active'
         }
