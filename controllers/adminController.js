@@ -1,13 +1,14 @@
-// admin/controllers/adminController.js
-const crypto = require('crypto');
-const User = require('../models/User');
-const Website = require('../AdPromoter/models/CreateWebsiteModel');
-const PageView = require('../AdPromoter/models/WebsiteAnalyticsModel');
+// admin/controllers/adminController.js  — PostgreSQL version
+const crypto   = require('crypto');
+const { query } = require('../config/db');
+const User        = require('../models/User');
+const Website     = require('../AdPromoter/models/CreateWebsiteModel');
 const TrafficGrant = require('../models/TrafficGrantModel');
-const { Resend } = require('resend');
-const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
+const AdCategory  = require('../AdPromoter/models/CreateCategoryModel');
+const ImportAd    = require('../AdOwner/models/WebAdvertiseModel');
+const { Resend }  = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend      = new Resend(process.env.RESEND_API_KEY);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://yepper.cc';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -15,91 +16,61 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://yepper.cc';
 const generateAccessToken = () => crypto.randomBytes(32).toString('hex');
 
 const sendGrantEmail = async (user, grant, website) => {
-  const link = `${FRONTEND_URL}/traffic-grant?token=${grant.accessToken}`;
-  const websiteName = website ? website.websiteName : 'your website';
-
+  const link        = `${FRONTEND_URL}/traffic-grant?token=${grant.access_token}`;
+  const websiteName = website ? website.website_name : 'your website';
   try {
     await resend.emails.send({
       from: 'Yepper <noreply@yepper.cc>',
       to: user.email,
       subject: `🎁 You've been granted a special analytics boost for ${websiteName}`,
       html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
+        <!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
         <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
           <table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
             <tr><td align="center">
               <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;box-shadow:0 2px 20px rgba(0,0,0,0.08);overflow:hidden;">
-                <!-- Header bar -->
-                <tr>
-                  <td style="background:#000;padding:28px 40px;">
-                    <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Yepper</h1>
-                  </td>
-                </tr>
-                <!-- Body -->
-                <tr>
-                  <td style="padding:40px;">
-                    <p style="color:#333;font-size:17px;margin:0 0 8px 0;">Hi <strong>${user.name}</strong>,</p>
-                    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px 0;">
-                      Great news! You've been selected to customize your analytics data for
-                      <strong>${websiteName}</strong>. Use the button below to set your traffic and views numbers —
-                      they'll appear directly in your analytics dashboard.
-                    </p>
-
-                    <!-- CTA button -->
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td align="center" style="padding:10px 0 32px 0;">
-                          <a href="${link}"
-                             style="display:inline-block;background:#000;color:#fff;padding:16px 36px;
-                                    text-decoration:none;font-weight:600;font-size:15px;border-radius:8px;
-                                    letter-spacing:0.2px;">
-                            Set My Analytics Numbers →
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- What happens block -->
-                    <table width="100%" cellpadding="0" cellspacing="0"
-                           style="background:#f8f8f8;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
-                      <tr>
-                        <td>
-                          <p style="color:#333;font-size:14px;font-weight:600;margin:0 0 10px 0;">What happens next?</p>
-                          <ul style="color:#555;font-size:14px;line-height:1.8;margin:0;padding-left:20px;">
-                            <li>Click the button above (or find it on your website dashboard)</li>
-                            <li>Enter the traffic &amp; views numbers you want displayed</li>
-                            <li>They'll update automatically in your analytics</li>
-                            <li>No need to log in again — your account is already linked</li>
-                          </ul>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <p style="color:#999;font-size:13px;line-height:1.5;margin:0;">
-                      This link is personal to your account and expires in 7 days.
-                      If you didn't expect this email, you can safely ignore it.
-                    </p>
-                  </td>
-                </tr>
-                <!-- Footer -->
-                <tr>
-                  <td style="background:#fafafa;border-top:1px solid #eee;padding:20px 40px;">
-                    <p style="color:#bbb;font-size:12px;margin:0;text-align:center;">
-                      © ${new Date().getFullYear()} Yepper · <a href="${FRONTEND_URL}/privacy-policy" style="color:#bbb;">Privacy Policy</a>
-                    </p>
-                  </td>
-                </tr>
+                <tr><td style="background:#000;padding:28px 40px;">
+                  <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Yepper</h1>
+                </td></tr>
+                <tr><td style="padding:40px;">
+                  <p style="color:#333;font-size:17px;margin:0 0 8px 0;">Hi <strong>${user.name}</strong>,</p>
+                  <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px 0;">
+                    Great news! You've been selected to customize your analytics data for
+                    <strong>${websiteName}</strong>. Use the button below to set your traffic and views numbers —
+                    they'll appear directly in your analytics dashboard.
+                  </p>
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr><td align="center" style="padding:10px 0 32px 0;">
+                      <a href="${link}" style="display:inline-block;background:#000;color:#fff;padding:16px 36px;text-decoration:none;font-weight:600;font-size:15px;border-radius:8px;letter-spacing:0.2px;">
+                        Set My Analytics Numbers →
+                      </a>
+                    </td></tr>
+                  </table>
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f8f8;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
+                    <tr><td>
+                      <p style="color:#333;font-size:14px;font-weight:600;margin:0 0 10px 0;">What happens next?</p>
+                      <ul style="color:#555;font-size:14px;line-height:1.8;margin:0;padding-left:20px;">
+                        <li>Click the button above (or find it on your website dashboard)</li>
+                        <li>Enter the traffic &amp; views numbers you want displayed</li>
+                        <li>They'll update automatically in your analytics</li>
+                        <li>No need to log in again — your account is already linked</li>
+                      </ul>
+                    </td></tr>
+                  </table>
+                  <p style="color:#999;font-size:13px;line-height:1.5;margin:0;">
+                    This link is personal to your account and expires in 7 days.
+                    If you didn't expect this email, you can safely ignore it.
+                  </p>
+                </td></tr>
+                <tr><td style="background:#fafafa;border-top:1px solid #eee;padding:20px 40px;">
+                  <p style="color:#bbb;font-size:12px;margin:0;text-align:center;">
+                    © ${new Date().getFullYear()} Yepper · <a href="${FRONTEND_URL}/privacy-policy" style="color:#bbb;">Privacy Policy</a>
+                  </p>
+                </td></tr>
               </table>
             </td></tr>
           </table>
-        </body>
-        </html>
-      `,
+        </body></html>`,
     });
     return true;
   } catch (err) {
@@ -109,50 +80,73 @@ const sendGrantEmail = async (user, grant, website) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/admin/users  — list all users with their websites
+// GET /api/admin/users  — list all users with website counts + grant status
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getUsers = async (req, res) => {
   try {
     const { search = '', page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const lim    = parseInt(limit);
 
-    const query = search
-      ? { $or: [
-          { name:  { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-        ]}
-      : {};
+    let whereClause = '';
+    const params    = [];
 
-    const [users, total] = await Promise.all([
-      User.find(query).select('-password -gscAccessToken -gscRefreshToken')
-           .sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)).lean(),
-      User.countDocuments(query),
-    ]);
-
-    // Attach website count + active grants
-    const userIds = users.map(u => u._id.toString());
-    const [websiteCounts, grants] = await Promise.all([
-      Website.aggregate([
-        { $match: { ownerId: { $in: userIds } } },
-        { $group: { _id: '$ownerId', count: { $sum: 1 } } },
-      ]),
-      TrafficGrant.find({ userId: { $in: users.map(u => u._id) }, status: { $in: ['pending', 'completed'] } })
-        .select('userId status').lean(),
-    ]);
-
-    const countMap  = Object.fromEntries(websiteCounts.map(x => [x._id, x.count]));
-    const grantMap  = {};
-    for (const g of grants) {
-      grantMap[g.userId.toString()] = g.status;
+    if (search) {
+      params.push(`%${search}%`);
+      whereClause = `WHERE name ILIKE $1 OR email ILIKE $1`;
     }
+
+    const countRes = await query(
+      `SELECT COUNT(*) FROM users ${whereClause}`,
+      params
+    );
+    const total = parseInt(countRes.rows[0].count, 10);
+
+    const offsetIdx = params.length + 1;
+    const limIdx    = params.length + 2;
+    const usersRes  = await query(
+      `SELECT id, name, email, avatar, is_verified, google_id, created_at, updated_at
+       FROM users ${whereClause}
+       ORDER BY created_at DESC
+       OFFSET $${offsetIdx} LIMIT $${limIdx}`,
+      [...params, offset, lim]
+    );
+    const users = usersRes.rows;
+
+    if (users.length === 0) {
+      return res.json({ success: true, users: [], total, page: parseInt(page), limit: lim });
+    }
+
+    const userIds = users.map(u => u.id);
+
+    // Website counts per user
+    const wcRes = await query(
+      `SELECT owner_id, COUNT(*) AS cnt FROM websites WHERE owner_id = ANY($1::text[]) GROUP BY owner_id`,
+      [userIds.map(String)]
+    );
+    const countMap = {};
+    for (const r of wcRes.rows) countMap[r.owner_id] = parseInt(r.cnt, 10);
+
+    // Latest grant status per user
+    const grantRes = await query(
+      `SELECT DISTINCT ON (user_id) user_id, status
+       FROM traffic_grants
+       WHERE user_id = ANY($1::int[]) AND status IN ('pending','completed')
+       ORDER BY user_id, created_at DESC`,
+      [userIds]
+    );
+    const grantMap = {};
+    for (const r of grantRes.rows) grantMap[r.user_id] = r.status;
 
     const enriched = users.map(u => ({
       ...u,
-      websiteCount: countMap[u._id.toString()] || 0,
-      grantStatus: grantMap[u._id.toString()] || null,
+      _id: u.id,          // keep _id alias for frontend compatibility
+      isVerified: u.is_verified,
+      websiteCount: countMap[String(u.id)] || 0,
+      grantStatus:  grantMap[u.id] || null,
     }));
 
-    res.json({ success: true, users: enriched, total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ success: true, users: enriched, total, page: parseInt(page), limit: lim });
   } catch (err) {
     console.error('getUsers error:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -160,20 +154,60 @@ exports.getUsers = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/admin/users/:userId  — single user detail
+// GET /api/admin/users/:userId  — single user + their websites + grants
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getUserDetail = async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId)
-      .select('-password -gscAccessToken -gscRefreshToken').lean();
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
     const [websites, grants] = await Promise.all([
-      Website.find({ ownerId: req.params.userId }).lean(),
-      TrafficGrant.find({ userId: req.params.userId }).sort({ createdAt: -1 }).lean(),
+      Website.findByOwner(userId),
+      TrafficGrant.findByUser(userId),
     ]);
 
-    res.json({ success: true, user, websites, grants });
+    // Normalise user fields for frontend
+    const safeUser = {
+      ...user,
+      _id: user.id,
+      isVerified: user.is_verified,
+      googleId:   user.google_id,
+    };
+    delete safeUser.password;
+    delete safeUser.gsc_access_token;
+    delete safeUser.gsc_refresh_token;
+
+    // Normalise websites
+    const safeWebsites = websites.map(w => ({
+      ...w,
+      _id: w.id,
+      websiteName:  w.website_name,
+      websiteLink:  w.website_link,
+      monthlyTraffic: w.monthly_traffic,
+      trafficTier:  w.traffic_tier,
+    }));
+
+    // Normalise grants — attach website stub
+    const websiteMap = {};
+    for (const w of websites) websiteMap[String(w.id)] = w;
+
+    const safeGrants = grants.map(g => ({
+      ...g,
+      _id: g.id,
+      grantedTraffic: g.granted_traffic,
+      grantedViews:   g.granted_views,
+      grantedBy:      g.granted_by,
+      expiresAt:      g.expires_at,
+      websiteId: g.website_id ? {
+        _id: g.website_id,
+        websiteName: websiteMap[String(g.website_id)]?.website_name || null,
+        websiteLink: websiteMap[String(g.website_id)]?.website_link || null,
+      } : null,
+    }));
+
+    res.json({ success: true, user: safeUser, websites: safeWebsites, grants: safeGrants });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -185,7 +219,6 @@ exports.getUserDetail = async (req, res) => {
 exports.createGrant = async (req, res) => {
   try {
     const { userId, websiteId, notes, expiryDays = 7 } = req.body;
-
     if (!userId) return res.status(400).json({ success: false, message: 'userId required' });
 
     const user = await User.findById(userId);
@@ -193,34 +226,32 @@ exports.createGrant = async (req, res) => {
 
     let website = null;
     if (websiteId) {
-      website = await Website.findById(websiteId).lean();
+      website = await Website.findById(websiteId);
       if (!website) return res.status(404).json({ success: false, message: 'Website not found' });
     }
 
-    // Revoke any pending grant for same user+website combo
-    await TrafficGrant.updateMany(
-      { userId, websiteId: websiteId || null, status: 'pending' },
-      { $set: { status: 'revoked' } }
+    // Revoke any existing pending grant for same user+website
+    await query(
+      `UPDATE traffic_grants SET status = 'revoked'
+       WHERE user_id = $1 AND website_id IS NOT DISTINCT FROM $2 AND status = 'pending'`,
+      [userId, websiteId || null]
     );
 
     const accessToken = generateAccessToken();
-    const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
+    const expiresAt   = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 
     const grant = await TrafficGrant.create({
       userId,
-      websiteId: websiteId || null,
+      websiteId:   websiteId || null,
       accessToken,
       expiresAt,
-      grantedBy: req.admin.username,
-      notes: notes || '',
+      grantedBy:   req.admin.username,
+      notes:       notes || '',
     });
 
-    // Send email
     const emailOk = await sendGrantEmail(user, grant, website);
     if (emailOk) {
-      grant.emailSent  = true;
-      grant.emailSentAt = new Date();
-      await grant.save();
+      await TrafficGrant.update(grant.id, { email_sent: true, email_sent_at: new Date() });
     }
 
     res.json({ success: true, grant, emailSent: emailOk });
@@ -231,24 +262,51 @@ exports.createGrant = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/admin/grants  — list all grants
+// GET /api/admin/grants  — list all grants (with user + website info)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getGrants = async (req, res) => {
   try {
     const { status, page = 1, limit = 30 } = req.query;
-    const filter = status ? { status } : {};
-    const skip   = (parseInt(page) - 1) * parseInt(limit);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const lim    = parseInt(limit);
 
-    const [grants, total] = await Promise.all([
-      TrafficGrant.find(filter)
-        .populate('userId', 'name email')
-        .populate('websiteId', 'websiteName websiteLink')
-        .sort({ createdAt: -1 })
-        .skip(skip).limit(parseInt(limit)).lean(),
-      TrafficGrant.countDocuments(filter),
-    ]);
+    const params  = [];
+    let where     = '';
+    if (status) { params.push(status); where = `WHERE tg.status = $1`; }
 
-    res.json({ success: true, grants, total });
+    const countRes = await query(
+      `SELECT COUNT(*) FROM traffic_grants tg ${where}`, params
+    );
+    const total = parseInt(countRes.rows[0].count, 10);
+
+    const offsetIdx = params.length + 1;
+    const limIdx    = params.length + 2;
+
+    const { rows: grants } = await query(
+      `SELECT tg.*,
+              u.name  AS user_name,  u.email AS user_email,
+              w.website_name, w.website_link
+       FROM traffic_grants tg
+       LEFT JOIN users    u ON u.id = tg.user_id
+       LEFT JOIN websites w ON w.id = tg.website_id
+       ${where}
+       ORDER BY tg.created_at DESC
+       OFFSET $${offsetIdx} LIMIT $${limIdx}`,
+      [...params, offset, lim]
+    );
+
+    const shaped = grants.map(g => ({
+      ...g,
+      _id: g.id,
+      grantedTraffic: g.granted_traffic,
+      grantedViews:   g.granted_views,
+      grantedBy:      g.granted_by,
+      expiresAt:      g.expires_at,
+      userId: g.user_id ? { _id: g.user_id, name: g.user_name, email: g.user_email } : null,
+      websiteId: g.website_id ? { _id: g.website_id, websiteName: g.website_name, websiteLink: g.website_link } : null,
+    }));
+
+    res.json({ success: true, grants: shaped, total });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -259,11 +317,7 @@ exports.getGrants = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.revokeGrant = async (req, res) => {
   try {
-    const grant = await TrafficGrant.findByIdAndUpdate(
-      req.params.grantId,
-      { status: 'revoked' },
-      { new: true }
-    );
+    const grant = await TrafficGrant.update(req.params.grantId, { status: 'revoked' });
     if (!grant) return res.status(404).json({ success: false, message: 'Grant not found' });
     res.json({ success: true, grant });
   } catch (err) {
@@ -280,16 +334,13 @@ exports.resendGrantEmail = async (req, res) => {
     if (!grant) return res.status(404).json({ success: false, message: 'Grant not found' });
     if (grant.status === 'revoked') return res.status(400).json({ success: false, message: 'Grant is revoked' });
 
-    const user    = await User.findById(grant.userId).lean();
-    const website = grant.websiteId ? await Website.findById(grant.websiteId).lean() : null;
+    const user    = await User.findById(grant.user_id);
+    const website = grant.website_id ? await Website.findById(grant.website_id) : null;
 
     const emailOk = await sendGrantEmail(user, grant, website);
     if (emailOk) {
-      grant.emailSent   = true;
-      grant.emailSentAt = new Date();
-      await grant.save();
+      await TrafficGrant.update(grant.id, { email_sent: true, email_sent_at: new Date() });
     }
-
     res.json({ success: true, emailSent: emailOk });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -301,18 +352,26 @@ exports.resendGrantEmail = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getStats = async (req, res) => {
   try {
-    const [totalUsers, totalWebsites, pendingGrants, completedGrants] = await Promise.all([
-      User.countDocuments(),
-      Website.countDocuments(),
-      TrafficGrant.countDocuments({ status: 'pending' }),
-      TrafficGrant.countDocuments({ status: 'completed' }),
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [totalUsers, totalWebsites, pendingGrants, completedGrants, newUsers7d] = await Promise.all([
+      query(`SELECT COUNT(*) FROM users`),
+      query(`SELECT COUNT(*) FROM websites`),
+      query(`SELECT COUNT(*) FROM traffic_grants WHERE status = 'pending'`),
+      query(`SELECT COUNT(*) FROM traffic_grants WHERE status = 'completed'`),
+      query(`SELECT COUNT(*) FROM users WHERE created_at >= $1`, [since7d]),
     ]);
 
-    // New users last 7 days
-    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const newUsers7d = await User.countDocuments({ createdAt: { $gte: since7d } });
-
-    res.json({ success: true, stats: { totalUsers, totalWebsites, pendingGrants, completedGrants, newUsers7d } });
+    res.json({
+      success: true,
+      stats: {
+        totalUsers:     parseInt(totalUsers.rows[0].count, 10),
+        totalWebsites:  parseInt(totalWebsites.rows[0].count, 10),
+        pendingGrants:  parseInt(pendingGrants.rows[0].count, 10),
+        completedGrants: parseInt(completedGrants.rows[0].count, 10),
+        newUsers7d:     parseInt(newUsers7d.rows[0].count, 10),
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -320,42 +379,65 @@ exports.getStats = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC: GET /api/admin/grant-check?token=XXX
-// Called by the client to validate a token before showing the input form.
-// Returns user+website info but NOT the token itself.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.checkGrantToken = async (req, res) => {
   try {
     const { token } = req.query;
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
 
-    const grant = await TrafficGrant.findOne({ accessToken: token })
-      .populate('userId', 'name email _id')
-      .populate('websiteId', 'websiteName websiteLink _id monthlyTraffic trafficTier')
-      .lean();
+    const { rows } = await query(
+      `SELECT tg.*,
+              u.name AS user_name, u.email AS user_email, u.id AS user_id_val,
+              w.website_name, w.website_link, w.id AS website_id_val,
+              w.monthly_traffic, w.traffic_tier, w.granted_traffic_display, w.granted_views_display, w.granted_tier_display
+       FROM traffic_grants tg
+       LEFT JOIN users    u ON u.id = tg.user_id
+       LEFT JOIN websites w ON w.id = tg.website_id
+       WHERE tg.access_token = $1`,
+      [token]
+    );
 
+    const grant = rows[0];
     if (!grant) return res.status(404).json({ success: false, message: 'Invalid or expired link' });
-    if (grant.status === 'revoked')  return res.status(403).json({ success: false, message: 'This link has been revoked' });
-    if (grant.status === 'completed') return res.json({ success: true, alreadyUsed: true, grant });
-    if (new Date() > new Date(grant.expiresAt)) {
-      await TrafficGrant.findByIdAndUpdate(grant._id, { status: 'expired' });
+    if (grant.status === 'revoked')   return res.status(403).json({ success: false, message: 'This link has been revoked' });
+    if (grant.status === 'completed') return res.json({ success: true, alreadyUsed: true, grant: shapeGrant(grant) });
+    if (new Date() > new Date(grant.expires_at)) {
+      await TrafficGrant.update(grant.id, { status: 'expired' });
       return res.status(410).json({ success: false, message: 'This link has expired' });
     }
 
-    res.json({ success: true, alreadyUsed: false, grant });
+    res.json({ success: true, alreadyUsed: false, grant: shapeGrant(grant) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
+function shapeGrant(g) {
+  return {
+    ...g,
+    _id: g.id,
+    accessToken:    g.access_token,
+    expiresAt:      g.expires_at,
+    grantedTraffic: g.granted_traffic,
+    grantedViews:   g.granted_views,
+    userId: g.user_id ? { _id: g.user_id, name: g.user_name, email: g.user_email } : null,
+    websiteId: g.website_id ? {
+      _id: g.website_id_val,
+      websiteName: g.website_name,
+      websiteLink: g.website_link,
+      monthlyTraffic: g.monthly_traffic,
+      trafficTier: g.traffic_tier,
+      grantedTrafficDisplay: g.granted_traffic_display,
+      grantedViewsDisplay:   g.granted_views_display,
+      grantedTierDisplay:    g.granted_tier_display,
+    } : null,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC: POST /api/admin/grant-apply
-// The user submits their desired traffic/views numbers.
-// We store them as display-only fields on the website document and tag
-// any injected PageView records with isGranted=true so the real analytics
-// pipeline is never polluted. Tier and unpaid ad spaces are updated to match.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Pricing table (mirrors PricingTiers.js on the frontend)
 const TIER_PRICES = {
   unverified: { 'Header':9000,'Above The Fold':7800,'Sticky Sidebar':6000,'Mobile Interstitial':6000,'Overlay':5400,'Floating':4800,'Modal':4200,'Left Rail':3600,'Right Rail':3600,'Sidebar':3000,'In Feed':2400,'Inline Content':2400,'Beneath Title':2100,'Pro Footer':1500,'Bottom':1200 },
   starter:    { 'Header':3000,'Above The Fold':2600,'Sticky Sidebar':2000,'Mobile Interstitial':2000,'Overlay':1800,'Floating':1600,'Modal':1400,'Left Rail':1200,'Right Rail':1200,'Sidebar':1000,'In Feed':800,'Inline Content':800,'Beneath Title':700,'Pro Footer':500,'Bottom':400 },
@@ -382,28 +464,25 @@ exports.applyGrant = async (req, res) => {
     const { token, traffic, views } = req.body;
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
 
-    const grant = await TrafficGrant.findOne({ accessToken: token });
+    const grant = await TrafficGrant.findByToken(token);
     if (!grant) return res.status(404).json({ success: false, message: 'Invalid link' });
     if (grant.status !== 'pending') return res.status(400).json({ success: false, message: 'This grant is no longer active' });
-    if (new Date() > new Date(grant.expiresAt)) {
-      await TrafficGrant.findByIdAndUpdate(grant._id, { status: 'expired' });
+    if (new Date() > new Date(grant.expires_at)) {
+      await TrafficGrant.update(grant.id, { status: 'expired' });
       return res.status(410).json({ success: false, message: 'Link has expired' });
     }
 
     const trafficNum = Math.max(0, parseInt(traffic) || 0);
     const viewsNum   = Math.max(0, parseInt(views)   || 0);
-    const displayNum = Math.max(trafficNum, viewsNum); // the number used for tier calculation
+    const displayNum = Math.max(trafficNum, viewsNum);
 
-    // Resolve target website
-    const WebsiteModel = require('../AdPromoter/models/CreateWebsiteModel');
-    let websiteId = grant.websiteId?.toString();
+    let websiteId = grant.website_id;
     if (!websiteId) {
-      const site = await WebsiteModel.findOne({ ownerId: grant.userId.toString() }).lean();
-      if (!site) return res.status(400).json({ success: false, message: 'No website found for your account' });
-      websiteId = site._id.toString();
+      const site = await Website.findByOwner(String(grant.user_id));
+      if (!site || site.length === 0) return res.status(400).json({ success: false, message: 'No website found for your account' });
+      websiteId = site[0].id;
     }
 
-    // Determine tier from the stated traffic number
     let grantedTier = 'unverified';
     if (displayNum >= 200001)     grantedTier = 'elite';
     else if (displayNum >= 50001) grantedTier = 'premium';
@@ -411,57 +490,51 @@ exports.applyGrant = async (req, res) => {
     else if (displayNum >= 2001)  grantedTier = 'basic';
     else if (displayNum >= 500)   grantedTier = 'starter';
 
-    // ── Update website: store display values + tier ────────────────────────
-    // NOTE: real monthlyTraffic (from the script) is NOT touched.
-    // The grant display stays until the system's own traffic counting
-    // reaches/surpasses the tier the owner was granted (cleared in trackPageView).
-    await WebsiteModel.findByIdAndUpdate(websiteId, {
+    await Website.update(websiteId, {
       trafficTier:           grantedTier,
-      grantWindowExpiresAt:  null,       // no time limit — cleared by real traffic
+      grantWindowExpiresAt:  null,
       grantedTrafficDisplay: trafficNum,
       grantedViewsDisplay:   viewsNum,
       grantedTierDisplay:    grantedTier,
     });
 
-    // ── Reprice unpaid ad spaces to match new tier ─────────────────────────
-    // Only reprice spaces that have no active/paid booking (i.e. selectedAds is empty)
-    const unpaidSpaces = await AdCategory.find({
-      websiteId,
-      $or: [{ selectedAds: { $size: 0 } }, { selectedAds: { $exists: false } }],
-    }).lean();
+    // Reprice unpaid ad spaces
+    const { rows: unpaidSpaces } = await query(
+      `SELECT * FROM ad_categories WHERE website_id = $1
+       AND (selected_ads IS NULL OR selected_ads = '[]'::jsonb)`,
+      [websiteId]
+    );
 
     const tierPrices = TIER_PRICES[grantedTier] || TIER_PRICES['unverified'];
-    const repriceOps = [];
+    let spacesRepriced = 0;
     for (const space of unpaidSpaces) {
-      const canonicalType = SPACE_TYPE_MAP[space.spaceType] || space.spaceType;
+      const canonicalType = SPACE_TYPE_MAP[space.space_type] || space.space_type;
       const newPrice = tierPrices[canonicalType];
       if (newPrice !== undefined && newPrice !== space.price) {
-        repriceOps.push({
-          updateOne: {
-            filter: { _id: space._id },
-            update: { $set: { price: newPrice, tier: grantedTier } },
-          },
-        });
+        await query(
+          `UPDATE ad_categories SET price = $1, tier = $2 WHERE id = $3`,
+          [newPrice, grantedTier, space.id]
+        );
+        spacesRepriced++;
       }
     }
-    if (repriceOps.length > 0) await AdCategory.bulkWrite(repriceOps);
 
-    // ── Mark grant as completed with window info ────────────────────────────
-    grant.grantedTraffic      = trafficNum;
-    grant.grantedViews        = viewsNum;
-    grant.status              = 'completed';
-    grant.tokenUsed           = true;
-    grant.tokenUsedAt         = new Date();
-    grant.completedAt         = new Date();
-    await grant.save();
+    await TrafficGrant.update(grant.id, {
+      granted_traffic: trafficNum,
+      granted_views:   viewsNum,
+      status:          'completed',
+      token_used:      true,
+      token_used_at:   new Date(),
+      completed_at:    new Date(),
+    });
 
     res.json({
       success: true,
       message: 'Analytics updated successfully',
-      grantedTraffic:      trafficNum,
-      grantedViews:        viewsNum,
-      trafficTier:         grantedTier,
-      spacesRepriced:      repriceOps.length,
+      grantedTraffic:  trafficNum,
+      grantedViews:    viewsNum,
+      trafficTier:     grantedTier,
+      spacesRepriced,
     });
   } catch (err) {
     console.error('applyGrant error:', err);
@@ -470,55 +543,54 @@ exports.applyGrant = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC: GET /api/admin/user-grant-status?userId=XXX
-// Called by the WebsiteDetails dashboard to check if this user has a pending grant.
-// Uses the user's JWT (passed via Authorization header — validated in route).
+// PUBLIC: GET /api/admin/user-grant-status?userId=XXX (requires user JWT)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getUserGrantStatus = async (req, res) => {
   try {
-    const userId = req.user?.userId || req.user?._id;
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    // First check for a pending grant (not yet used)
-    const pendingGrant = await TrafficGrant.findOne({ userId, status: 'pending' })
-      .populate('websiteId', 'websiteName websiteLink _id')
-      .lean();
-
-    if (pendingGrant) {
+    // Pending grant
+    const { rows: pending } = await query(
+      `SELECT tg.*, w.website_name, w.website_link, w.id AS w_id
+       FROM traffic_grants tg
+       LEFT JOIN websites w ON w.id = tg.website_id
+       WHERE tg.user_id = $1 AND tg.status = 'pending'
+       ORDER BY tg.created_at DESC LIMIT 1`,
+      [userId]
+    );
+    if (pending[0]) {
+      const g = pending[0];
       return res.json({
-        success: true,
-        hasGrant: true,
-        grantType: 'pending',
-        grantId:     pendingGrant._id,
-        websiteId:   pendingGrant.websiteId?._id   || null,
-        websiteName: pendingGrant.websiteId?.websiteName || null,
-        expiresAt:   pendingGrant.expiresAt,
-        accessToken: pendingGrant.accessToken,
+        success: true, hasGrant: true, grantType: 'pending',
+        grantId:     g.id,
+        websiteId:   g.w_id   || null,
+        websiteName: g.website_name || null,
+        expiresAt:   g.expires_at,
+        accessToken: g.access_token,
       });
     }
 
-    // Check for a completed grant that is still active.
-    // A grant stays active until the website's own real traffic counting catches up
-    // to the granted tier — at that point analyticsController clears the display fields.
-    const completedGrant = await TrafficGrant.findOne({
-      userId,
-      status: 'completed',
-    })
-      .populate('websiteId', 'websiteName websiteLink _id grantedTrafficDisplay grantedViewsDisplay grantedTierDisplay')
-      .sort({ completedAt: -1 })
-      .lean();
-
-    // Only show banner if the website still has grant data (not yet cleared by real traffic)
-    if (completedGrant && completedGrant.websiteId?.grantedTrafficDisplay != null) {
+    // Completed grant where website still has display data
+    const { rows: completed } = await query(
+      `SELECT tg.*, w.website_name, w.website_link, w.id AS w_id,
+              w.granted_traffic_display, w.granted_views_display, w.granted_tier_display
+       FROM traffic_grants tg
+       LEFT JOIN websites w ON w.id = tg.website_id
+       WHERE tg.user_id = $1 AND tg.status = 'completed'
+         AND w.granted_traffic_display IS NOT NULL
+       ORDER BY tg.completed_at DESC LIMIT 1`,
+      [userId]
+    );
+    if (completed[0]) {
+      const g = completed[0];
       return res.json({
-        success: true,
-        hasGrant: true,
-        grantType: 'active_window',
-        grantId:     completedGrant._id,
-        websiteId:   completedGrant.websiteId?._id   || null,
-        websiteName: completedGrant.websiteId?.websiteName || null,
-        grantedTraffic: completedGrant.grantedTraffic,
-        grantedViews:   completedGrant.grantedViews,
-        trafficTier:    completedGrant.websiteId?.grantedTierDisplay || null,
+        success: true, hasGrant: true, grantType: 'active_window',
+        grantId:      g.id,
+        websiteId:    g.w_id   || null,
+        websiteName:  g.website_name || null,
+        grantedTraffic: g.granted_traffic,
+        grantedViews:   g.granted_views,
+        trafficTier:    g.granted_tier_display || null,
       });
     }
 
@@ -530,22 +602,15 @@ exports.getUserGrantStatus = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/users/:userId/content  — all content created by a user
-// Returns their websites + ad spaces + ads
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getUserContent = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    const Website   = require('../AdPromoter/models/CreateWebsiteModel');
-    const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
-    const ImportAd  = require('../AdOwner/models/WebAdvertiseModel');
-
     const [websites, adSpaces, ads] = await Promise.all([
       Website.findByOwner(userId),
       AdCategory.findByOwner(userId),
       ImportAd.findByUser(userId),
     ]);
-
     res.json({ success: true, websites, adSpaces, ads });
   } catch (err) {
     console.error('getUserContent error:', err);
@@ -559,14 +624,8 @@ exports.getUserContent = async (req, res) => {
 exports.deleteWebsite = async (req, res) => {
   try {
     const { websiteId } = req.params;
-    const Website    = require('../AdPromoter/models/CreateWebsiteModel');
-    const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
-
-    // Delete all ad spaces for this website first
-    const { query } = require('../config/db');
     await query(`DELETE FROM ad_categories WHERE website_id = $1`, [websiteId]);
     await Website.delete(websiteId);
-
     res.json({ success: true, message: 'Website and its ad spaces deleted.' });
   } catch (err) {
     console.error('deleteWebsite error:', err);
@@ -579,9 +638,7 @@ exports.deleteWebsite = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.deleteAdSpace = async (req, res) => {
   try {
-    const { spaceId } = req.params;
-    const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
-    await AdCategory.delete(spaceId);
+    await AdCategory.delete(req.params.spaceId);
     res.json({ success: true, message: 'Ad space deleted.' });
   } catch (err) {
     console.error('deleteAdSpace error:', err);
@@ -594,9 +651,7 @@ exports.deleteAdSpace = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.deleteAd = async (req, res) => {
   try {
-    const { adId } = req.params;
-    const ImportAd = require('../AdOwner/models/WebAdvertiseModel');
-    await ImportAd.delete(adId);
+    await ImportAd.delete(req.params.adId);
     res.json({ success: true, message: 'Ad deleted.' });
   } catch (err) {
     console.error('deleteAd error:', err);
