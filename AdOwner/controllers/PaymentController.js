@@ -280,8 +280,8 @@ exports.verifyPayment = async (req, res) => {
           }
 
           await client.query(
-            `UPDATE ad_categories SET selected_ads = array_append(COALESCE(selected_ads, ARRAY[]::text[]), $1)
-             WHERE id = $2 AND NOT ($1 = ANY(COALESCE(selected_ads, ARRAY[]::text[])))`,
+            `UPDATE ad_categories SET selected_ads = array_append(COALESCE(selected_ads, ARRAY[]::uuid[]), $1)
+             WHERE id = $2 AND NOT ($1 = ANY(COALESCE(selected_ads, ARRAY[]::uuid[])))`,
             [payment.ad_id, payment.category_id]
           );
 
