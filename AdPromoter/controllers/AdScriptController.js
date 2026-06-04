@@ -170,6 +170,13 @@ function placementStyles(spaceType, prefix) {
 exports.serveAdScript = async (req, res) => {
   try {
     const { scriptId } = req.params;
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(scriptId)) {
+      res.setHeader('Content-Type', 'application/javascript');
+      return res.status(400).send('// Invalid ad space ID');
+    }
+
     const adCategory = await AdCategory.findById(scriptId);
     if (!adCategory) return res.status(404).send('// Ad space not found');
 
