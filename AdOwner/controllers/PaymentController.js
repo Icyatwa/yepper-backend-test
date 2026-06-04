@@ -114,17 +114,22 @@ exports.initiatePayment = async (req, res) => {
   try {
     const { adId, selections } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
+    console.log('[initiatePayment] adId:', adId, 'userId:', userId, 'selections:', JSON.stringify(selections));
 
     if (!Array.isArray(selections) || selections.length === 0) {
       return res.status(400).json({ error: 'At least one ad placement must be selected' });
     }
 
     const ad = await ImportAd.findById(adId);
+    console.log('[initiatePayment] ad:', ad ? 'found user_id='+ad.user_id : 'NOT FOUND');
     if (!ad) return res.status(404).json({ error: 'Ad not found' });
-    if (ad.user_id.toString() !== userId.toString())
+    if (ad.user_id.toString() !== userId.toString()) {
+      console.log('[initiatePayment] UNAUTHORIZED ad.user_id:', ad.user_id, '!== userId:', userId);
       return res.status(403).json({ error: 'Unauthorized access to ad' });
+    }
 
     const websiteSelections = parseSelections(ad);
+    console.log('[initiatePayment] parsed websiteSelections:', JSON.stringify(websiteSelections));
     let totalAmount = 0;
     const validatedSelections = [];
     const categoryDetails = [];
@@ -135,10 +140,12 @@ exports.initiatePayment = async (req, res) => {
         (sel) => sel.websiteId === websiteId && Array.isArray(sel.categories) &&
           sel.categories.includes(categoryId) && sel.status === 'active'
       );
+      console.log('[initiatePayment] checking websiteId:', websiteId, 'categoryId:', categoryId, 'existing:', !!existing);
       if (existing) continue;
 
       const category = await AdCategory.findById(categoryId);
       const website = await Website.findById(websiteId);
+      console.log('[initiatePayment] category:', !!category, 'website:', !!website);
       if (!category || !website) {
         return res.status(404).json({ error: `Category or website not found for: ${categoryId}` });
       }
