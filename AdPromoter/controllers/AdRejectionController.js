@@ -127,7 +127,7 @@ exports.getPendingRejections = async (req, res) => {
     const now = new Date();
 
     // Find categories owned by this web owner
-    const categories = await AdCategory.find({ ownerId: webOwnerId });
+    const categories = await AdCategory.findByOwner(webOwnerId);
     const categoryIds = categories.map(cat => cat._id);
 
     // Find ads with pending rejection windows
