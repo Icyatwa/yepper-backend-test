@@ -23,6 +23,7 @@ function toClient(w) {
     ownerId: w.owner_id,
     isBusinessCategoriesSelected: w.is_business_categories_selected,
     verificationStatus: w.verification_status,
+    businessCategories: w.business_categories,   // ← this was missing
   };
 }
 
