@@ -14,23 +14,23 @@ const Website = {
        data.verificationToken||null, data.verificationStatus||'pending',
        data.gscAccessToken||null, data.gscRefreshToken||null]
     );
-    return rows[0];
+    return rowToCamel(rows[0]);
   },
   async findById(id) {
     const { rows } = await query(`SELECT * FROM websites WHERE id = $1`, [id]);
-    return rows[0] || null;
+    return rowToCamel(rows[0] || null);  // ← add this
   },
   async findByOwner(ownerId) {
-    const { rows } = await query(`SELECT * FROM websites WHERE owner_id = $1 ORDER BY created_at DESC`, [ownerId]);
-    return rows;
+    const { rows } = await query(`SELECT * FROM websites WHERE owner_id = $1 ...`, [ownerId]);
+    return rows.map(rowToCamel);   // ← add this
   },
   async findByLink(link) {
     const { rows } = await query(`SELECT * FROM websites WHERE website_link = $1`, [link]);
-    return rows[0] || null;
+    return rowToCamel(rows[0] || null);  // ← add this
   },
-  async findAll() {
-    const { rows } = await query(`SELECT * FROM websites ORDER BY created_at DESC`);
-    return rows;
+  async findByLink(link) {
+    const { rows } = await query(`SELECT * FROM websites WHERE website_link = $1`, [link]);
+    return rowToCamel(rows[0] || null);  // ← add this
   },
   async update(id, fields) {
     const keys = Object.keys(fields);
@@ -40,9 +40,20 @@ const Website = {
       `UPDATE websites SET ${setClauses} WHERE id = $1 RETURNING *`,
       [id, ...keys.map(k=>fields[k])]
     );
-    return rows[0] || null;
+    return rowToCamel(rows[0] || null);
   },
   async delete(id) { await query(`DELETE FROM websites WHERE id = $1`, [id]); },
 };
 function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }
+
+function toCamel(s) {
+  return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+function rowToCamel(row) {
+  if (!row) return null;
+  return Object.fromEntries(
+    Object.entries(row).map(([k, v]) => [toCamel(k), v])
+  );
+}
 module.exports = Website;
