@@ -33,6 +33,12 @@ const Wallet = {
     const { rows } = await query(`SELECT * FROM wallets ORDER BY created_at DESC`);
     return rows;
   },
+
+  // Find any wallet for this owner regardless of ownerType (used when ownerType not yet known)
+  async findByOwnerId(ownerId) {
+    const { rows } = await query(`SELECT * FROM wallets WHERE owner_id = $1 LIMIT 1`, [ownerId]);
+    return rows[0] || null;
+  },
 };
 
 const WalletTransaction = {
@@ -51,6 +57,18 @@ const WalletTransaction = {
   async findByWallet(walletId) {
     const { rows } = await query(`SELECT * FROM wallet_transactions WHERE wallet_id = $1 ORDER BY created_at DESC`, [walletId]);
     return rows;
+  },
+  async findByWalletPaginated(walletId, page = 1, limit = 20) {
+    const offset = (page - 1) * limit;
+    const { rows } = await query(
+      `SELECT * FROM wallet_transactions WHERE wallet_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [walletId, limit, offset]
+    );
+    return rows;
+  },
+  async countByWallet(walletId) {
+    const { rows } = await query(`SELECT COUNT(*) FROM wallet_transactions WHERE wallet_id = $1`, [walletId]);
+    return parseInt(rows[0].count, 10);
   },
 };
 

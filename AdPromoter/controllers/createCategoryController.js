@@ -198,8 +198,8 @@ exports.createCategory = async (req, res) => {
       });
     }
 
-    // Create new category
-    const newCategory = new AdCategory({
+    // Create new category (PG)
+    const savedCategory = await AdCategory.create({
       ownerId,
       websiteId,
       categoryName,
@@ -207,27 +207,24 @@ exports.createCategory = async (req, res) => {
       price,
       spaceType,
       placementMode: placementMode || 'auto',
-      userCount: userCount || 0,
       instructions,
       customAttributes: customAttributes || {},
       webOwnerEmail,
-      selectedAds: [],
       visitorRange,
-      tier
+      tier,
     });
 
-    const savedCategory = await newCategory.save();
-    const { script } = generateScriptTag(savedCategory._id.toString());
+    const { script } = generateScriptTag(savedCategory.id.toString());
 
     // Update with API codes
     const backendUrl = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
     const frontendUrl = process.env.FRONTEND_URL || 'https://yepper.cc';
-    const adSrc = `${backendUrl}/api/ads/script/${savedCategory._id}`;
+    const adSrc = `${backendUrl}/api/ads/script/${savedCategory.id}`;
 
-    savedCategory.apiCodes = {
+    const apiCodes = {
       // ── OPTION 1: Auto-placement ──────────────────────────────────────
       HTML: [
-        `<!-- Yepper Ad: ${savedCategory.categoryName} — Auto-Placement -->`,
+        `<!-- Yepper Ad: ${savedCategory.category_name} — Auto-Placement -->`,
         `<!-- Drop this ONE tag anywhere. The script places itself by your chosen spaceType. -->`,
         `<script src="${adSrc}" async></script>`,
       ].join('\n'),
@@ -245,13 +242,13 @@ exports.createCategory = async (req, res) => {
       ].join('\n'),
 
       PHP: [
-        `<?php /* Yepper Ad: ${savedCategory.categoryName} — Auto-Placement */ ?>`,
+        `<?php /* Yepper Ad: ${savedCategory.category_name} — Auto-Placement */ ?>`,
         `<!-- Drop anywhere in your template. The script finds the right spot. -->`,
         `<script src="${adSrc}" async></script>`,
       ].join('\n'),
 
       Python: [
-        `# Yepper Ad: ${savedCategory.categoryName} — Auto-Placement`,
+        `# Yepper Ad: ${savedCategory.category_name} — Auto-Placement`,
         `# Paste in your Django/Flask base template anywhere inside <body>.`,
         `ad_tag = '<script src="${adSrc}" async></script>'`,
         `# Django: {% autoescape off %}{{ ad_tag }}{% endautoescape %}`,
@@ -259,9 +256,9 @@ exports.createCategory = async (req, res) => {
 
       // ── OPTION 2: Manual placement ────────────────────────────────────
       HTML_manual: [
-        `<!-- Yepper Ad: ${savedCategory.categoryName} — Manual Placement -->`,
+        `<!-- Yepper Ad: ${savedCategory.category_name} — Manual Placement -->`,
         `<!-- Step 1: Place this div exactly where you want the ad to appear -->`,
-        `<div data-yepper-space="${savedCategory._id}"></div>`,
+        `<div data-yepper-space="${savedCategory.id}"></div>`,
         ``,
         `<!-- Step 2: Add the script once anywhere (head or before </body>) -->`,
         `<script src="${adSrc}" async></script>`,
@@ -270,7 +267,7 @@ exports.createCategory = async (req, res) => {
       JavaScript_manual: [
         `// Yepper Ad — Manual placement (React / Vue / Next.js / Svelte / Angular)`,
         `// Step 1: Place this div in your JSX exactly where you want the ad:`,
-        `// <div data-yepper-space="${savedCategory._id}"></div>`,
+        `// <div data-yepper-space="${savedCategory.id}"></div>`,
         ``,
         `// Step 2: Load the script once in your root component:`,
         `useEffect(() => {`,
@@ -283,24 +280,25 @@ exports.createCategory = async (req, res) => {
       ].join('\n'),
 
       PHP_manual: [
-        `<?php /* Yepper Ad: ${savedCategory.categoryName} — Manual Placement */ ?>`,
+        `<?php /* Yepper Ad: ${savedCategory.category_name} — Manual Placement */ ?>`,
         `<!-- Step 1: Place this div exactly where you want the ad -->`,
-        `<div data-yepper-space="${savedCategory._id}"></div>`,
+        `<div data-yepper-space="${savedCategory.id}"></div>`,
         `<!-- Step 2: Add script once anywhere in your template -->`,
         `<script src="${adSrc}" async></script>`,
       ].join('\n'),
 
       Python_manual: [
-        `# Yepper Ad: ${savedCategory.categoryName} — Manual Placement`,
+        `# Yepper Ad: ${savedCategory.category_name} — Manual Placement`,
         `# Step 1: Place this div where you want the ad in your template:`,
-        `placement_div = '<div data-yepper-space="${savedCategory._id}"></div>'`,
+        `placement_div = '<div data-yepper-space="${savedCategory.id}"></div>'`,
         `# Step 2: Load the script once anywhere in the page:`,
         `ad_script = '<script src="${adSrc}" async></script>'`,
         `# Django: {% autoescape off %}{{ placement_div }}{{ ad_script }}{% endautoescape %}`,
       ].join('\n'),
     };
 
-    const finalCategory = await savedCategory.save();
+    // Persist the generated apiCodes back to the DB (PG update)
+    const finalCategory = await AdCategory.update(savedCategory.id, { apiCodes });
 
     try { await generateSiteScript(websiteId); } catch(e) { console.error("Site script regen:", e.message); }
 
@@ -339,28 +337,18 @@ exports.createCategory = async (req, res) => {
 exports.getActiveAds = async (req, res) => {
   try {
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
-    
-    // Find categories owned by this web owner
-    const categories = await AdCategory.find({ ownerId: webOwnerId });
-    const categoryIds = categories.map(cat => cat._id);
 
-    // Find active ads
-    const activeAds = await ImportAd.find({
-      'websiteSelections': {
-        $elemMatch: {
-          categories: { $in: categoryIds },
-          approved: true,
-          isRejected: false,
-          status: 'active'
-        }
-      }
-    });
+    // Find categories owned by this web owner (PG method)
+    const categories = await AdCategory.findByOwner(webOwnerId);
+    const categoryIds = categories.map(cat => cat.id);
+
+    // Find active ads via JSONB query (PG method)
+    const activeAds = await ImportAd.findActiveByCategories(categoryIds);
 
     res.status(200).json({
       success: true,
-      activeAds: activeAds
+      activeAds,
     });
-
   } catch (error) {
     console.error('Error fetching active ads:', error);
     res.status(500).json({ error: 'Failed to fetch active ads' });
@@ -372,27 +360,17 @@ exports.getPendingRejections = async (req, res) => {
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
     const now = new Date();
 
-    // Find categories owned by this web owner
-    const categories = await AdCategory.find({ ownerId: webOwnerId });
-    const categoryIds = categories.map(cat => cat._id);
+    // Find categories owned by this web owner (PG method)
+    const categories = await AdCategory.findByOwner(webOwnerId);
+    const categoryIds = categories.map(cat => cat.id);
 
-    // Find ads with pending rejection windows
-    const pendingAds = await ImportAd.find({
-      'websiteSelections': {
-        $elemMatch: {
-          categories: { $in: categoryIds },
-          approved: true,
-          isRejected: false,
-          rejectionDeadline: { $gt: now }
-        }
-      }
-    });
+    // Find ads with pending rejection windows via JSONB query (PG method)
+    const pendingAds = await ImportAd.findPendingByCategories(categoryIds, now);
 
     res.status(200).json({
       success: true,
-      pendingAds: pendingAds
+      pendingAds,
     });
-
   } catch (error) {
     console.error('Error fetching pending rejections:', error);
     res.status(500).json({ error: 'Failed to fetch pending rejections' });

@@ -66,6 +66,53 @@ const ImportAd = {
   },
 
   async delete(id) { await query(`DELETE FROM import_ads WHERE id = $1`, [id]); },
+
+  // Find ads where any websiteSelection is active and references one of the given category IDs
+  async findActiveByCategories(categoryIds) {
+    if (!categoryIds || categoryIds.length === 0) return [];
+    const ids = categoryIds.map(String);
+    const { rows } = await query(
+      `SELECT DISTINCT * FROM import_ads
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements(website_selections) AS sel
+         WHERE (sel->>'approved')::boolean = true
+           AND (sel->>'isRejected')::boolean = false
+           AND sel->>'status' = 'active'
+           AND EXISTS (
+             SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+             WHERE cat_id = ANY($1::text[])
+           )
+       )`,
+      [ids]
+    );
+    return rows;
+  },
+
+  // Find ads where any websiteSelection is within the rejection window for the given categories
+  async findPendingByCategories(categoryIds, now) {
+    if (!categoryIds || categoryIds.length === 0) return [];
+    const ids = categoryIds.map(String);
+    const { rows } = await query(
+      `SELECT DISTINCT * FROM import_ads
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements(website_selections) AS sel
+         WHERE (sel->>'approved')::boolean = true
+           AND (sel->>'isRejected')::boolean = false
+           AND (sel->>'rejectionDeadline')::timestamptz > $2
+           AND EXISTS (
+             SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+             WHERE cat_id = ANY($1::text[])
+           )
+       )`,
+      [ids, now]
+    );
+    return rows;
+  },
+
+  async countByUser(userId) {
+    const { rows } = await query(`SELECT COUNT(*) FROM import_ads WHERE user_id = $1`, [userId]);
+    return parseInt(rows[0].count, 10);
+  },
 };
 
 function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }

@@ -50,14 +50,14 @@ async function getAuthClient(user, website) {
   // When tokens are refreshed, persist them back to the right doc
   oauth2Client.on('tokens', async (tokens) => {
     if (tokens.access_token) {
-      if (user?.gscAccessToken) {
-        user.gscAccessToken = tokens.access_token;
-        if (tokens.refresh_token) user.gscRefreshToken = tokens.refresh_token;
-        await user.save().catch(() => {});
+      if (user?.gsc_access_token || user?.gscAccessToken) {
+        const fields = { gscAccessToken: tokens.access_token };
+        if (tokens.refresh_token) fields.gscRefreshToken = tokens.refresh_token;
+        await User.update(user.id, fields).catch(() => {});
       } else if (website) {
-        website.gscAccessToken = tokens.access_token;
-        if (tokens.refresh_token) website.gscRefreshToken = tokens.refresh_token;
-        await website.save().catch(() => {});
+        const fields = { gscAccessToken: tokens.access_token };
+        if (tokens.refresh_token) fields.gscRefreshToken = tokens.refresh_token;
+        await Website.update(website.id, fields).catch(() => {});
       }
     }
   });
@@ -76,11 +76,13 @@ exports.getConnectUrl = async (req, res) => {
   const { websiteId } = req.params;
 
   const [website, user] = await Promise.all([
-    Website.findOne({ _id: websiteId, ownerId: userId }),
+    Website.findById(websiteId),
     User.findById(userId),
   ]);
 
-  if (!website) return res.status(404).json({ error: 'Website not found' });
+  if (!website || website.owner_id?.toString() !== userId?.toString()) {
+    return res.status(404).json({ error: 'Website not found' });
+  }
 
   // If the user already has tokens from their Google sign-in, no extra flow needed
   if (user?.gscAccessToken) {
@@ -123,8 +125,8 @@ exports.oauthCallback = async (req, res) => {
     const sitesRes = await searchconsole.sites.list();
     const sites = sitesRes.data.siteEntry || [];
 
-    const website = await Website.findOne({ _id: websiteId, ownerId: userId });
-    if (!website) return res.redirect(`${FRONTEND_URL}/gsc-connect?status=error&reason=website_not_found`);
+    const website = await Website.findById(websiteId);
+    if (!website || website.owner_id?.toString() !== userId?.toString()) return res.redirect(`${FRONTEND_URL}/gsc-connect?status=error&reason=website_not_found`);
 
     const websiteUrl = website.websiteLink.replace(/\/$/, '');
     const matchedSite = sites.find(s => {
@@ -137,11 +139,12 @@ exports.oauthCallback = async (req, res) => {
       );
     });
 
-    website.gscAccessToken  = tokens.access_token;
-    if (tokens.refresh_token) website.gscRefreshToken = tokens.refresh_token;
-    website.gscSiteUrl      = matchedSite ? matchedSite.siteUrl : null;
-    website.gscConnectedAt  = new Date();
-    await website.save();
+    await Website.update(website.id, {
+      gscAccessToken: tokens.access_token,
+      ...(tokens.refresh_token ? { gscRefreshToken: tokens.refresh_token } : {}),
+      gscSiteUrl: matchedSite ? matchedSite.siteUrl : null,
+      gscConnectedAt: new Date(),
+    });
 
     if (!matchedSite) {
       return res.redirect(`${FRONTEND_URL}/websites/${websiteId}?gsc=connected_no_site&tab=analytics`);
@@ -163,15 +166,15 @@ exports.getGscData = async (req, res) => {
 
   try {
     const [website, user] = await Promise.all([
-      Website.findOne({ _id: websiteId, ownerId: userId }),
+      Website.findById(websiteId),
       User.findById(userId),
     ]);
 
-    if (!website) return res.status(404).json({ error: 'Website not found' });
+    if (!website || website.owner_id?.toString() !== userId?.toString()) return res.status(404).json({ error: 'Website not found' });
 
     // Determine if we have any tokens at all
-    const hasUserTokens    = !!user?.gscAccessToken;
-    const hasWebsiteTokens = !!website?.gscAccessToken;
+    const hasUserTokens    = !!(user?.gsc_access_token || user?.gscAccessToken);
+    const hasWebsiteTokens = !!(website?.gsc_access_token || website?.gscAccessToken);
 
     if (!hasUserTokens && !hasWebsiteTokens) {
       return res.json({ connected: false });
@@ -185,7 +188,7 @@ exports.getGscData = async (req, res) => {
     // Prefer the already-matched URL saved on the website doc.
     // If missing (user connected via Google login but never ran the per-website flow),
     // auto-match by listing the user's verified GSC properties.
-    let siteUrl = website.gscSiteUrl;
+    let siteUrl = website.gsc_site_url || website.gscSiteUrl;
 
     if (!siteUrl) {
       try {
@@ -207,9 +210,10 @@ exports.getGscData = async (req, res) => {
         if (matched) {
           siteUrl = matched.siteUrl;
           // Cache it on the website so we don't repeat the lookup
-          website.gscSiteUrl     = siteUrl;
-          website.gscConnectedAt = website.gscConnectedAt || new Date();
-          await website.save().catch(() => {});
+          await Website.update(website.id, {
+            gscSiteUrl: siteUrl,
+            gscConnectedAt: website.gsc_connected_at || website.gscConnectedAt || new Date(),
+          }).catch(() => {});
         } else {
           // Return the list of available sites so the frontend can let the user pick
           return res.json({
@@ -258,7 +262,7 @@ exports.getGscData = async (req, res) => {
       siteMatched:  true,
       connectedVia: hasUserTokens ? 'google_login' : 'manual',
       siteUrl,
-      connectedAt:  website.gscConnectedAt,
+      connectedAt:  website.gsc_connected_at || website.gscConnectedAt,
       dateRange:    { start: fmt(startDate), end: fmt(endDate) },
       summary: {
         clicks:      Math.round(summary.clicks      || 0),
@@ -292,12 +296,8 @@ exports.getGscData = async (req, res) => {
     if (err.code === 401 || err.status === 401) {
       // Clear stale tokens from wherever they came from
       await Promise.allSettled([
-        Website.findByIdAndUpdate(websiteId, {
-          $unset: { gscAccessToken: '', gscRefreshToken: '', gscSiteUrl: '', gscConnectedAt: '' },
-        }),
-        User.findByIdAndUpdate(getUserIdFromToken(req), {
-          $unset: { gscAccessToken: '', gscRefreshToken: '' },
-        }),
+        Website.update(websiteId, { gscAccessToken: null, gscRefreshToken: null, gscSiteUrl: null, gscConnectedAt: null }),
+        User.update(getUserIdFromToken(req), { gscAccessToken: null, gscRefreshToken: null }),
       ]);
       return res.json({ connected: false, reason: 'token_revoked' });
     }
@@ -314,11 +314,11 @@ exports.disconnect = async (req, res) => {
   const { websiteId } = req.params;
 
   try {
-    const website = await Website.findOne({ _id: websiteId, ownerId: userId });
-    if (!website) return res.status(404).json({ error: 'Website not found' });
+    const website = await Website.findById(websiteId);
+    if (!website || website.owner_id?.toString() !== userId?.toString()) return res.status(404).json({ error: 'Website not found' });
 
     // Revoke whichever token we can
-    const tokenToRevoke = website.gscAccessToken;
+    const tokenToRevoke = website.gsc_access_token || website.gscAccessToken;
     if (tokenToRevoke) {
       try {
         const oauth2Client = makeOAuth2Client();
@@ -329,9 +329,7 @@ exports.disconnect = async (req, res) => {
       }
     }
 
-    await Website.findByIdAndUpdate(websiteId, {
-      $unset: { gscAccessToken: '', gscRefreshToken: '', gscSiteUrl: '', gscConnectedAt: '' },
-    });
+    await Website.update(websiteId, { gscAccessToken: null, gscRefreshToken: null, gscSiteUrl: null, gscConnectedAt: null });
 
     res.json({ ok: true });
   } catch (err) {
