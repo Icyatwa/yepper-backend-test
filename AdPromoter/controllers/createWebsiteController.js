@@ -1,9 +1,9 @@
 // createWebsiteController.js
 const Website = require('../models/CreateWebsiteModel');
 const multer = require('multer');
-const User = require('../../models/User'); // CHANGE: Added User model import for custom auth
+const User = require('../../models/User');
 const path = require('path');
-const jwt = require('jsonwebtoken'); // ADD THIS LINE - Missing import
+const jwt = require('jsonwebtoken');
 const cloudinary = require('../../config/storage');
 const dns = require('dns').promises;
 const crypto = require('crypto');
@@ -11,12 +11,10 @@ require('dotenv').config();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|bmp|webp|tiff|svg/;
-    const isValid = allowedTypes.test(path.extname(file.originalname).toLowerCase()) && 
+    const isValid = allowedTypes.test(path.extname(file.originalname).toLowerCase()) &&
                     file.mimetype.startsWith('image/');
     if (isValid) return cb(null, true);
     cb(new Error('Invalid file type. Only image files are allowed.'));
@@ -24,52 +22,27 @@ const upload = multer({
 });
 
 const uploadToCloudinary = async (file) => {
-  try {
-    console.log('Starting Cloudinary upload for:', file.originalname);
-
-    const fileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-
-    return new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          resource_type: 'image',
-          folder: 'yepper_websites',
-          public_id: fileName,
-        },
-        (error, result) => {
-          if (error) {
-            console.error('Cloudinary upload error:', error);
-            return reject(new Error(`Upload failed: ${error.message}`));
-          }
-          console.log('File uploaded successfully to:', result.secure_url);
-          resolve(result.secure_url);
-        }
-      );
-      uploadStream.end(file.buffer);
-    });
-
-  } catch (error) {
-    console.error('Cloudinary upload error:', error);
-    throw new Error(`Upload failed: ${error.message}`);
-  }
+  const fileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { resource_type: 'image', folder: 'yepper_websites', public_id: fileName },
+      (error, result) => {
+        if (error) return reject(new Error(`Upload failed: ${error.message}`));
+        resolve(result.secure_url);
+      }
+    );
+    uploadStream.end(file.buffer);
+  });
 };
 
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ message: 'Access token is required' });
-  }
-
+  if (!token) return res.status(401).json({ message: 'Access token is required' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-jwt-secret');
     const user = await User.findById(decoded.userId);
-    
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
-    }
-
+    if (!user) return res.status(401).json({ message: 'User not found' });
     req.user = user;
     next();
   } catch (error) {
@@ -77,8 +50,6 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-
-// Compute traffic tier from monthly visitors
 function computeTrafficTier(visitors) {
   const v = parseInt(visitors) || 0;
   if (v <= 2000) return 'starter';
@@ -87,8 +58,6 @@ function computeTrafficTier(visitors) {
   if (v <= 200000) return 'premium';
   return 'elite';
 }
-
-// ─── Domain helpers ───────────────────────────────────────────────────────────
 
 function normalizeDomain(url) {
   try {
@@ -103,30 +72,20 @@ function buildTxtRecord(token) {
   return `yepper-verify=${token}`;
 }
 
-// ─── Initiate domain verification ────────────────────────────────────────────
 // POST /api/createWebsite/initiate-verification
-// Body: { websiteLink }
-// Returns: { verificationToken, txtRecord, txtHost } — no DB write yet
 exports.initiateVerification = [authenticateToken, async (req, res) => {
   try {
     const { websiteLink } = req.body;
-    if (!websiteLink) {
-      return res.status(400).json({ message: 'websiteLink is required' });
-    }
+    if (!websiteLink) return res.status(400).json({ message: 'websiteLink is required' });
 
     const domain = normalizeDomain(websiteLink);
-    if (!domain) {
-      return res.status(400).json({ message: 'Invalid website URL' });
-    }
+    if (!domain) return res.status(400).json({ message: 'Invalid website URL' });
 
-    // Reuse existing token if the same owner already started for this domain
-    let existing = await Website.findOne({
-      websiteLink,
-      ownerId: req.user.id.toString(),
-      verificationStatus: 'pending',
-    }).lean();
-
-    const token = existing?.verificationToken || crypto.randomBytes(24).toString('hex');
+    // Reuse existing token if same owner already started for this domain
+    const existing = await Website.findByLink(websiteLink);
+    const token = (existing && existing.owner_id === req.user.id.toString() && existing.verification_status === 'pending')
+      ? existing.verification_token
+      : crypto.randomBytes(24).toString('hex');
 
     res.status(200).json({
       domain,
@@ -146,9 +105,7 @@ exports.initiateVerification = [authenticateToken, async (req, res) => {
   }
 }];
 
-// ─── Check domain verification ────────────────────────────────────────────────
 // POST /api/createWebsite/verify-domain
-// Body: { websiteLink, verificationToken }
 exports.verifyDomain = [authenticateToken, async (req, res) => {
   try {
     const { websiteLink, verificationToken } = req.body;
@@ -157,9 +114,7 @@ exports.verifyDomain = [authenticateToken, async (req, res) => {
     }
 
     const domain = normalizeDomain(websiteLink);
-    if (!domain) {
-      return res.status(400).json({ message: 'Invalid website URL' });
-    }
+    if (!domain) return res.status(400).json({ message: 'Invalid website URL' });
 
     const expectedTxt = buildTxtRecord(verificationToken);
     const lookupHost = `_yepper-challenge.${domain}`;
@@ -167,10 +122,8 @@ exports.verifyDomain = [authenticateToken, async (req, res) => {
     let found = false;
     try {
       const records = await dns.resolveTxt(lookupHost);
-      // records is string[][]
       found = records.some(rdata => rdata.join('').includes(expectedTxt));
-    } catch (dnsErr) {
-      // ENOTFOUND / ENODATA — record not yet present
+    } catch {
       found = false;
     }
 
@@ -181,8 +134,6 @@ exports.verifyDomain = [authenticateToken, async (req, res) => {
       });
     }
 
-    // Mark token as verified (upsert so it survives even if website doc doesn't exist yet)
-    // We store it in a lightweight way — the full website document is created in createWebsiteWithCategories
     res.status(200).json({
       verified: true,
       verificationToken,
@@ -204,97 +155,50 @@ exports.prepareWebsite = [upload.single('file'), authenticateToken, async (req, 
       return res.status(400).json({ message: 'Website name and link are required' });
     }
 
-    // Check if website URL already exists
-    const existingWebsite = await Website.findOne({ websiteLink }).lean();
-    if (existingWebsite) {
-      return res.status(409).json({ message: 'Website URL already exists' });
-    }
+    const existingWebsite = await Website.findByLink(websiteLink);
+    if (existingWebsite) return res.status(409).json({ message: 'Website URL already exists' });
 
     let imageUrl = '';
-
     if (req.file) {
       try {
-        console.log('Processing file upload:', {
-          originalname: req.file.originalname,
-          mimetype: req.file.mimetype,
-          size: req.file.size
-        });
-        
         imageUrl = await uploadToCloudinary(req.file);
-        console.log('Upload completed successfully');
       } catch (uploadError) {
-        console.error('File upload failed:', uploadError);
-        return res.status(500).json({ 
-          message: 'Failed to upload file. Please try again.',
-          error: uploadError.message 
-        });
+        return res.status(500).json({ message: 'Failed to upload file.', error: uploadError.message });
       }
     }
 
-    // Return prepared data without saving to database
-    const websiteData = {
+    res.status(200).json({
       ownerId,
       websiteName,
       websiteLink,
       imageUrl,
-      tempId: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` // Temporary ID for frontend
-    };
-
-    res.status(200).json({
-      ...websiteData,
-      nextStep: 'business-categories'
+      tempId: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      nextStep: 'business-categories',
     });
   } catch (error) {
     console.error('Error preparing website:', error);
-    res.status(500).json({ 
-      message: 'Failed to prepare website',
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to prepare website', error: error.message });
   }
 }];
 
-exports.uploadWebsiteImage = [
-  authenticateToken,
-  upload.single('file'),
-  async (req, res) => {
-    try {
-      const { websiteId } = req.params;
-      
-      if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded' });
-      }
+exports.uploadWebsiteImage = [authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    const { websiteId } = req.params;
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
-      // Verify website exists and belongs to user
-      const website = await Website.findById(websiteId);
-      if (!website) {
-        return res.status(404).json({ message: 'Website not found' });
-      }
-      
-      if (website.ownerId !== req.user.id.toString()) {
-        return res.status(403).json({ message: 'Unauthorized' });
-      }
+    const website = await Website.findById(websiteId);
+    if (!website) return res.status(404).json({ message: 'Website not found' });
+    if (website.owner_id !== req.user.id.toString()) return res.status(403).json({ message: 'Unauthorized' });
 
-      // Upload to Cloudinary
-      const imageUrl = await uploadToCloudinary(req.file);
+    const imageUrl = await uploadToCloudinary(req.file);
+    await Website.update(websiteId, { imageUrl });
 
-      // Update website with image URL
-      website.imageUrl = imageUrl;
-      await website.save();
-
-      res.json({
-        success: true,
-        imageUrl,
-        message: 'Image uploaded successfully'
-      });
-    } catch (error) {
-      console.error('Upload error:', error);
-      res.status(500).json({ 
-        message: 'Failed to upload image',
-        error: error.message 
-      });
-    }
+    res.json({ success: true, imageUrl, message: 'Image uploaded successfully' });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ message: 'Failed to upload image', error: error.message });
   }
-];
+}];
 
 exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
   try {
@@ -302,37 +206,24 @@ exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
     const ownerId = req.user.id.toString();
 
     if (!websiteName || !websiteLink || !businessCategories || !Array.isArray(businessCategories)) {
-      return res.status(400).json({ 
-        message: 'Website name, link, and business categories are required' 
-      });
+      return res.status(400).json({ message: 'Website name, link, and business categories are required' });
     }
-
     if (!verificationToken) {
-      return res.status(400).json({
-        message: 'Domain must be verified before creating a website. Please complete domain verification first.',
-      });
+      return res.status(400).json({ message: 'Domain must be verified before creating a website.' });
     }
-
     if (businessCategories.length === 0) {
-      return res.status(400).json({ 
-        message: 'At least one business category must be selected' 
-      });
+      return res.status(400).json({ message: 'At least one business category must be selected' });
     }
 
-    // Double-check if website URL already exists (in case someone else created it while user was selecting categories)
-    const existingWebsite = await Website.findOne({ websiteLink }).lean();
-    if (existingWebsite) {
-      return res.status(409).json({ message: 'Website URL already exists' });
-    }
+    const existingWebsite = await Website.findByLink(websiteLink);
+    if (existingWebsite) return res.status(409).json({ message: 'Website URL already exists' });
 
-    // Re-verify TXT record server-side before saving (prevents token replay)
+    // Re-verify TXT record before saving
     const domain = normalizeDomain(websiteLink);
     const expectedTxt = buildTxtRecord(verificationToken);
-    const lookupHost = `_yepper-challenge.${domain}`;
-
     let verified = false;
     try {
-      const records = await dns.resolveTxt(lookupHost);
+      const records = await dns.resolveTxt(`_yepper-challenge.${domain}`);
       verified = records.some(rdata => rdata.join('').includes(expectedTxt));
     } catch {
       verified = false;
@@ -345,23 +236,18 @@ exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
       });
     }
 
-    // Validate business categories against allowed enum values
     const allowedCategories = [
       'any', 'technology', 'food-beverage', 'real-estate', 'automotive',
       'health-wellness', 'entertainment', 'fashion', 'education',
       'business-services', 'travel-tourism', 'arts-culture', 'photography',
       'gifts-events', 'government-public', 'general-retail'
     ];
-
     const invalidCategories = businessCategories.filter(cat => !allowedCategories.includes(cat));
     if (invalidCategories.length > 0) {
-      return res.status(400).json({ 
-        message: `Invalid business categories: ${invalidCategories.join(', ')}` 
-      });
+      return res.status(400).json({ message: `Invalid business categories: ${invalidCategories.join(', ')}` });
     }
 
-    // Now create and save the website
-    const newWebsite = new Website({
+    const savedWebsite = await Website.create({
       ownerId,
       websiteName,
       websiteLink,
@@ -372,24 +258,13 @@ exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
       trafficTier: computeTrafficTier(monthlyTraffic),
       verificationToken,
       verificationStatus: 'verified',
-      verifiedAt: new Date(),
     });
 
-    const savedWebsite = await newWebsite.save();
-
-    console.log('Website created successfully with ID:', savedWebsite._id);
-
-    res.status(201).json({
-      success: true,
-      data: savedWebsite.toObject(),
-      message: 'Website created successfully'
-    });
+    console.log('Website created successfully with ID:', savedWebsite.id);
+    res.status(201).json({ success: true, data: savedWebsite, message: 'Website created successfully' });
   } catch (error) {
     console.error('Error creating website with categories:', error);
-    res.status(500).json({ 
-      message: 'Failed to create website',
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to create website', error: error.message });
   }
 }];
 
@@ -402,46 +277,31 @@ exports.createWebsite = [upload.single('file'), authenticateToken, async (req, r
       return res.status(400).json({ message: 'Website name and link are required' });
     }
 
-    const existingWebsite = await Website.findOne({ websiteLink }).lean();
-    if (existingWebsite) {
-      return res.status(409).json({ message: 'Website URL already exists' });
-    }
+    const existingWebsite = await Website.findByLink(websiteLink);
+    if (existingWebsite) return res.status(409).json({ message: 'Website URL already exists' });
 
     let imageUrl = '';
-
     if (req.file) {
       try {
         imageUrl = await uploadToCloudinary(req.file);
       } catch (uploadError) {
-        console.error('File upload failed:', uploadError);
-        return res.status(500).json({ 
-          message: 'Failed to upload file. Please try again.',
-          error: uploadError.message 
-        });
+        return res.status(500).json({ message: 'Failed to upload file.', error: uploadError.message });
       }
     }
 
-    const newWebsite = new Website({
+    const savedWebsite = await Website.create({
       ownerId,
       websiteName,
       websiteLink,
       imageUrl,
       businessCategories: [],
-      isBusinessCategoriesSelected: false
+      isBusinessCategoriesSelected: false,
     });
 
-    const savedWebsite = await newWebsite.save();
-
-    res.status(201).json({
-      ...savedWebsite.toObject(),
-      nextStep: 'business-categories'
-    });
+    res.status(201).json({ ...savedWebsite, nextStep: 'business-categories' });
   } catch (error) {
     console.error('Error creating website:', error);
-    res.status(500).json({ 
-      message: 'Failed to create website',
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to create website', error: error.message });
   }
 }];
 
@@ -449,50 +309,22 @@ exports.updateWebsiteName = async (req, res) => {
   try {
     const { websiteId } = req.params;
     const { websiteName } = req.body;
+    if (!websiteId || !websiteName) return res.status(400).json({ message: 'Missing required fields' });
 
-    // Validate input
-    if (!websiteId || !websiteName) {
-      return res.status(400).json({ message: 'Missing required fields' });
-    }
-
-    // Find and update the website
-    const updatedWebsite = await Website.findByIdAndUpdate(
-      websiteId, 
-      { websiteName }, 
-      { new: true, runValidators: true }
-    );
-
-    // Check if website exists
-    if (!updatedWebsite) {
-      return res.status(404).json({ message: 'Website not found' });
-    }
+    const updatedWebsite = await Website.update(websiteId, { websiteName });
+    if (!updatedWebsite) return res.status(404).json({ message: 'Website not found' });
 
     res.status(200).json(updatedWebsite);
   } catch (error) {
     console.error('Error updating website name:', error);
-    res.status(500).json({ 
-      message: 'Failed to update website name',
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to update website name', error: error.message });
   }
 };
 
 exports.getAllWebsites = async (req, res) => {
-  const { page = 1, limit = 10 } = req.query;  // Pagina tion parameters
   try {
-    const websites = await Website.find()
-      .lean()  // Use lean for performance
-      .select('ownerId websiteName websiteLink imageUrl businessCategories createdAt');  // Include businessCategories
-
-    // Ensure all websites have businessCategories as an array
-    const sanitizedWebsites = websites.map(website => ({
-      ...website,
-      businessCategories: Array.isArray(website.businessCategories) 
-        ? website.businessCategories 
-        : [] // Default to empty array if not set
-    }));
-
-    res.status(200).json(sanitizedWebsites);
+    const websites = await Website.findAll();
+    res.status(200).json(websites.map(w => ({ ...w, businessCategories: w.business_categories || [] })));
   } catch (error) {
     console.error('Error fetching websites:', error);
     res.status(500).json({ message: 'Failed to fetch websites', error: error.message });
@@ -502,9 +334,7 @@ exports.getAllWebsites = async (req, res) => {
 exports.getWebsitesByOwner = async (req, res) => {
   const { ownerId } = req.params;
   try {
-    const websites = await Website.find({ ownerId })
-      .lean()
-      .select('ownerId websiteName websiteLink imageUrl createdAt');
+    const websites = await Website.findByOwner(ownerId);
     res.status(200).json(websites);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch websites', error });
@@ -514,10 +344,8 @@ exports.getWebsitesByOwner = async (req, res) => {
 exports.getWebsiteById = async (req, res) => {
   const { websiteId } = req.params;
   try {
-    const website = await Website.findById(websiteId).lean();  // Use lean for fast loading
-    if (!website) {
-      return res.status(404).json({ message: 'Website not found' });
-    }
+    const website = await Website.findById(websiteId);
+    if (!website) return res.status(404).json({ message: 'Website not found' });
     res.status(200).json(website);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch website', error });
