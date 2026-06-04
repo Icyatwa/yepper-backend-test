@@ -776,12 +776,12 @@ exports.getCategoriesByWebsite = async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
 
   try {
-    const categories = await AdCategory.find({ websiteId })
+    const categories = await AdCategory.findByWebsite(websiteId)
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .exec();
 
-    const count = await AdCategory.countDocuments({ websiteId });
+    const count = categories.length;
 
     res.status(200).json({
       categories,

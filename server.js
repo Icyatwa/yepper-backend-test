@@ -132,7 +132,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/password', passwordRoutes);
 
 // AdPromoter
-app.use('/api/createWebsite', createWebsiteRoutes);
+app.use('/api/websites', createWebsiteRoutes);
 app.use('/api/business-categories', businessCategoriesRoutes);
 app.use('/api/ad-categories', createCategoryRoutes);
 app.use('/api/ads', adDisplayRoutes);

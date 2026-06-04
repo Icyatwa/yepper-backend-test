@@ -80,7 +80,7 @@ exports.getCategoryEarnings = async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ message: 'Unauthorized' });
 
-    const category = await AdCategory.findById(req.params.categoryId).lean();
+    const category = await AdCategory.findById(req.params.categoryId);
     if (!category) return res.status(404).json({ message: 'Category not found' });
     if (category.ownerId !== user._id.toString())
       return res.status(403).json({ message: 'Forbidden' });
@@ -125,7 +125,7 @@ exports.getWebsiteEarningsSummary = async (req, res) => {
     const monthlyTraffic = website.monthlyTraffic || 0;
     const scriptInstalled = monthlyTraffic >= 10;
 
-    const categories = await AdCategory.find({ websiteId: req.params.websiteId }).lean();
+    const categories = await AdCategory.findByWebsite(req.params.websiteId);
 
     if (!scriptInstalled) {
       return res.json({
