@@ -170,11 +170,14 @@ function placementStyles(spaceType, prefix) {
 exports.serveAdScript = async (req, res) => {
   try {
     const { scriptId } = req.params;
-    const adCategory = await AdCategory.findById(scriptId)
-      .populate('websiteId')
-      .lean();
-
+    const adCategory = await AdCategory.findById(scriptId);
     if (!adCategory) return res.status(404).send('// Ad space not found');
+
+    const { query } = require('../../config/db');
+    const { rows: wsRows } = await query(
+      `SELECT * FROM websites WHERE id = $1`, [adCategory.website_id]
+    );
+    adCategory.websiteId = wsRows[0] || null;
 
     const registeredDomain = adCategory.websiteId?.websiteLink
       ? extractDomain(adCategory.websiteId.websiteLink)

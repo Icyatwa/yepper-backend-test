@@ -1,122 +1,87 @@
 // AdRejectionController.js
-const mongoose = require('mongoose');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const AdCategory = require('../models/CreateCategoryModel');
 const Payment = require('../../AdOwner/models/PaymentModel');
 const { Wallet, WalletTransaction } = require('../models/walletModel');
 
+const { getClient } = require('../../config/db'); // for manual PG transactions
+
 exports.rejectAd = async (req, res) => {
-  const session = await mongoose.startSession();
-  
+  const client = await getClient();
   try {
     const { adId, websiteId, categoryId } = req.params;
     const { rejectionReason } = req.body;
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
 
-    await session.withTransaction(async () => {
-      // Find the ad and verify web owner permissions
-      const ad = await ImportAd.findById(adId).session(session);
-      if (!ad) {
-        throw new Error('Ad not found');
-      }
+    await client.query('BEGIN');
 
-      // Find the specific website selection
-      const selectionIndex = ad.websiteSelections.findIndex(
-        sel => sel.websiteId.toString() === websiteId && 
-               sel.categories.includes(categoryId) &&
-               sel.approved === true &&
-               !sel.isRejected
-      );
+    const ad = await ImportAd.findById(adId);
+    if (!ad) throw new Error('Ad not found');
 
-      if (selectionIndex === -1) {
-        throw new Error('Ad selection not found or already processed');
-      }
+    const websiteSelections = ad.website_selections || [];
+    const selectionIndex = websiteSelections.findIndex(
+      sel => sel.websiteId === websiteId &&
+             sel.categories?.includes(categoryId) &&
+             sel.approved === true &&
+             !sel.isRejected
+    );
+    if (selectionIndex === -1) throw new Error('Ad selection not found or already processed');
 
-      const selection = ad.websiteSelections[selectionIndex];
+    const selection = websiteSelections[selectionIndex];
+    const now = new Date();
+    if (selection.rejectionDeadline && now > new Date(selection.rejectionDeadline)) {
+      throw new Error('Rejection window has expired');
+    }
 
-      // Check if rejection window is still open (2 minutes)
-      const now = new Date();
-      if (selection.rejectionDeadline && now > selection.rejectionDeadline) {
-        throw new Error('Rejection window has expired');
-      }
+    const category = await AdCategory.findById(categoryId);
+    if (!category || category.owner_id !== webOwnerId) {
+      throw new Error('Unauthorized: You do not own this ad space');
+    }
 
-      // Verify web owner owns this website/category
-      const category = await AdCategory.findById(categoryId).session(session);
-      if (!category || category.ownerId !== webOwnerId) {
-        throw new Error('Unauthorized: You do not own this ad space');
-      }
+    const payment = await Payment.findByAd(adId);
+    const activePayment = payment.find(p =>
+      p.website_id === websiteId && p.category_id === categoryId && p.status === 'successful'
+    );
+    if (!activePayment) throw new Error('Payment record not found');
 
-      // Find the payment record
-      const payment = await Payment.findOne({
-        adId: adId,
-        websiteId: websiteId,
-        categoryId: categoryId,
-        status: 'successful'
-      }).session(session);
-
-      if (!payment) {
-        throw new Error('Payment record not found');
-      }
-
-      // Update ad selection status
-      ad.websiteSelections[selectionIndex].isRejected = true;
-      ad.websiteSelections[selectionIndex].rejectedAt = now;
-      ad.websiteSelections[selectionIndex].rejectedBy = webOwnerId;
-      ad.websiteSelections[selectionIndex].rejectionReason = rejectionReason || 'No reason provided';
-      ad.websiteSelections[selectionIndex].approved = false;
-      ad.websiteSelections[selectionIndex].status = 'rejected';
-
-      // Make ad available for reassignment
-      ad.availableForReassignment = true;
-
-      await ad.save({ session });
-
-      // Remove ad from category's selectedAds
-      await AdCategory.findByIdAndUpdate(
-        categoryId,
-        { $pull: { selectedAds: adId } },
-        { session }
-      );
-
-      // Reverse wallet transaction for web owner
-      const webOwnerWallet = await Wallet.findOne({ ownerId: webOwnerId }).session(session);
-      if (webOwnerWallet) {
-        webOwnerWallet.balance -= payment.amount;
-        webOwnerWallet.totalEarned -= payment.amount;
-        webOwnerWallet.lastUpdated = now;
-        await webOwnerWallet.save({ session });
-
-        // Create reversal transaction record
-        const reversalTransaction = new WalletTransaction({
-          walletId: webOwnerWallet._id,
-          paymentId: payment._id,
-          adId: adId,
-          amount: -payment.amount,
-          type: 'debit',
-          description: `Refund for rejected ad: ${ad.businessName} from category: ${categoryId}`
-        });
-        await reversalTransaction.save({ session });
-      }
-
-      // Update payment status
-      payment.status = 'refunded';
-      payment.refundedAt = now;
-      payment.refundReason = 'Ad rejected by web owner';
-      await payment.save({ session });
+    // Update the selection in place
+    websiteSelections[selectionIndex] = {
+      ...selection,
+      isRejected: true, rejectedAt: now, rejectedBy: webOwnerId,
+      rejectionReason: rejectionReason || 'No reason provided',
+      approved: false, status: 'rejected'
+    };
+    await ImportAd.update(adId, {
+      websiteSelections,
+      availableForReassignment: true
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Ad rejected successfully and refund processed'
+    // Reverse wallet earnings
+    const wallet = await Wallet.findByOwnerId(webOwnerId);
+    if (wallet) {
+      await Wallet.update(wallet.id, {
+        balance: wallet.balance - activePayment.amount,
+        total_earned: wallet.total_earned - activePayment.amount
+      });
+      await WalletTransaction.create({
+        walletId: wallet.id, paymentId: activePayment.id, adId,
+        amount: -activePayment.amount, type: 'debit',
+        description: `Refund for rejected ad from category: ${categoryId}`
+      });
+    }
+
+    await Payment.update(activePayment.id, {
+      status: 'refunded', refundedAt: now, refundReason: 'Ad rejected by web owner'
     });
 
+    await client.query('COMMIT');
+    res.status(200).json({ success: true, message: 'Ad rejected and refund processed' });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Ad rejection error:', error);
-    res.status(400).json({ 
-      error: error.message || 'Failed to reject ad' 
-    });
+    res.status(400).json({ error: error.message || 'Failed to reject ad' });
   } finally {
-    await session.endSession();
+    client.release();
   }
 };
 
@@ -126,27 +91,13 @@ exports.getPendingRejections = async (req, res) => {
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
     const now = new Date();
 
-    // Find categories owned by this web owner
     const categories = await AdCategory.findByOwner(webOwnerId);
-    const categoryIds = categories.map(cat => cat._id);
+    const categoryIds = categories.map(cat => cat.id);
 
-    // Find ads with pending rejection windows
-    const pendingAds = await ImportAd.find({
-      'websiteSelections': {
-        $elemMatch: {
-          categories: { $in: categoryIds },
-          approved: true,
-          isRejected: false,
-          rejectionDeadline: { $gt: now }
-        }
-      }
-    }).populate('websiteSelections.websiteId');
+    // Use the PG-native method — no .find(), no .populate()
+    const pendingAds = await ImportAd.findPendingByCategories(categoryIds, now);
 
-    res.status(200).json({
-      success: true,
-      pendingAds: pendingAds
-    });
-
+    res.status(200).json({ success: true, pendingAds });
   } catch (error) {
     console.error('Error fetching pending rejections:', error);
     res.status(500).json({ error: 'Failed to fetch pending rejections' });
