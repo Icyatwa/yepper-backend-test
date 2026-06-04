@@ -297,7 +297,7 @@ exports.getGscData = async (req, res) => {
       // Clear stale tokens from wherever they came from
       await Promise.allSettled([
         Website.update(websiteId, { gscAccessToken: null, gscRefreshToken: null, gscSiteUrl: null, gscConnectedAt: null }),
-        User.update(getUserIdFromToken(req), { gscAccessToken: null, gscRefreshToken: null }),
+        User.update(userId, { gscAccessToken: null, gscRefreshToken: null }),
       ]);
       return res.json({ connected: false, reason: 'token_revoked' });
     }
