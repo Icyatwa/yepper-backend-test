@@ -1,10 +1,10 @@
-// analyticsController.js
+// analyticsController.js — PostgreSQL version
+const { query } = require('../../config/db');
 const PageView = require('../models/WebsiteAnalyticsModel');
 const Website  = require('../models/CreateWebsiteModel');
 const User     = require('../../models/User');
 const jwt      = require('jsonwebtoken');
 
-// ── device detection (no external dep) ────────────────────────────────────────
 function detectDevice(ua = '') {
   const s = ua.toLowerCase();
   if (/bot|crawl|spider|slurp|mediapartners/i.test(s)) return 'bot';
@@ -14,120 +14,80 @@ function detectDevice(ua = '') {
   return 'unknown';
 }
 
-// ── auth helper (same pattern as createWebsiteController) ─────────────────────
 async function getAuthUser(req) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return null;
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-jwt-secret');
-    return await User.findById(decoded.userId).lean();
-  } catch {
-    return null;
-  }
+    return await User.findById(decoded.userId);
+  } catch { return null; }
 }
 
-// ── POST /api/analytics/track ─────────────────────────────────────────────────
-// Called by the site script on every page load (fire-and-forget from the browser)
 exports.trackPageView = async (req, res) => {
-  // Always respond immediately so the visitor's page isn't blocked
-  // (CORS headers are set by the server-level middleware in server.js)
   res.status(202).json({ ok: true });
-
   try {
     const { websiteId, path: pagePath, referrer } = req.body;
     if (!websiteId) return;
 
-    // Skip bots
     const ua = req.headers['user-agent'] || '';
     const device = detectDevice(ua);
     if (device === 'bot') return;
 
-    // Resolve real IP (handle proxies / Render / Railway)
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.headers['x-real-ip'] ||
-      req.socket?.remoteAddress ||
-      '';
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+      || req.headers['x-real-ip']
+      || req.socket?.remoteAddress
+      || '';
 
-    // Geo lookup via ip-api (free, no key needed, 45 req/min per IP)
     let country = 'Unknown', countryCode = '', city = 'Unknown', region = '', lat = null, lon = null;
     try {
       const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName,lat,lon`);
       if (geoRes.ok) {
         const geo = await geoRes.json();
         if (geo.status === 'success') {
-          country     = geo.country     || 'Unknown';
-          countryCode = geo.countryCode || '';
-          city        = geo.city        || 'Unknown';
-          region      = geo.regionName  || '';
-          lat         = geo.lat         ?? null;
-          lon         = geo.lon         ?? null;
+          country = geo.country || 'Unknown'; countryCode = geo.countryCode || '';
+          city = geo.city || 'Unknown'; region = geo.regionName || '';
+          lat = geo.lat ?? null; lon = geo.lon ?? null;
         }
       }
-    } catch { /* geo failure is non-fatal */ }
+    } catch {}
 
-    await PageView.create({
-      websiteId,
-      ip,
-      country,
-      countryCode,
-      city,
-      region,
-      lat,
-      lon,
-      device,
-      referrer: referrer || '',
-      path: pagePath || '/',
-    });
+    await PageView.create({ websiteId, ip, country, countryCode, city, region, lat, lon, device, referrer: referrer || '', path: pagePath || '/' });
 
-    // Update website's monthlyTraffic with rolling 30-day count
+    // Rolling 30-day count using PG
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const monthlyCount = await PageView.countDocuments({ websiteId, timestamp: { $gte: since } });
+    const monthlyCount = await PageView.countByWebsite(websiteId, since);
 
-    // Compute tier
     let trafficTier = 'unverified';
-    if (monthlyCount >= 200001)  trafficTier = 'elite';
-    else if (monthlyCount >= 50001)  trafficTier = 'premium';
-    else if (monthlyCount >= 10001)  trafficTier = 'standard';
-    else if (monthlyCount >= 2001)   trafficTier = 'basic';
-    else if (monthlyCount >= 500)    trafficTier = 'starter';
+    if (monthlyCount >= 200001)       trafficTier = 'elite';
+    else if (monthlyCount >= 50001)   trafficTier = 'premium';
+    else if (monthlyCount >= 10001)   trafficTier = 'standard';
+    else if (monthlyCount >= 2001)    trafficTier = 'basic';
+    else if (monthlyCount >= 500)     trafficTier = 'starter';
 
-    // Fetch website to check scriptInstalled / gscVerified state
-    const website = await Website.findById(websiteId).lean();
+    const website = await Website.findById(websiteId);
     if (!website) return;
 
     const updatePayload = { monthlyTraffic: monthlyCount, trafficTier };
     const now = new Date();
 
-    // Mark script as installed the first time a ping arrives
-    if (!website.scriptInstalled) {
+    if (!website.script_installed) {
       updatePayload.scriptInstalled   = true;
       updatePayload.scriptInstalledAt = now;
     }
 
-    // GSC-verified means the OAuth flow has set gscSiteUrl on the website record
-    const isGscVerified = !!(website.gscSiteUrl && website.gscSiteUrl.trim());
-
-    if (isGscVerified && !website.gscVerified) {
+    const isGscVerified = !!(website.gsc_site_url && website.gsc_site_url.trim());
+    if (isGscVerified && !website.gsc_verified) {
       updatePayload.gscVerified     = true;
       updatePayload.gscVerifiedAt   = now;
       updatePayload.unverifiedSince = null;
-    } else if (!isGscVerified && !website.unverifiedSince) {
-      // Start the 7-day unverified clock from the moment the script first pings
+    } else if (!isGscVerified && !website.unverified_since) {
       updatePayload.unverifiedSince = now;
     }
 
-    // ── Clear grant display once real traffic has caught up ─────────────────
-    // If the website has an active grant, check whether the real monthly count
-    // now meets or exceeds the tier the owner was granted.  If so, clear the
-    // grant display fields so the "Stated Traffic" section disappears naturally.
-    if (website.grantedTrafficDisplay != null) {
-      const grantedTierOrder = { unverified: 0, starter: 1, basic: 2, standard: 3, premium: 4, elite: 5 };
-      const grantedTierLevel = grantedTierOrder[website.grantedTierDisplay] ?? 0;
-      const realTierLevel    = grantedTierOrder[trafficTier] ?? 0;
-      if (realTierLevel >= grantedTierLevel) {
-        // Real traffic has caught up — wipe the grant display
+    if (website.granted_traffic_display != null) {
+      const tierOrder = { unverified: 0, starter: 1, basic: 2, standard: 3, premium: 4, elite: 5 };
+      if ((tierOrder[trafficTier] ?? 0) >= (tierOrder[website.granted_tier_display] ?? 0)) {
         updatePayload.grantedTrafficDisplay = null;
         updatePayload.grantedViewsDisplay   = null;
         updatePayload.grantedTierDisplay    = null;
@@ -135,13 +95,12 @@ exports.trackPageView = async (req, res) => {
       }
     }
 
-    await Website.findByIdAndUpdate(websiteId, updatePayload);
+    await Website.update(websiteId, updatePayload);
   } catch (err) {
     console.error('trackPageView error:', err.message);
   }
 };
 
-// ── OPTIONS pre-flight ─────────────────────────────────────────────────────────
 exports.trackOptions = (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -149,138 +108,66 @@ exports.trackOptions = (req, res) => {
   res.status(204).end();
 };
 
-// ── GET /api/analytics/:websiteId?range=7|30|90 ───────────────────────────────
 exports.getAnalytics = async (req, res) => {
   try {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ message: 'Unauthorized' });
 
     const { websiteId } = req.params;
-    const days = parseInt(req.query.range) || 30;
-
-    const website = await Website.findById(websiteId).lean();
-    if (!website) return res.status(404).json({ message: 'Website not found' });
-    if (website.ownerId !== user._id.toString()) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
-
+    const days  = parseInt(req.query.range) || 30;
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+    const website = await Website.findById(websiteId);
+    if (!website) return res.status(404).json({ message: 'Website not found' });
+    if (website.owner_id.toString() !== user.id.toString())
+      return res.status(403).json({ message: 'Forbidden' });
+
     const [
-      totalViews,
-      byCountry,
-      byDevice,
-      byDay,
-      topReferrers,
-      topPages,
-      recentLocations,
+      { rows: [{ count: totalViews }] },
+      { rows: byCountry },
+      { rows: byDevice },
+      { rows: byDay },
+      { rows: topReferrers },
+      { rows: topPages },
+      { rows: recentLocations },
+      { rows: uniqueIps },
     ] = await Promise.all([
-      // total views in range
-      PageView.countDocuments({ websiteId, timestamp: { $gte: since } }),
-
-      // views by country
-      PageView.aggregate([
-        { $match: { websiteId, timestamp: { $gte: since } } },
-        { $group: { _id: '$country', countryCode: { $first: '$countryCode' }, count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 20 },
-      ]),
-
-      // views by device
-      PageView.aggregate([
-        { $match: { websiteId, timestamp: { $gte: since } } },
-        { $group: { _id: '$device', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]),
-
-      // daily view counts for chart
-      PageView.aggregate([
-        { $match: { websiteId, timestamp: { $gte: since } } },
-        {
-          $group: {
-            _id: {
-              $dateToString: { format: '%Y-%m-%d', date: '$timestamp' },
-            },
-            count: { $sum: 1 },
-          },
-        },
-        { $sort: { _id: 1 } },
-      ]),
-
-      // top referrers
-      PageView.aggregate([
-        { $match: { websiteId, timestamp: { $gte: since }, referrer: { $ne: '' } } },
-        { $group: { _id: '$referrer', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 10 },
-      ]),
-
-      // top pages
-      PageView.aggregate([
-        { $match: { websiteId, timestamp: { $gte: since } } },
-        { $group: { _id: '$path', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 10 },
-      ]),
-
-      // recent geo points for the map (lat/lon, last 500)
-      PageView.find(
-        { websiteId, timestamp: { $gte: since }, lat: { $ne: null } },
-        { lat: 1, lon: 1, country: 1, city: 1, device: 1, timestamp: 1 }
-      )
-        .sort({ timestamp: -1 })
-        .limit(500)
-        .lean(),
+      query(`SELECT COUNT(*) FROM website_page_views WHERE website_id=$1 AND timestamp>=$2`, [websiteId, since]),
+      query(`SELECT country, country_code, COUNT(*) as count FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 GROUP BY country, country_code ORDER BY count DESC LIMIT 20`, [websiteId, since]),
+      query(`SELECT device, COUNT(*) as count FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 GROUP BY device ORDER BY count DESC`, [websiteId, since]),
+      query(`SELECT TO_CHAR(timestamp,'YYYY-MM-DD') as date, COUNT(*) as count FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 GROUP BY date ORDER BY date ASC`, [websiteId, since]),
+      query(`SELECT referrer, COUNT(*) as count FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 AND referrer<>'' GROUP BY referrer ORDER BY count DESC LIMIT 10`, [websiteId, since]),
+      query(`SELECT path, COUNT(*) as count FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 GROUP BY path ORDER BY count DESC LIMIT 10`, [websiteId, since]),
+      query(`SELECT lat, lon, country, city, device, timestamp FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 AND lat IS NOT NULL ORDER BY timestamp DESC LIMIT 500`, [websiteId, since]),
+      query(`SELECT COUNT(DISTINCT ip) AS count FROM website_page_views WHERE website_id=$1 AND timestamp>=$2 AND ip<>''`, [websiteId, since]),
     ]);
 
-    // Unique visitors by IP in range
-    const uniqueVisitors = await PageView.distinct('ip', {
-      websiteId,
-      timestamp: { $gte: since },
-      ip: { $ne: '' },
-    }).then(ips => ips.length);
-
-    // Compute tier live from stored traffic (don't trust old cached trafficTier field)
-    const mt = website.monthlyTraffic || 0;
+    const mt = website.monthly_traffic || 0;
     let liveTier = 'unverified';
-    if (mt >= 200001)  liveTier = 'elite';
-    else if (mt >= 50001)  liveTier = 'premium';
-    else if (mt >= 10001)  liveTier = 'standard';
-    else if (mt >= 2001)   liveTier = 'basic';
-    else if (mt >= 500)    liveTier = 'starter';
+    if (mt >= 200001)       liveTier = 'elite';
+    else if (mt >= 50001)   liveTier = 'premium';
+    else if (mt >= 10001)   liveTier = 'standard';
+    else if (mt >= 2001)    liveTier = 'basic';
+    else if (mt >= 500)     liveTier = 'starter';
 
-    // ── Grant display block (stored on website, not mixed into real analytics) ──
-    // The real totalViews / uniqueVisitors / byDay above reflect ONLY script-tracked visits.
-    let grantDisplay = null;
-    const grantWindowActive = website.grantedTrafficDisplay != null;
-    if (grantWindowActive) {
-      grantDisplay = {
-        grantedTraffic:       website.grantedTrafficDisplay,
-        grantedViews:         website.grantedViewsDisplay,
-        trafficTier:          website.grantedTierDisplay,
-        grantWindowExpiresAt: website.grantWindowExpiresAt,
-      };
-    }
+    const grantDisplay = website.granted_traffic_display != null ? {
+      grantedTraffic: website.granted_traffic_display,
+      grantedViews:   website.granted_views_display,
+      trafficTier:    website.granted_tier_display,
+      grantWindowExpiresAt: website.grant_window_expires_at,
+    } : null;
 
     res.json({
-      totalViews,
-      uniqueVisitors,
+      totalViews:     parseInt(totalViews),
+      uniqueVisitors: parseInt(uniqueIps[0]?.count || 0),
       monthlyTraffic: mt,
       trafficTier:    liveTier,
-      byCountry:      byCountry.map(r => ({ country: r._id, countryCode: r.countryCode, count: r.count })),
-      byDevice:       byDevice.map(r => ({ device: r._id, count: r.count })),
-      byDay:          byDay.map(r => ({ date: r._id, count: r.count })),
-      topReferrers:   topReferrers.map(r => ({ referrer: r._id, count: r.count })),
-      topPages:       topPages.map(r => ({ path: r._id, count: r.count })),
-      mapPoints:      recentLocations.map(r => ({
-        lat:       r.lat,
-        lon:       r.lon,
-        country:   r.country,
-        city:      r.city,
-        device:    r.device,
-        timestamp: r.timestamp,
-      })),
-      // Separate grant display block — shown above GSC in the UI, never pollutes real counts
+      byCountry:      byCountry.map(r => ({ country: r.country, countryCode: r.country_code, count: parseInt(r.count) })),
+      byDevice:       byDevice.map(r => ({ device: r.device, count: parseInt(r.count) })),
+      byDay:          byDay.map(r => ({ date: r.date, count: parseInt(r.count) })),
+      topReferrers:   topReferrers.map(r => ({ referrer: r.referrer, count: parseInt(r.count) })),
+      topPages:       topPages.map(r => ({ path: r.path, count: parseInt(r.count) })),
+      mapPoints:      recentLocations,
       grantDisplay,
     });
   } catch (err) {

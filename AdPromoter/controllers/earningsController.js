@@ -69,7 +69,7 @@ async function getAuthUser(req) {
   if (!token) return null;
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-jwt-secret');
-    return await User.findById(decoded.userId).lean();
+    return await User.findById(decoded.userId);
   } catch { return null; }
 }
 
@@ -82,14 +82,14 @@ exports.getCategoryEarnings = async (req, res) => {
 
     const category = await AdCategory.findById(req.params.categoryId);
     if (!category) return res.status(404).json({ message: 'Category not found' });
-    if (category.ownerId !== user._id.toString())
+    if (category.owner_id !== user.id.toString())
       return res.status(403).json({ message: 'Forbidden' });
 
-    const website = await Website.findById(category.websiteId).lean();
+    const website = await Website.findById(category.website_id);
     if (!website) return res.status(404).json({ message: 'Website not found' });
 
     // Use real 30-day rolling traffic stored on the website record
-    const monthlyTraffic = website.monthlyTraffic || 0;
+    const monthlyTraffic = website.monthly_traffic || 0;
 
     if (monthlyTraffic < 10) {
       // Script not yet installed or no traffic detected
@@ -100,8 +100,8 @@ exports.getCategoryEarnings = async (req, res) => {
       });
     }
 
-    const isGscVerified = !!(website.gscVerified || (website.gscSiteUrl && website.gscSiteUrl.trim()));
-    const earnings = computeEarnings(monthlyTraffic, category.spaceType, isGscVerified, website.unverifiedSince);
+    const isGscVerified = !!(website.gsc_verified || (website.gsc_site_url && website.gsc_site_url.trim()));
+    const earnings = computeEarnings(monthlyTraffic, category.space_type, isGscVerified, website.unverified_since);
     return res.json({ available: true, ...earnings });
 
   } catch (err) {
@@ -117,12 +117,12 @@ exports.getWebsiteEarningsSummary = async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ message: 'Unauthorized' });
 
-    const website = await Website.findById(req.params.websiteId).lean();
+    const website = await Website.findById(req.params.websiteId);
     if (!website) return res.status(404).json({ message: 'Website not found' });
-    if (website.ownerId !== user._id.toString())
+    if (website.owner_id !== user.id.toString())
       return res.status(403).json({ message: 'Forbidden' });
 
-    const monthlyTraffic = website.monthlyTraffic || 0;
+    const monthlyTraffic = website.monthly_traffic || 0;
     const scriptInstalled = monthlyTraffic >= 10;
 
     const categories = await AdCategory.findByWebsite(req.params.websiteId);
@@ -137,31 +137,31 @@ exports.getWebsiteEarningsSummary = async (req, res) => {
         gscVerified: false,
         unverifiedSince: null,
         unverifiedSurchargeActive: false,
-        categories: categories.map(c => ({ categoryId: c._id, name: c.categoryName, available: false }))
+        categories: categories.map(c => ({ categoryId: c.id, name: c.category_name, available: false }))
       });
     }
 
-    const isGscVerified = !!(website.gscVerified || (website.gscSiteUrl && website.gscSiteUrl.trim()));
+    const isGscVerified = !!(website.gsc_verified || (website.gsc_site_url && website.gsc_site_url.trim()));
     const summary = categories.map(c => {
-      const e = computeEarnings(monthlyTraffic, c.spaceType, isGscVerified, website.unverifiedSince);
-      return { categoryId: c._id, name: c.categoryName, available: true, ...e };
+      const e = computeEarnings(monthlyTraffic, c.space_type, isGscVerified, website.unverified_since);
+      return { categoryId: c.id, name: c.category_name, available: true, ...e };
     });
 
     const totalOwnerEarns = summary.reduce((s, c) => s + (c.ownerEarns || 0), 0);
     const tier = getTierFromTraffic(monthlyTraffic);
 
     const totalOwnerEarnsPerMonth_base = summary.reduce((s, c) => s + (c.ownerEarns || 0), 0);
-    const unverifiedSurchargeActive = !isGscVerified && !!website.unverifiedSince &&
-      ((Date.now() - new Date(website.unverifiedSince).getTime()) / (1000 * 60 * 60 * 24)) >= 7;
+    const unverifiedSurchargeActive = !isGscVerified && !!website.unverified_since &&
+      ((Date.now() - new Date(website.unverified_since).getTime()) / (1000 * 60 * 60 * 24)) >= 7;
 
     return res.json({
       available: true,
       monthlyTraffic,
       trafficTier: tier.tier,
       totalOwnerEarnsPerMonth: totalOwnerEarnsPerMonth_base,
-      scriptInstalled: !!website.scriptInstalled,
+      scriptInstalled: !!website.script_installed,
       gscVerified: isGscVerified,
-      unverifiedSince: website.unverifiedSince || null,
+      unverifiedSince: website.unverified_since || null,
       unverifiedSurchargeActive,
       categories: summary
     });

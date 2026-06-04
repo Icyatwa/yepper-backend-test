@@ -180,7 +180,7 @@ exports.serveAdScript = async (req, res) => {
     adCategory.websiteId = wsRows[0] || null;
 
     const registeredDomain = adCategory.websiteId?.websiteLink
-      ? extractDomain(adCategory.websiteId.websiteLink)
+      ? extractDomain(adCategory.websiteId?.website_link)
       : null;
 
     // Server-side referer check (first layer)
@@ -203,8 +203,8 @@ exports.serveAdScript = async (req, res) => {
 
     const categoryPrice   = adCategory.price;
     const defaultLanguage = adCategory.defaultLanguage || 'english';
-    const websiteId       = adCategory.websiteId._id;
-    const websiteName     = adCategory.websiteId.websiteName || 'This website';
+    const websiteId       = adCategory.websiteId.id;
+    const websiteName     = adCategory.websiteId.website_name || 'This website';
     const categoryName    = adCategory.categoryName || 'ad space';
     const spaceType       = adCategory.spaceType || 'Inline Content';
 

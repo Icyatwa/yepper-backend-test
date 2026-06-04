@@ -1,206 +1,113 @@
-// createCategoryController.js
-const mongoose = require('mongoose');
-const crypto = require('crypto');
+// createCategoryController.js  — PostgreSQL version (no Mongoose)
+const { query, getClient } = require('../../config/db');
 const AdCategory          = require('../models/CreateCategoryModel');
 const { generateSiteScript } = require('./SiteScriptController');
 const { Wallet, WalletTransaction } = require('../models/walletModel');
-const User = require('../../models/User');
+const User    = require('../../models/User');
 const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
 const Website = require('../models/CreateWebsiteModel');
-const WebOwnerBalance = require('../models/WebOwnerBalanceModel'); // Balance tracking model
+const WebOwnerBalance = require('../models/WebOwnerBalanceModel');
 const Payment = require('../../AdOwner/models/PaymentModel');
 
 const generateScriptTag = (categoryId) => {
   const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
   const src = `${BACKEND}/api/ads/script/${categoryId}`;
-  return {
-    // Universal script — works on ANY framework or language.
-    // Place as many of these as you have ad spaces, each with its own categoryId.
-    script: `<script src="${src}" async></script>`,
-    // Optional: add a placement hint so the script knows exactly where to inject
-    // <div data-yepper-space="${categoryId}"></div>
-    // Then drop the script anywhere in your <head> or before </body>
-  };
+  return { script: `<script src="${src}" async></script>` };
 };
 
-async function processInternalRefund({
-  session,
-  payment,
-  webOwnerId,
-  advertiserId,
-  amount,
-  adId,
-  categoryId,
-  rejectionReason
-}) {
-  try {
-    const timestamp = Date.now();
-    const isSelfRejection = webOwnerId === advertiserId;
-    
-    if (isSelfRejection) {
-      // ENHANCED: For self-rejection, create refund but no wallet transfer
-      payment.internalRefundProcessed = true;
-      payment.refundedAt = new Date();
-      payment.refundReason = `Self-rejection: ${rejectionReason}`;
-      payment.status = 'internally_refunded';
-      await payment.save({ session });
+// ── Internal refund helper (PG transactions via pg client) ────────────────────
+async function processInternalRefund({ client, payment, webOwnerId, advertiserId, amount, adId, categoryId, rejectionReason }) {
+  const isSelfRejection = webOwnerId === advertiserId;
 
-      return {
-        success: true,
-        message: 'Self-rejection processed - refund created for future use',
-        selfRejection: true,
-        refundAmount: amount
-      };
-    }
-
-    // ENHANCED: For normal rejections, transfer money from web owner back to advertiser
-    
-    // Find web owner's wallet
-    let webOwnerWallet = await Wallet.findOne({ 
-      ownerId: webOwnerId, 
-      ownerType: 'webOwner' 
-    }).session(session);
-    
-    if (!webOwnerWallet) {
-      throw new Error('Web owner wallet not found');
-    }
-
-    // Check if web owner has sufficient balance
-    if (webOwnerWallet.balance < amount) {
-      throw new Error(`Insufficient balance in web owner wallet. Required: $${amount}, Available: $${webOwnerWallet.balance}`);
-    }
-
-    // Find or create advertiser's wallet
-    let advertiserWallet = await Wallet.findOne({ 
-      ownerId: advertiserId, 
-      ownerType: 'advertiser' 
-    }).session(session);
-    
-    if (!advertiserWallet) {
-      // Get advertiser email from the ad
-      const ad = await ImportAd.findById(adId).session(session);
-      advertiserWallet = new Wallet({
-        ownerId: advertiserId,
-        ownerEmail: ad.adOwnerEmail,
-        ownerType: 'advertiser',
-        balance: 0,
-        totalEarned: 0
-      });
-    }
-
-    // ENHANCED: Transfer funds between wallets
-    webOwnerWallet.balance -= amount;
-    webOwnerWallet.lastUpdated = new Date();
-    await webOwnerWallet.save({ session });
-
-    advertiserWallet.balance += amount;
-    advertiserWallet.totalRefunded = (advertiserWallet.totalRefunded || 0) + amount;
-    advertiserWallet.lastUpdated = new Date();
-    await advertiserWallet.save({ session });
-
-    // ENHANCED: Create wallet transactions for both parties
-    const webOwnerTransaction = new WalletTransaction({
-      walletId: webOwnerWallet._id,
-      paymentId: payment._id,
-      adId: adId,
-      amount: -amount, // Negative for debit
-      type: 'refund_debit',
-      description: `Refund processed - Ad rejected: ${rejectionReason}`,
-      status: 'completed'
-    });
-
-    const advertiserTransaction = new WalletTransaction({
-      walletId: advertiserWallet._id,
-      paymentId: payment._id,
-      adId: adId,
-      relatedTransactionId: webOwnerTransaction._id,
-      amount: amount,
-      type: 'refund_credit',
-      description: `Refund received - Ad rejected by web owner: ${rejectionReason}`,
-      status: 'completed'
-    });
-
-    await webOwnerTransaction.save({ session });
-    await advertiserTransaction.save({ session });
-
-    // ENHANCED: Update payment status to refunded
-    payment.internalRefundProcessed = true;
-    payment.refundedAt = new Date();
-    payment.refundReason = rejectionReason;
-    payment.status = 'refunded'; // This makes it available for future use
-    payment.refundTransactionIds = [webOwnerTransaction._id, advertiserTransaction._id];
-    await payment.save({ session });
-
-    return {
-      success: true,
-      message: 'Internal refund processed successfully',
-      selfRejection: false,
-      refundAmount: amount,
-      webOwnerNewBalance: webOwnerWallet.balance,
-      advertiserNewBalance: advertiserWallet.balance
-    };
-
-  } catch (error) {
-    console.error('Internal refund processing error:', error);
-    throw new Error(`Refund processing failed: ${error.message}`);
+  if (isSelfRejection) {
+    await client.query(
+      `UPDATE payments SET internal_refund_processed=true, refunded_at=NOW(), refund_reason=$1, status='internally_refunded' WHERE id=$2`,
+      [`Self-rejection: ${rejectionReason}`, payment.id]
+    );
+    return { success: true, selfRejection: true, refundAmount: amount };
   }
+
+  // Get web owner wallet
+  const { rows: [webOwnerWallet] } = await client.query(
+    `SELECT * FROM wallets WHERE owner_id=$1 AND owner_type='webOwner' FOR UPDATE`, [webOwnerId]
+  );
+  if (!webOwnerWallet) throw new Error('Web owner wallet not found');
+  if (webOwnerWallet.balance < amount) throw new Error(`Insufficient balance. Required: $${amount}, Available: $${webOwnerWallet.balance}`);
+
+  // Get or create advertiser wallet
+  let { rows: [advertiserWallet] } = await client.query(
+    `SELECT * FROM wallets WHERE owner_id=$1 AND owner_type='advertiser' FOR UPDATE`, [advertiserId]
+  );
+  if (!advertiserWallet) {
+    const ad = await ImportAd.findById(adId);
+    const { rows: [newWallet] } = await client.query(
+      `INSERT INTO wallets (owner_id, owner_email, owner_type, balance, total_earned) VALUES ($1,$2,'advertiser',0,0) RETURNING *`,
+      [advertiserId, ad.ad_owner_email]
+    );
+    advertiserWallet = newWallet;
+  }
+
+  // Transfer funds
+  const { rows: [updatedWebOwner] } = await client.query(
+    `UPDATE wallets SET balance=balance-$1, last_updated=NOW() WHERE id=$2 RETURNING *`,
+    [amount, webOwnerWallet.id]
+  );
+  const { rows: [updatedAdvertiser] } = await client.query(
+    `UPDATE wallets SET balance=balance+$1, total_refunded=COALESCE(total_refunded,0)+$1, last_updated=NOW() WHERE id=$2 RETURNING *`,
+    [amount, advertiserWallet.id]
+  );
+
+  // Create transaction records
+  const { rows: [woTx] } = await client.query(
+    `INSERT INTO wallet_transactions (wallet_id, payment_id, ad_id, amount, type, description, status) VALUES ($1,$2,$3,$4,'refund_debit',$5,'completed') RETURNING *`,
+    [webOwnerWallet.id, payment.id, adId, -amount, `Refund processed - Ad rejected: ${rejectionReason}`]
+  );
+  await client.query(
+    `INSERT INTO wallet_transactions (wallet_id, payment_id, ad_id, related_transaction_id, amount, type, description, status) VALUES ($1,$2,$3,$4,$5,'refund_credit',$6,'completed')`,
+    [advertiserWallet.id, payment.id, adId, woTx.id, amount, `Refund received - Ad rejected by web owner: ${rejectionReason}`]
+  );
+
+  // Update payment
+  await client.query(
+    `UPDATE payments SET internal_refund_processed=true, refunded_at=NOW(), refund_reason=$1, status='refunded' WHERE id=$2`,
+    [rejectionReason, payment.id]
+  );
+
+  return {
+    success: true,
+    selfRejection: false,
+    refundAmount: amount,
+    webOwnerNewBalance: updatedWebOwner.balance,
+    advertiserNewBalance: updatedAdvertiser.balance
+  };
 }
 
+// ── createCategory ────────────────────────────────────────────────────────────
 exports.createCategory = async (req, res) => {
   try {
-    // Add debugging to see what's in req.user
-    console.log('req.user:', req.user);
-    console.log('req.headers:', req.headers);
-    
-    // Check if user is authenticated
-    if (!req.user) {
-      return res.status(401).json({ message: 'Authentication required. Please login.' });
-    }
+    if (!req.user) return res.status(401).json({ message: 'Authentication required.' });
 
-    const { 
-      websiteId,
-      categoryName,
-      description,
-      price,
-      customAttributes,
-      spaceType,
-      placementMode,
-      userCount,
-      instructions,
-      visitorRange,
-      tier
+    const {
+      websiteId, categoryName, description, price, customAttributes,
+      spaceType, placementMode, userCount, instructions, visitorRange, tier
     } = req.body;
 
-    // Get userId from req.user with fallback options
     const userId = req.user.userId || req.user.id || req.user._id;
+    if (!userId) return res.status(401).json({ message: 'User ID not found in auth data' });
 
-    if (!userId) {
-      console.error('No userId found in req.user:', req.user);
-      return res.status(401).json({ message: 'User ID not found in authentication data' });
-    }
-
-    // Try to find user by ID
     const user = await User.findById(userId);
-    if (!user) {
-      console.error('User not found in database with ID:', userId);
-      return res.status(401).json({ message: 'User not found in database' });
-    }
+    if (!user) return res.status(401).json({ message: 'User not found' });
 
-    const ownerId = user._id.toString();
-    const webOwnerEmail = user.email;
-
-    // Validation
     if (!websiteId || !categoryName || !price || !spaceType || !visitorRange || !tier) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: 'Missing required fields',
         required: ['websiteId', 'categoryName', 'price', 'spaceType', 'visitorRange', 'tier'],
         received: { websiteId, categoryName, price, spaceType, visitorRange, tier }
       });
     }
 
-    // Create new category (PG)
     const savedCategory = await AdCategory.create({
-      ownerId,
+      ownerId: user.id.toString(),
       websiteId,
       categoryName,
       description,
@@ -209,917 +116,587 @@ exports.createCategory = async (req, res) => {
       placementMode: placementMode || 'auto',
       instructions,
       customAttributes: customAttributes || {},
-      webOwnerEmail,
+      webOwnerEmail: user.email,
       visitorRange,
       tier,
     });
 
-    const { script } = generateScriptTag(savedCategory.id.toString());
-
-    // Update with API codes
     const backendUrl = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
-    const frontendUrl = process.env.FRONTEND_URL || 'https://yepper.cc';
     const adSrc = `${backendUrl}/api/ads/script/${savedCategory.id}`;
 
     const apiCodes = {
-      // ── OPTION 1: Auto-placement ──────────────────────────────────────
       HTML: [
         `<!-- Yepper Ad: ${savedCategory.category_name} — Auto-Placement -->`,
-        `<!-- Drop this ONE tag anywhere. The script places itself by your chosen spaceType. -->`,
         `<script src="${adSrc}" async></script>`,
       ].join('\n'),
-
       JavaScript: [
-        `// Yepper Ad — Auto-placement (React / Vue / Next.js / Svelte / Angular)`,
-        `// Paste in your root component. The script finds the right spot itself.`,
         `useEffect(() => {`,
         `  const s = document.createElement('script');`,
-        `  s.src = '${adSrc}';`,
-        `  s.async = true;`,
+        `  s.src = '${adSrc}'; s.async = true;`,
         `  document.body.appendChild(s);`,
         `  return () => { try { document.body.removeChild(s); } catch(e){} };`,
         `}, []);`,
       ].join('\n'),
-
-      PHP: [
-        `<?php /* Yepper Ad: ${savedCategory.category_name} — Auto-Placement */ ?>`,
-        `<!-- Drop anywhere in your template. The script finds the right spot. -->`,
-        `<script src="${adSrc}" async></script>`,
-      ].join('\n'),
-
-      Python: [
-        `# Yepper Ad: ${savedCategory.category_name} — Auto-Placement`,
-        `# Paste in your Django/Flask base template anywhere inside <body>.`,
-        `ad_tag = '<script src="${adSrc}" async></script>'`,
-        `# Django: {% autoescape off %}{{ ad_tag }}{% endautoescape %}`,
-      ].join('\n'),
-
-      // ── OPTION 2: Manual placement ────────────────────────────────────
+      PHP: [`<script src="${adSrc}" async></script>`].join('\n'),
+      Python: [`ad_tag = '<script src="${adSrc}" async></script>'`].join('\n'),
       HTML_manual: [
-        `<!-- Yepper Ad: ${savedCategory.category_name} — Manual Placement -->`,
-        `<!-- Step 1: Place this div exactly where you want the ad to appear -->`,
         `<div data-yepper-space="${savedCategory.id}"></div>`,
-        ``,
-        `<!-- Step 2: Add the script once anywhere (head or before </body>) -->`,
         `<script src="${adSrc}" async></script>`,
       ].join('\n'),
-
       JavaScript_manual: [
-        `// Yepper Ad — Manual placement (React / Vue / Next.js / Svelte / Angular)`,
-        `// Step 1: Place this div in your JSX exactly where you want the ad:`,
         `// <div data-yepper-space="${savedCategory.id}"></div>`,
-        ``,
-        `// Step 2: Load the script once in your root component:`,
         `useEffect(() => {`,
         `  const s = document.createElement('script');`,
-        `  s.src = '${adSrc}';`,
-        `  s.async = true;`,
+        `  s.src = '${adSrc}'; s.async = true;`,
         `  document.body.appendChild(s);`,
         `  return () => { try { document.body.removeChild(s); } catch(e){} };`,
         `}, []);`,
       ].join('\n'),
-
       PHP_manual: [
-        `<?php /* Yepper Ad: ${savedCategory.category_name} — Manual Placement */ ?>`,
-        `<!-- Step 1: Place this div exactly where you want the ad -->`,
         `<div data-yepper-space="${savedCategory.id}"></div>`,
-        `<!-- Step 2: Add script once anywhere in your template -->`,
         `<script src="${adSrc}" async></script>`,
       ].join('\n'),
-
       Python_manual: [
-        `# Yepper Ad: ${savedCategory.category_name} — Manual Placement`,
-        `# Step 1: Place this div where you want the ad in your template:`,
         `placement_div = '<div data-yepper-space="${savedCategory.id}"></div>'`,
-        `# Step 2: Load the script once anywhere in the page:`,
         `ad_script = '<script src="${adSrc}" async></script>'`,
-        `# Django: {% autoescape off %}{{ placement_div }}{{ ad_script }}{% endautoescape %}`,
       ].join('\n'),
     };
 
-    // Persist the generated apiCodes back to the DB (PG update)
     const finalCategory = await AdCategory.update(savedCategory.id, { apiCodes });
 
-    try { await generateSiteScript(websiteId); } catch(e) { console.error("Site script regen:", e.message); }
+    try { await generateSiteScript(websiteId); } catch(e) { console.error('Site script regen:', e.message); }
 
-    res.status(201).json({
-      success: true,
-      message: 'Category created successfully',
-      category: finalCategory
-    });
-    
+    res.status(201).json({ success: true, message: 'Category created successfully', category: finalCategory });
+
   } catch (error) {
     console.error('Error creating category:', error);
-    
-    // Handle specific mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: validationErrors 
-      });
-    }
-
-    // Handle duplicate key errors
-    if (error.code === 11000) {
-      return res.status(400).json({ 
-        message: 'Category with this name already exists for this website' 
-      });
-    }
-
-    res.status(500).json({ 
-      message: 'Failed to create category', 
+    res.status(500).json({
+      message: 'Failed to create category',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
 
+// ── getActiveAds ──────────────────────────────────────────────────────────────
 exports.getActiveAds = async (req, res) => {
   try {
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
-
-    // Find categories owned by this web owner (PG method)
     const categories = await AdCategory.findByOwner(webOwnerId);
-    const categoryIds = categories.map(cat => cat.id);
-
-    // Find active ads via JSONB query (PG method)
+    const categoryIds = categories.map(c => c.id);
     const activeAds = await ImportAd.findActiveByCategories(categoryIds);
-
-    res.status(200).json({
-      success: true,
-      activeAds,
-    });
+    res.status(200).json({ success: true, activeAds });
   } catch (error) {
     console.error('Error fetching active ads:', error);
     res.status(500).json({ error: 'Failed to fetch active ads' });
   }
 };
 
+// ── getPendingRejections ──────────────────────────────────────────────────────
 exports.getPendingRejections = async (req, res) => {
   try {
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
-    const now = new Date();
-
-    // Find categories owned by this web owner (PG method)
     const categories = await AdCategory.findByOwner(webOwnerId);
-    const categoryIds = categories.map(cat => cat.id);
-
-    // Find ads with pending rejection windows via JSONB query (PG method)
-    const pendingAds = await ImportAd.findPendingByCategories(categoryIds, now);
-
-    res.status(200).json({
-      success: true,
-      pendingAds,
-    });
+    const categoryIds = categories.map(c => c.id);
+    const pendingAds = await ImportAd.findPendingByCategories(categoryIds, new Date());
+    res.status(200).json({ success: true, pendingAds });
   } catch (error) {
     console.error('Error fetching pending rejections:', error);
     res.status(500).json({ error: 'Failed to fetch pending rejections' });
   }
 };
 
+// ── rejectAd ──────────────────────────────────────────────────────────────────
 exports.rejectAd = async (req, res) => {
-  const session = await mongoose.startSession();
-  
+  const client = await getClient();
   try {
     const { adId, websiteId, categoryId } = req.params;
     const { rejectionReason } = req.body;
     const webOwnerId = req.user.userId || req.user.id || req.user._id;
 
-    // ENHANCED: Validate rejection reason
     if (!rejectionReason || rejectionReason.trim().length < 10) {
-      return res.status(400).json({ 
-        error: 'Rejection reason is required and must be at least 10 characters long' 
-      });
+      return res.status(400).json({ error: 'Rejection reason must be at least 10 characters' });
     }
 
-    await session.withTransaction(async () => {
-      const ad = await ImportAd.findById(adId).session(session);
-      const category = await AdCategory.findById(categoryId).session(session);
-      const payment = await Payment.findOne({
-        adId: adId,
-        websiteId: websiteId,
-        categoryId: categoryId,
-        status: 'successful'
-      }).session(session);
+    await client.query('BEGIN');
 
-      if (!ad || !category || !payment) {
-        throw new Error('Required documents not found');
+    const ad = await ImportAd.findById(adId);
+    const category = await AdCategory.findById(categoryId);
+
+    const { rows: [payment] } = await client.query(
+      `SELECT * FROM payments WHERE ad_id=$1 AND website_id=$2 AND category_id=$3 AND status='successful'`,
+      [adId, websiteId, categoryId]
+    );
+
+    if (!ad || !category || !payment) throw new Error('Required records not found');
+    if (category.owner_id !== webOwnerId.toString()) throw new Error('Unauthorized: not your category');
+
+    // Parse websiteSelections from JSONB
+    const selections = Array.isArray(ad.website_selections)
+      ? ad.website_selections
+      : JSON.parse(ad.website_selections || '[]');
+
+    const selectionIndex = selections.findIndex(sel =>
+      sel.websiteId === websiteId &&
+      Array.isArray(sel.categories) && sel.categories.includes(categoryId) &&
+      sel.approved === true && !sel.isRejected
+    );
+    if (selectionIndex === -1) throw new Error('Ad selection not found or already processed');
+
+    const sel = selections[selectionIndex];
+    const now = new Date();
+    if (sel.rejectionDeadline) {
+      const deadline = new Date(sel.rejectionDeadline);
+      if (now > new Date(deadline.getTime() + 5 * 60 * 1000)) {
+        throw new Error('Rejection window has expired.');
       }
+    }
+    if (payment.internal_refund_processed) throw new Error('Refund already processed');
 
-      // ENHANCED: Verify web owner owns the category
-      if (category.ownerId !== webOwnerId) {
-        throw new Error('Unauthorized: You can only reject ads on your own categories');
-      }
+    // Update selection
+    selections[selectionIndex] = {
+      ...sel,
+      isRejected: true, rejectedAt: now, rejectedBy: webOwnerId,
+      rejectionReason: rejectionReason.trim(), approved: false, status: 'rejected'
+    };
+    const hasActive = selections.some(s => s.status === 'active' && !s.isRejected);
 
-      const selectionIndex = ad.websiteSelections.findIndex(
-        sel => sel.websiteId.toString() === websiteId && 
-               sel.categories.includes(categoryId) &&
-               sel.approved === true &&
-               !sel.isRejected
-      );
+    await client.query(
+      `UPDATE import_ads SET website_selections=$1, available_for_reassignment=$2 WHERE id=$3`,
+      [JSON.stringify(selections), !hasActive, adId]
+    );
 
-      if (selectionIndex === -1) {
-        throw new Error('Ad selection not found or already processed');
-      }
+    // Remove ad from category's selected_ads and decrement user_count
+    await client.query(
+      `UPDATE ad_categories
+       SET selected_ads = (
+         SELECT COALESCE(jsonb_agg(el), '[]'::jsonb)
+         FROM jsonb_array_elements(COALESCE(selected_ads,'[]'::jsonb)) el
+         WHERE el::text != $1::text
+       ),
+       user_count = GREATEST(0, COALESCE(user_count,0) - 1)
+       WHERE id=$2`,
+      [JSON.stringify(adId), categoryId]
+    );
 
-      const selection = ad.websiteSelections[selectionIndex];
-      const now = new Date();
-
-      // ENHANCED: Check rejection deadline with grace period
-      if (selection.rejectionDeadline && now > selection.rejectionDeadline) {
-        const gracePeriod = 5 * 60 * 1000; // 5 minutes grace period
-        const deadlineWithGrace = new Date(selection.rejectionDeadline.getTime() + gracePeriod);
-        
-        if (now > deadlineWithGrace) {
-          throw new Error('Rejection window has expired. You can no longer reject this ad.');
-        }
-      }
-
-      // Prevent double processing
-      if (payment.internalRefundProcessed) {
-        throw new Error('Refund already processed');
-      }
-
-      // ENHANCED: Update ad status with more detailed information
-      ad.websiteSelections[selectionIndex].isRejected = true;
-      ad.websiteSelections[selectionIndex].rejectedAt = now;
-      ad.websiteSelections[selectionIndex].rejectedBy = webOwnerId;
-      ad.websiteSelections[selectionIndex].rejectionReason = rejectionReason.trim();
-      ad.websiteSelections[selectionIndex].approved = false;
-      ad.websiteSelections[selectionIndex].status = 'rejected';
-      
-      // ENHANCED: Mark ad as available for reassignment only if it has rejected selections
-      const hasActiveSelections = ad.websiteSelections.some(ws => 
-        ws.status === 'active' && !ws.isRejected
-      );
-      ad.availableForReassignment = !hasActiveSelections; // Only available if no active selections
-
-      await ad.save({ session });
-
-      // ENHANCED: Remove ad from category and update counters
-      const updateResult = await AdCategory.findByIdAndUpdate(
-        categoryId,
-        { 
-          $pull: { selectedAds: adId },
-          $inc: { userCount: -1 } // Decrease counter to free up space
-        },
-        { session, new: true }
-      );
-
-      console.log(`Category ${categoryId} now has ${updateResult.selectedAds.length} ads`);
-
-      // ENHANCED: Process internal wallet reassignment with detailed logging
-      const refundResult = await processInternalRefund({
-        session,
-        payment,
-        webOwnerId,
-        advertiserId: payment.advertiserId,
-        amount: payment.amount,
-        adId,
-        categoryId,
-        rejectionReason: rejectionReason.trim()
-      });
-
-      console.log('Refund processing result:', refundResult);
+    await processInternalRefund({
+      client, payment, webOwnerId,
+      advertiserId: payment.advertiser_id,
+      amount: payment.amount,
+      adId, categoryId,
+      rejectionReason: rejectionReason.trim()
     });
+
+    await client.query('COMMIT');
 
     res.status(200).json({
       success: true,
-      message: 'Ad rejected and refund processed successfully',
+      message: 'Ad rejected and refund processed',
       rejectionReason: rejectionReason.trim(),
-      timestamp: new Date().toISOString()
+      timestamp: now.toISOString()
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Reject ad error:', error);
-    res.status(400).json({ 
-      error: error.message || 'Failed to reject ad' 
-    });
+    res.status(400).json({ error: error.message || 'Failed to reject ad' });
   } finally {
-    await session.endSession();
+    client.release();
   }
 };
 
+// ── getCategoryBookingStatus ──────────────────────────────────────────────────
 exports.getCategoryBookingStatus = async (req, res) => {
   try {
-    const { categoryId } = req.params;
-    
-    const category = await AdCategory.findById(categoryId)
-      .populate('selectedAds', 'businessName createdAt')
-      .populate('websiteId', 'websiteName');
-    
-    if (!category) {
-      return res.status(404).json({ error: 'Category not found' });
-    }
-    
-    const maxSlots = category.userCount || 10;
-    const currentSlots = category.selectedAds ? category.selectedAds.length : 0;
+    const category = await AdCategory.findById(req.params.categoryId);
+    if (!category) return res.status(404).json({ error: 'Category not found' });
+
+    const selectedAds = Array.isArray(category.selected_ads)
+      ? category.selected_ads
+      : JSON.parse(category.selected_ads || '[]');
+
+    const maxSlots = category.user_count || 10;
+    const currentSlots = selectedAds.length;
     const availableSlots = Math.max(0, maxSlots - currentSlots);
-    const isFullyBooked = currentSlots >= maxSlots;
-    
+
+    // Get website name
+    const website = await Website.findById(category.website_id);
+
     res.status(200).json({
       success: true,
       category: {
-        id: category._id,
-        name: category.categoryName,
+        id: category.id,
+        name: category.category_name,
         price: category.price,
-        websiteName: category.websiteId?.websiteName,
-        maxSlots: maxSlots,
-        currentSlots: currentSlots,
-        availableSlots: availableSlots,
-        isFullyBooked: isFullyBooked,
+        websiteName: website?.website_name,
+        maxSlots,
+        currentSlots,
+        availableSlots,
+        isFullyBooked: currentSlots >= maxSlots,
         occupancyRate: maxSlots > 0 ? ((currentSlots / maxSlots) * 100).toFixed(1) : 0
       }
     });
-    
   } catch (error) {
-    console.error('Error getting category booking status:', error);
+    console.error('Error getting booking status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
+// ── resetUserCount ────────────────────────────────────────────────────────────
 exports.resetUserCount = async (req, res) => {
   try {
     const { categoryId } = req.params;
     const { newUserCount } = req.body;
 
-    // Validate input
     if (!newUserCount || newUserCount < 0) {
-      return res.status(400).json({ 
-        error: 'Invalid Input', 
-        message: 'User count must be a non-negative number' 
-      });
+      return res.status(400).json({ error: 'Invalid Input', message: 'User count must be non-negative' });
     }
 
-    // Find the category
     const category = await AdCategory.findById(categoryId);
-    
-    if (!category) {
-      return res.status(404).json({ 
-        error: 'Not Found', 
-        message: 'Category not found' 
-      });
-    }
+    if (!category) return res.status(404).json({ error: 'Not Found', message: 'Category not found' });
 
-    // Count current users who have selected this category
-    const currentUserCount = await ImportAd.countDocuments({
-      'websiteSelections.categories': categoryId,
-      'websiteSelections.approved': true
-    });
+    // Count currently approved ads for this category via JSONB
+    const { rows: [{ count }] } = await query(
+      `SELECT COUNT(*) FROM import_ads
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements(website_selections) AS sel
+         WHERE (sel->>'approved')::boolean = true
+           AND EXISTS (
+             SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+             WHERE cat_id = $1
+           )
+       )`,
+      [categoryId]
+    );
+    const currentUserCount = parseInt(count, 10);
 
-    // Ensure new user count is not less than current users
     if (newUserCount < currentUserCount) {
-      return res.status(400).json({ 
-        error: 'Invalid Reset', 
-        message: 'New user count cannot be less than current approved users' 
+      return res.status(400).json({
+        error: 'Invalid Reset',
+        message: 'New user count cannot be less than current approved users'
       });
     }
 
-    // Update the category with new user count
-    category.userCount = newUserCount;
-    await category.save();
+    const updated = await AdCategory.update(categoryId, { userCount: newUserCount });
+    res.status(200).json({ message: 'User count reset successfully', category: updated });
 
-    res.status(200).json({
-      message: 'User count reset successfully',
-      category
-    });
   } catch (error) {
     console.error('Error resetting user count:', error);
-    res.status(500).json({ 
-      error: 'Internal Server Error',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Internal Server Error', message: error.message });
   }
 };
 
+// ── deleteCategory ────────────────────────────────────────────────────────────
 exports.deleteCategory = async (req, res) => {
-  const session = await mongoose.startSession();
-  
+  const client = await getClient();
   try {
     const { categoryId } = req.params;
     const { ownerId } = req.body;
 
-    // Find the category
     const category = await AdCategory.findById(categoryId);
+    if (!category) return res.status(404).json({ message: 'Category not found' });
+    if (category.owner_id.toString() !== ownerId) return res.status(403).json({ message: 'Unauthorized' });
 
-    // Check if category exists
-    if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
-    }
+    // Check for active/confirmed ads via JSONB
+    const { rows: existingAds } = await query(
+      `SELECT id FROM import_ads
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements(website_selections) AS sel
+         WHERE (sel->>'approved')::boolean = true OR (sel->>'confirmed')::boolean = true
+           AND EXISTS (
+             SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+             WHERE cat_id = $1
+           )
+       )`,
+      [categoryId]
+    );
 
-    // Verify the owner
-    if (category.ownerId !== ownerId) {
-      return res.status(403).json({ message: 'Unauthorized to delete this category' });
-    }
-
-    // Check for any ads with this category confirmed or approved
-    const existingAds = await ImportAd.find({
-      'websiteSelections': {
-        $elemMatch: {
-          'categories': categoryId,
-          $or: [
-            { 'confirmed': true },
-            { 'approved': true }
-          ]
-        }
-      }
-    });
-
-    // If any ads exist with this category confirmed or approved, prevent deletion
     if (existingAds.length > 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: 'Cannot delete category with active or confirmed ads',
-        affectedAds: existingAds.map(ad => ad._id)
+        affectedAds: existingAds.map(a => a.id)
       });
     }
 
-    // Start transaction
-    session.startTransaction();
+    await client.query('BEGIN');
 
-    try {
-      // Delete the category
-      await AdCategory.findByIdAndDelete(categoryId).session(session);
+    // Delete category
+    await client.query(`DELETE FROM ad_categories WHERE id=$1`, [categoryId]);
 
-      // Remove references to this category from all ImportAd documents
-      await ImportAd.updateMany(
-        { 'websiteSelections.categories': categoryId },
-        { 
-          $pull: { 
-            'websiteSelections.$.categories': categoryId 
-          } 
-        }
-      ).session(session);
+    // Remove category reference from all import_ads website_selections
+    await client.query(
+      `UPDATE import_ads
+       SET website_selections = (
+         SELECT COALESCE(jsonb_agg(
+           jsonb_set(sel, '{categories}', (
+             SELECT COALESCE(jsonb_agg(cat), '[]'::jsonb)
+             FROM jsonb_array_elements_text(sel->'categories') cat
+             WHERE cat != $1
+           ))
+         ), '[]'::jsonb)
+         FROM jsonb_array_elements(website_selections) AS sel
+       )
+       WHERE website_selections::text LIKE $2`,
+      [categoryId, `%${categoryId}%`]
+    );
 
-      // Commit the transaction
-      await session.commitTransaction();
-
-      res.status(200).json({ 
-        message: 'Category deleted successfully' 
-      });
-
-    } catch (transactionError) {
-      // Abort the transaction on error
-      await session.abortTransaction();
-      throw transactionError;
-    }
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Category deleted successfully' });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error deleting category:', error);
-    
-    // Ensure session is ended even if there's an error
-    if (session) {
-      await session.endSession();
-    }
-
-    res.status(500).json({ 
-      message: 'Failed to delete category', 
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to delete category', error: error.message });
   } finally {
-    // Ensure session is always ended
-    if (session) {
-      await session.endSession();
-    }
+    client.release();
   }
 };
 
+// ── getCategories (by ownerId param) ─────────────────────────────────────────
 exports.getCategories = async (req, res) => {
   const { ownerId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
+  const page  = parseInt(req.query.page  || '1',  10);
+  const limit = parseInt(req.query.limit || '10', 10);
   try {
-    const categories = await AdCategory.find({ ownerId })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const count = await AdCategory.countDocuments({ ownerId });
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
+    const all = await AdCategory.findByOwner(ownerId);
+    const total = all.length;
+    const categories = all.slice((page - 1) * limit, page * limit);
+    res.status(200).json({ categories, totalPages: Math.ceil(total / limit), currentPage: page });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch categories', error });
+    res.status(500).json({ message: 'Failed to fetch categories', error: error.message });
   }
 };
 
+// ── getCategoriesByWebsiteForAdvertisers ──────────────────────────────────────
 exports.getCategoriesByWebsiteForAdvertisers = async (req, res) => {
   const { websiteId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
+  const page  = parseInt(req.query.page  || '1',  10);
+  const limit = parseInt(req.query.limit || '10', 10);
 
   try {
-    // Validate websiteId is a valid ObjectId
-    if (!mongoose.Types.ObjectId.isValid(websiteId)) {
+    // Validate it's a valid UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(websiteId)) {
       return res.status(400).json({ message: 'Invalid website ID' });
     }
 
-    const websiteObjectId = new mongoose.Types.ObjectId(websiteId);
+    const { rows: categories } = await query(
+      `SELECT ac.*,
+         COALESCE((
+           SELECT COUNT(*)::int
+           FROM import_ads ia
+           WHERE EXISTS (
+             SELECT 1 FROM jsonb_array_elements(ia.website_selections) sel
+             WHERE sel->>'websiteId' = $1
+               AND EXISTS (
+                 SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+                 WHERE cat_id = ac.id::text
+               )
+           )
+         ), 0) AS current_user_count
+       FROM ad_categories ac
+       WHERE ac.website_id = $1
+       ORDER BY ac.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [websiteId, limit, (page - 1) * limit]
+    );
 
-    const categories = await AdCategory.aggregate([
-      { $match: { websiteId: websiteObjectId } },
-      {
-        $lookup: {
-          from: 'importads', 
-          let: { categoryId: '$_id' },
-          pipeline: [
-            { $unwind: { path: '$websiteSelections', preserveNullAndEmptyArrays: true } },
-            { $match: { 
-              $expr: { 
-                $and: [
-                  { $eq: ['$websiteSelections.websiteId', websiteObjectId] },
-                  { $in: ['$$categoryId', '$websiteSelections.categories'] }
-                ]
-              }
-            }},
-            { $count: 'categoryCount' }
-          ],
-          as: 'currentUserCount'
-        }
-      },
-      {
-        $addFields: {
-          currentUserCount: { 
-            $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] 
-          },
-          isFullyBooked: { 
-            $gte: [
-              { $ifNull: [{ $arrayElemAt: ['$currentUserCount.categoryCount', 0] }, 0] }, 
-              '$userCount' 
-            ] 
-          }
-        }
-      }
-    ])
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
+    const { rows: [{ count }] } = await query(
+      `SELECT COUNT(*) FROM ad_categories WHERE website_id=$1`, [websiteId]
+    );
 
-    const count = await AdCategory.countDocuments({ websiteId: websiteObjectId });
+    // Add isFullyBooked flag
+    const enriched = categories.map(c => ({
+      ...c,
+      isFullyBooked: c.current_user_count >= (c.user_count || 0)
+    }));
 
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
+    res.status(200).json({ categories: enriched, totalPages: Math.ceil(parseInt(count) / limit), currentPage: page });
+
   } catch (error) {
     console.error('Error in getCategoriesByWebsiteForAdvertisers:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch categories', 
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to fetch categories', error: error.message });
   }
 };
 
+// ── getCategoriesByWebsite ────────────────────────────────────────────────────
 exports.getCategoriesByWebsite = async (req, res) => {
   const { websiteId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
+  const page  = parseInt(req.query.page  || '1',  10);
+  const limit = parseInt(req.query.limit || '10', 10);
   try {
-    const categories = await AdCategory.findByWebsite(websiteId)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const count = categories.length;
-
-    res.status(200).json({
-      categories,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page
-    });
+    const all = await AdCategory.findByWebsite(websiteId);
+    const total = all.length;
+    const categories = all.slice((page - 1) * limit, page * limit);
+    res.status(200).json({ categories, totalPages: Math.ceil(total / limit), currentPage: page });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch categories', error });
+    res.status(500).json({ message: 'Failed to fetch categories', error: error.message });
   }
 };
 
+// ── getCategoryById ───────────────────────────────────────────────────────────
 exports.getCategoryById = async (req, res) => {
-  const { categoryId } = req.params;
-
   try {
-    const category = await AdCategory.findById(categoryId);
-
-    if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
-    }
-
+    const category = await AdCategory.findById(req.params.categoryId);
+    if (!category) return res.status(404).json({ message: 'Category not found' });
     res.status(200).json(category);
   } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch category', error });
+    res.status(500).json({ message: 'Failed to fetch category', error: error.message });
   }
 };
 
+// ── updateCategoryLanguage ────────────────────────────────────────────────────
 exports.updateCategoryLanguage = async (req, res) => {
-  const { categoryId } = req.params;
-  const { defaultLanguage } = req.body;
-  
   try {
-    const updatedCategory = await AdCategory.findByIdAndUpdate(
-      categoryId,
-      { defaultLanguage },
-      { new: true, runValidators: true }
-    );
-    
-    if (!updatedCategory) {
-      return res.status(404).json({ message: 'Category not found' });
-    }
-    
-    res.status(200).json(updatedCategory);
+    const updated = await AdCategory.update(req.params.categoryId, { defaultLanguage: req.body.defaultLanguage });
+    if (!updated) return res.status(404).json({ message: 'Category not found' });
+    res.status(200).json(updated);
   } catch (error) {
     console.error('Error updating category language:', error);
     res.status(500).json({ message: 'Error updating category language', error: error.message });
   }
 };
 
+// ── getPendingAds ─────────────────────────────────────────────────────────────
 exports.getPendingAds = async (req, res) => {
   try {
     const { ownerId } = req.params;
-    console.log('🔍 Debug: ownerId received:', ownerId);
-    
-    // First verify the requesting user owns these websites
-    const websites = await Website.find({ 
-      ownerId: ownerId 
-    });
-    
-    console.log('🔍 Debug: websites found:', websites.length);
-    console.log('🔍 Debug: website details:', websites.map(w => ({ id: w._id, name: w.websiteName })));
-    
-    if (!websites.length) {
-      console.log('❌ Debug: No websites found for owner:', ownerId);
-      return res.status(403).json({ 
-        message: 'No websites found for this owner' 
-      });
-    }
+    const websites = await Website.findByOwner(ownerId);
+    if (!websites.length) return res.status(403).json({ message: 'No websites found for this owner' });
 
-    const websiteIds = websites.map(website => website._id);
-    console.log('🔍 Debug: websiteIds array:', websiteIds);
+    const websiteIds = websites.map(w => w.id.toString());
 
-    // Check all ads first (for debugging)
-    const allAds = await ImportAd.find({});
-    console.log('🔍 Debug: Total ads in database:', allAds.length);
-    console.log('🔍 Debug: All ads websiteSelections:', allAds.map(ad => ({
-      id: ad._id,
-      businessName: ad.businessName,
-      websiteSelections: ad.websiteSelections.map(ws => ({
-        websiteId: ws.websiteId,
-        approved: ws.approved
-      }))
-    })));
+    const { rows: pendingAds } = await query(
+      `SELECT * FROM import_ads
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements(website_selections) AS sel
+         WHERE (sel->>'approved')::boolean = false
+           AND sel->>'websiteId' = ANY($1::text[])
+       )`,
+      [websiteIds]
+    );
 
-    // Add owner verification to the query
-    const pendingAds = await ImportAd.find({
-      'websiteSelections': {
-        $elemMatch: {
-          websiteId: { $in: websiteIds },
-          approved: false
-        }
-      }
-    })
-    .populate({
-      path: 'websiteSelections.websiteId',
-      match: { ownerId: ownerId } // Only populate websites owned by the requesting user
-    })
-    .populate('websiteSelections.categories');
+    const transformedAds = pendingAds.map(ad => {
+      const selections = Array.isArray(ad.website_selections)
+        ? ad.website_selections
+        : JSON.parse(ad.website_selections || '[]');
 
-    console.log('🔍 Debug: Raw pending ads found:', pendingAds.length);
-    console.log('🔍 Debug: Pending ads before transformation:', pendingAds.map(ad => ({
-      id: ad._id,
-      businessName: ad.businessName,
-      websiteSelections: ad.websiteSelections.map(ws => ({
-        websiteId: ws.websiteId,
-        approved: ws.approved,
-        populated: ws.websiteId !== null
-      }))
-    })));
+      const validSelections = selections.filter(sel =>
+        websiteIds.includes(sel.websiteId) && sel.approved === false
+      );
+      if (!validSelections.length) return null;
 
-    // Filter out any selections where websiteId is null (means user doesn't own it)
-    const transformedAds = pendingAds
-      .map(ad => {
-        // Only include website selections the user owns
-        const validSelections = ad.websiteSelections.filter(
-          selection => selection.websiteId !== null
-        );
-
-        console.log('🔍 Debug: Valid selections for ad', ad.businessName, ':', validSelections.length);
-
-        // If no valid selections remain, return null
-        if (validSelections.length === 0) return null;
-
-        return {
-          _id: ad._id,
-          businessName: ad.businessName,
-          businessLink: ad.businessLink,
-          businessLocation: ad.businessLocation,
-          adDescription: ad.adDescription,
-          imageUrl: ad.imageUrl,
-          videoUrl: ad.videoUrl,
-          pdfUrl: ad.pdfUrl,
-          websiteDetails: validSelections.map(selection => ({
-            website: selection.websiteId,
-            categories: selection.categories,
-            approved: selection.approved
-          }))
-        };
-      })
-      .filter(ad => ad !== null); // Remove any null entries
-
-    console.log('🔍 Debug: Final transformed ads:', transformedAds.length);
-    console.log('🔍 Debug: Sending response:', JSON.stringify(transformedAds, null, 2));
+      const website = websites.find(w => w.id.toString() === validSelections[0]?.websiteId);
+      return {
+        _id: ad.id,
+        businessName: ad.business_name,
+        businessLink: ad.business_link,
+        businessLocation: ad.business_location,
+        adDescription: ad.ad_description,
+        imageUrl: ad.image_url,
+        videoUrl: ad.video_url,
+        pdfUrl: ad.pdf_url,
+        websiteDetails: validSelections.map(sel => ({
+          website: website || { id: sel.websiteId },
+          categories: sel.categories,
+          approved: sel.approved
+        }))
+      };
+    }).filter(Boolean);
 
     res.status(200).json(transformedAds);
   } catch (error) {
-    console.error('❌ Server error:', error);
+    console.error('Server error in getPendingAds:', error);
     res.status(500).json({ message: 'Error fetching pending ads', error: error.message });
   }
 };
 
+// ── approveAdForWebsite ───────────────────────────────────────────────────────
 exports.approveAdForWebsite = async (req, res) => {
   try {
     const { adId, websiteId } = req.params;
 
-    // First verify the ad and website exist
     const ad = await ImportAd.findById(adId);
     const website = await Website.findById(websiteId);
 
-    if (!ad || !website) {
-      return res.status(404).json({ 
-        message: `${!ad ? 'Ad' : 'Website'} not found` 
-      });
-    }
+    if (!ad || !website) return res.status(404).json({ message: `${!ad ? 'Ad' : 'Website'} not found` });
 
-    // Find the website selection that matches our websiteId
-    const websiteSelection = ad.websiteSelections.find(
-      ws => ws.websiteId.toString() === websiteId
-    );
+    const selections = Array.isArray(ad.website_selections)
+      ? ad.website_selections
+      : JSON.parse(ad.website_selections || '[]');
 
-    if (!websiteSelection) {
-      return res.status(404).json({ 
-        message: 'This ad is not associated with the specified website' 
-      });
-    }
+    const idx = selections.findIndex(sel => sel.websiteId === websiteId || sel.websiteId === websiteId.toString());
+    if (idx === -1) return res.status(404).json({ message: 'Ad not associated with this website' });
 
-    // Update the approval status
-    const updatedAd = await ImportAd.findOneAndUpdate(
-      { 
-        _id: adId,
-        'websiteSelections.websiteId': websiteId 
-      },
-      {
-        $set: {
-          'websiteSelections.$.approved': true,
-          'websiteSelections.$.approvedAt': new Date()
-        }
-      },
-      { 
-        new: true,
-        runValidators: true 
-      }
-    ).populate('websiteSelections.websiteId websiteSelections.categories');
+    selections[idx] = { ...selections[idx], approved: true, approvedAt: new Date() };
+    const allApproved = selections.every(sel => sel.approved);
 
-    if (!updatedAd) {
-      return res.status(500).json({ 
-        message: 'Error updating ad approval status' 
-      });
-    }
-
-    // Check if all websites are now approved
-    const allWebsitesApproved = updatedAd.websiteSelections.every(ws => ws.approved);
-
-    // If all websites are approved, update the main confirmed status
-    if (allWebsitesApproved && !updatedAd.confirmed) {
-      updatedAd.confirmed = true;
-      await updatedAd.save();
-    }
-
-    res.status(200).json({
-      message: 'Ad approved successfully',
-      ad: updatedAd,
-      allApproved: allWebsitesApproved
+    const updated = await ImportAd.update(adId, {
+      websiteSelections: selections,
+      ...(allApproved ? { confirmed: true } : {})
     });
+
+    res.status(200).json({ message: 'Ad approved successfully', ad: updated, allApproved });
 
   } catch (error) {
     console.error('Ad approval error:', error);
-    res.status(500).json({ 
-      message: 'Error processing ad approval', 
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Error processing approval', error: error.message });
   }
 };
 
+// ── getWebOwnerBalance ────────────────────────────────────────────────────────
 exports.getWebOwnerBalance = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
-    }
+    if (!userId) return res.status(400).json({ message: 'User ID is required' });
 
     const balance = await WebOwnerBalance.findOne({ userId });
-
-    if (!balance) {
-      return res.status(404).json({ message: 'No balance found for this user' });
-    }
+    if (!balance) return res.status(404).json({ message: 'No balance found for this user' });
 
     res.status(200).json(balance);
   } catch (error) {
     console.error('Error fetching balance:', error);
-    res.status(500).json({ 
-      message: 'Error fetching balance', 
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Error fetching balance', error: error.message });
   }
 };
 
+// ── getDetailedEarnings ───────────────────────────────────────────────────────
 exports.getDetailedEarnings = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!userId) return res.status(400).json({ message: 'User ID is required' });
 
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
-    }
+    const { rows: payments } = await query(
+      `SELECT p.id, p.amount, p.currency, p.created_at AS payment_date,
+              ia.business_name, ia.business_location, ia.business_link, ia.ad_owner_email AS advertiser_email,
+              p.tx_ref AS payment_reference
+       FROM payments p
+       JOIN import_ads ia ON ia.id = p.ad_id
+       WHERE p.web_owner_id=$1 AND p.status='successful' AND p.withdrawn=false
+       ORDER BY p.created_at DESC`,
+      [userId]
+    );
 
-    // Find all successful payments for this web owner
-    const payments = await Payment.aggregate([
-      {
-        $match: {
-          webOwnerId: userId,
-          status: 'successful',
-          withdrawn: false
-        }
-      },
-      {
-        // Join with ImportAd to get business details
-        $lookup: {
-          from: 'importads',
-          localField: 'adId',
-          foreignField: '_id',
-          as: 'adDetails'
-        }
-      },
-      {
-        $unwind: '$adDetails'
-      },
-      {
-        // Format the output
-        $project: {
-          _id: 1,
-          amount: 1,
-          currency: 1,
-          paymentDate: '$createdAt',
-          businessName: '$adDetails.businessName',
-          businessLocation: '$adDetails.businessLocation',
-          businessLink: '$adDetails.businessLink',
-          advertiserEmail: '$adDetails.adOwnerEmail',
-          paymentReference: '$tx_ref'
-        }
-      },
-      {
-        // Sort by payment date, most recent first
-        $sort: { paymentDate: -1 }
-      }
-    ]);
-
-    // Get the total balance
     const balanceRecord = await WebOwnerBalance.findOne({ userId });
 
-    // Group payments by month
     const groupedPayments = payments.reduce((acc, payment) => {
-      const monthYear = new Date(payment.paymentDate).toLocaleString('en-US', {
-        month: 'long',
-        year: 'numeric'
-      });
-
-      if (!acc[monthYear]) {
-        acc[monthYear] = {
-          totalAmount: 0,
-          payments: []
-        };
-      }
-
+      const monthYear = new Date(payment.payment_date).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      if (!acc[monthYear]) acc[monthYear] = { totalAmount: 0, payments: [] };
       acc[monthYear].payments.push(payment);
-      acc[monthYear].totalAmount += payment.amount;
-
+      acc[monthYear].totalAmount += parseFloat(payment.amount);
       return acc;
     }, {});
 
-    const response = {
+    res.status(200).json({
       totalBalance: {
-        totalEarnings: balanceRecord?.totalEarnings || 0,
-        availableBalance: balanceRecord?.availableBalance || 0
+        totalEarnings: balanceRecord?.total_earnings || 0,
+        availableBalance: balanceRecord?.available_balance || 0
       },
       monthlyEarnings: Object.entries(groupedPayments).map(([month, data]) => ({
-        month,
-        totalAmount: data.totalAmount,
-        payments: data.payments
+        month, totalAmount: data.totalAmount, payments: data.payments
       }))
-    };
-
-    res.status(200).json(response);
+    });
   } catch (error) {
     console.error('Error fetching detailed earnings:', error);
-    res.status(500).json({
-      message: 'Error fetching detailed earnings',
-      error: error.message
-    });
+    res.status(500).json({ message: 'Error fetching detailed earnings', error: error.message });
   }
 };

@@ -1,77 +1,59 @@
-// 4. Create scheduled job - AdApprovalJob.js
+// AdApprovalJob.js — PostgreSQL version
 const cron = require('node-cron');
-const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
-const mongoose = require('mongoose');
+const { query } = require('../../config/db');
 
-// Function to auto-approve ads after rejection window expires
 const autoApproveExpiredAds = async () => {
-  const session = await mongoose.startSession();
-  
   try {
-    console.log('Running auto-approval job for expired rejection windows...');
-    
+    console.log('Running auto-approval job...');
     const now = new Date();
-    
-    await session.withTransaction(async () => {
-      // Find all ads with expired rejection windows that are still pending approval
-      const adsToApprove = await ImportAd.find({
-        'websiteSelections': {
-          $elemMatch: {
-            status: 'pending_approval',
-            rejectionWindow: { $lt: now },
-            canBeRejected: true
-          }
-        }
-      }).session(session);
 
-      let approvedCount = 0;
+    const { rows: adsToProcess } = await query(
+      `SELECT id, website_selections FROM import_ads
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements(website_selections) sel
+         WHERE sel->>'status' = 'pending_approval'
+           AND (sel->>'canBeRejected')::boolean = true
+           AND (sel->>'rejectionWindow')::timestamptz < $1
+       )`,
+      [now]
+    );
 
-      for (const ad of adsToApprove) {
-        let adModified = false;
-        
-        for (const selection of ad.websiteSelections) {
-          if (
-            selection.status === 'pending_approval' &&
-            selection.rejectionWindow < now &&
-            selection.canBeRejected
-          ) {
-            selection.status = 'active';
-            selection.approved = true;
-            selection.approvedAt = now;
-            selection.canBeRejected = false;
-            adModified = true;
-            approvedCount++;
-          }
-        }
+    let approvedCount = 0;
+    for (const ad of adsToProcess) {
+      const selections = Array.isArray(ad.website_selections)
+        ? ad.website_selections
+        : JSON.parse(ad.website_selections || '[]');
 
-        if (adModified) {
-          // Check if all selections are now approved
-          const allApproved = ad.websiteSelections.every(sel => sel.approved);
-          if (allApproved) {
-            ad.confirmed = true;
-          }
-          
-          await ad.save({ session });
+      let modified = false;
+      for (const sel of selections) {
+        if (sel.status === 'pending_approval' && sel.canBeRejected && new Date(sel.rejectionWindow) < now) {
+          sel.status       = 'active';
+          sel.approved     = true;
+          sel.approvedAt   = now;
+          sel.canBeRejected = false;
+          modified = true;
+          approvedCount++;
         }
       }
 
-      console.log(`Auto-approved ${approvedCount} ad selections`);
-    });
+      if (modified) {
+        const allApproved = selections.every(s => s.approved);
+        await query(
+          `UPDATE import_ads SET website_selections=$1, confirmed=$2 WHERE id=$3`,
+          [JSON.stringify(selections), allApproved, ad.id]
+        );
+      }
+    }
 
+    console.log(`Auto-approved ${approvedCount} ad selections`);
   } catch (error) {
     console.error('Error in auto-approval job:', error);
-  } finally {
-    await session.endSession();
   }
 };
 
-// Run every 30 seconds for testing (adjust as needed)
 const scheduleAutoApproval = () => {
   cron.schedule('*/30 * * * * *', autoApproveExpiredAds);
   console.log('Auto-approval job scheduled to run every 30 seconds');
 };
 
-module.exports = {
-  autoApproveExpiredAds,
-  scheduleAutoApproval
-};
+module.exports = { autoApproveExpiredAds, scheduleAutoApproval };

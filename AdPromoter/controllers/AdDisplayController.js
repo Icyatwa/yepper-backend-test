@@ -1,9 +1,8 @@
-// AdDisplayController.js
-const mongoose = require('mongoose');
+// AdDisplayController.js — PostgreSQL version
+const { query } = require('../../config/db');
 const AdCategory = require('../models/CreateCategoryModel');
-const Website = require('../models/CreateWebsiteModel');
-const ImportAd = require('../../AdOwner/models/WebAdvertiseModel');
-const PaymentTracker = require('../../AdOwner/models/PaymentTracker');
+const Website    = require('../models/CreateWebsiteModel');
+const ImportAd   = require('../../AdOwner/models/WebAdvertiseModel');
 
 function extractDomain(url) {
   try {
@@ -14,97 +13,69 @@ function extractDomain(url) {
 
 async function isAllowedDomain(categoryId, reqHeaders) {
   const referer = reqHeaders.referer || reqHeaders.origin || '';
-
-  // No referer at all = block. We know the registered domain, no reason to be lenient.
   if (!referer) return false;
-
-  const category = await AdCategory.findById(categoryId).populate('websiteId').lean();
-  const registeredLink = category?.websiteId?.websiteLink;
+  const category = await AdCategory.findById(categoryId);
+  const website  = category ? await Website.findById(category.website_id) : null;
+  const registeredLink = website?.website_link;
   if (!registeredLink) return false;
-
-  const registered = extractDomain(registeredLink);
-  const incoming   = extractDomain(referer);
-
-  return !!(registered && incoming && registered === incoming);
+  return extractDomain(registeredLink) === extractDomain(referer);
 }
 
 exports.displayAd = async (req, res) => {
   try {
-    // CORS is handled by server-level middleware in server.js
-    
     const { categoryId } = req.query;
+    if (!categoryId) return res.json({ html: '' });
 
-    let categoryObjId;
-    try { categoryObjId = new mongoose.Types.ObjectId(categoryId); } catch (e) { return res.json({ html: '' }); }
+    const adCategory = await AdCategory.findById(categoryId);
+    if (!adCategory) return res.json({ html: '' });
 
-    const adCategory = await AdCategory.findById(categoryObjId);
-    if (!adCategory) {
-      return res.json({ html: '' });
-    }
-    
-    const ads = await ImportAd.find({
-      _id: { $in: adCategory.selectedAds },
-      'websiteSelections': {
-        $elemMatch: {
-          websiteId: adCategory.websiteId,
-          categories: categoryObjId,
-          approved: true,
-          status: 'active'
-        }
-      }
-    });
+    const selectedAds = Array.isArray(adCategory.selected_ads)
+      ? adCategory.selected_ads
+      : JSON.parse(adCategory.selected_ads || '[]');
 
-    if (!ads || ads.length === 0) {
-      return res.json({ html: '' });
-    }
+    if (!selectedAds.length) return res.json({ html: '' });
 
-    const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
+    // Fetch active ads from JSONB
+    const { rows: ads } = await query(
+      `SELECT * FROM import_ads
+       WHERE id = ANY($1::uuid[])
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(website_selections) sel
+           WHERE sel->>'websiteId' = $2
+             AND (sel->>'approved')::boolean = true
+             AND sel->>'status' = 'active'
+             AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+               WHERE cat_id = $3
+             )
+         )`,
+      [selectedAds, adCategory.website_id?.toString(), categoryId]
+    );
 
-    const adsHtml = adsToShow
-      .map((ad) => {
-        if (!ad) return '';
+    if (!ads.length) return res.json({ html: '' });
 
-        try {
-          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/1200x630/667eea/ffffff?text=Ad+Image';
-          const targetUrl = ad.businessLink.startsWith('http') ? 
-            ad.businessLink : `https://${ad.businessLink}`;
-          
-          return `
-            <div class="sp-item" 
-                  data-ad-id="${ad._id}"
-                  data-category-id="${categoryId}"
-                  data-website-id="${adCategory.websiteId}">
-              <a href="${targetUrl}" 
-                  class="sp-link" 
-                  target="_blank" 
-                  rel="noopener"
-                  data-tracking="true">
-                <div class="sp-content">
-                    <img class="sp-image" 
-                         src="${imageUrl}" 
-                         alt="${ad.businessName}" 
-                         loading="lazy">
-                  <div class="sp-text-content">
-                    <h3 class="sp-business-name">${ad.businessName}</h3>
-                    <p class="sp-description">${ad.adDescription}</p>
-                    <button class="sp-cta" type="button">
-                      Visit Website
-                    </button>
-                  </div>
+    const adsToShow = ads.slice(0, adCategory.user_count || ads.length);
+    const adsHtml = adsToShow.map(ad => {
+      try {
+        const imageUrl = ad.image_url || 'https://via.placeholder.com/1200x630/667eea/ffffff?text=Ad+Image';
+        const targetUrl = (ad.business_link || '').startsWith('http') ? ad.business_link : `https://${ad.business_link}`;
+        return `
+          <div class="sp-item" data-ad-id="${ad.id}" data-category-id="${categoryId}" data-website-id="${adCategory.website_id}">
+            <a href="${targetUrl}" class="sp-link" target="_blank" rel="noopener" data-tracking="true">
+              <div class="sp-content">
+                <img class="sp-image" src="${imageUrl}" alt="${ad.business_name}" loading="lazy">
+                <div class="sp-text-content">
+                  <h3 class="sp-business-name">${ad.business_name}</h3>
+                  <p class="sp-description">${ad.ad_description || ''}</p>
+                  <button class="sp-cta" type="button">Visit Website</button>
                 </div>
-              </a>
-            </div>
-          `;
-        } catch (error) {
-          console.error('Error generating ad HTML:', error);
-          return '';
-        }
-      })
-      .filter(html => html)
-      .join('');
-    
-    const finalHtml = `<div class="sp-container">${adsHtml}</div>`;
-    return res.json({ html: finalHtml });
+              </div>
+            </a>
+          </div>`;
+      } catch (e) { return ''; }
+    }).filter(Boolean).join('');
+
+    return res.json({ html: `<div class="sp-container">${adsHtml}</div>` });
   } catch (error) {
     console.error('Error displaying ad:', error);
     return res.json({ html: '' });
@@ -113,117 +84,55 @@ exports.displayAd = async (req, res) => {
 
 exports.searchAd = async (req, res) => {
   try {
-    // CORS is handled by server-level middleware in server.js
-    
-    //const { categoryId } = req.query;
-    const { categoryId,searchTerm } = req.query;
-    //const { categoryId,searchTerm } = req.params;
-
-    let categoryObjId2;
-    try { categoryObjId2 = new mongoose.Types.ObjectId(categoryId); } catch (e) { return res.json({ message: 'Invalid categoryId' }); }
-
-  // Escape any special characters (if needed)
-  let searchEscape = searchTerm.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
-  // Create the regex pattern
-  let searchRegex = new RegExp("([\\s\\S]*?)"+searchEscape.split(" ").join("([\\s\\S]*?)")+"([\\s\\S]*?)");
+    const { categoryId, searchTerm } = req.query;
+    if (!categoryId) return res.json({ message: 'Missing categoryId' });
 
     const adCategory = await AdCategory.findById(categoryId);
-    if (!adCategory) {
-      return res.json({ message: "Can't Find AdCategory "+categoryId });
-    }
-    
-    const ads = await ImportAd.find({
-      _id: { $in: adCategory.selectedAds },
-      'websiteSelections': {
-        $elemMatch: {
-          websiteId: adCategory.websiteId,
-          categories: categoryObjId2,
-          approved: true,
-          status: 'active'
-        }
-      },
-    $or: [
-    {businessName: searchRegex},
-    {businessLink: searchRegex},
-    {adDescription: searchRegex}
-    ]
+    if (!adCategory) return res.json({ message: `Can't Find AdCategory ${categoryId}` });
+
+    const selectedAds = Array.isArray(adCategory.selected_ads)
+      ? adCategory.selected_ads
+      : JSON.parse(adCategory.selected_ads || '[]');
+
+    const term = `%${(searchTerm || '').toLowerCase()}%`;
+
+    const { rows: ads } = await query(
+      `SELECT * FROM import_ads
+       WHERE id = ANY($1::uuid[])
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(website_selections) sel
+           WHERE sel->>'websiteId' = $2
+             AND (sel->>'approved')::boolean = true
+             AND sel->>'status' = 'active'
+             AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements_text(sel->'categories') cat_id
+               WHERE cat_id = $3
+             )
+         )
+         AND (
+           LOWER(business_name) LIKE $4
+           OR LOWER(business_link) LIKE $4
+           OR LOWER(ad_description) LIKE $4
+         )`,
+      [selectedAds, adCategory.website_id?.toString(), categoryId, term]
+    );
+
+    if (!ads.length) return res.json({ message: 'No Ads Found' });
+
+    const ad = ads[0];
+    const targetUrl = (ad.business_link || '').startsWith('http') ? ad.business_link : `https://${ad.business_link}`;
+    const desc = (ad.ad_description || '');
+    return res.json({
+      title: ad.business_name,
+      link: targetUrl,
+      description: desc.length > 80 ? desc.substring(0, 80) + '...' : desc,
+      image: ad.image_url || 'https://via.placeholder.com/600x300',
     });
-    if (!ads || ads.length === 0) {
-      return res.json({message:"No Ads Found"});
-    }
-
-    const adsToShow = ads.slice(0, adCategory.userCount || ads.length);
-
-    const adsJSON = adsToShow
-      .map((ad) => {
-        if (!ad) return '';
-
-        try {
-          const websiteSelection = ad.websiteSelections.find(
-            sel => sel.websiteId.toString() === adCategory.websiteId.toString() &&
-                  sel.approved
-          );
-
-          const imageUrl = ad.imageUrl || 'https://via.placeholder.com/600x300';
-          const targetUrl = ad.businessLink.startsWith('http') ? 
-            ad.businessLink : `https://${ad.businessLink}`;
-          
-          // Generate description from available data
-          const description = ad.adDescription || 
-                            `Visit ${ad.businessName} for great products and services.`;
-          
-          // Truncate description based on container size - more aggressive for small spaces
-          const shortDescription = description.length > 80 ? 
-            description.substring(0, 80) + '...' : description;
-
-          // Add data attributes for tracking with new design
-      //return `{"ad_id":"${ad._id}","category_id":"${categoryId}","website_id":"${adCategory.websiteId}","link":"${targetUrl}","cover":"${imageUrl}","business_name":"${ad.businessName}","description":"${shortDescription}"}`;
-      /*return {"ad_id":ad._id,
-        "category_id":categoryId,
-        "website_id":adCategory.websiteId,
-        "link":targetUrl,
-                "cover":imageUrl,
-        "business_name":ad.businessName,
-        "description":shortDescription
-      };*/
-      return {
-        "title":ad.businessName,
-        "link":targetUrl,
-        "description":shortDescription,
-                "image":imageUrl,
-      };
-        } catch (error) {
-          console.error('Error generating ad JSON:', error);
-          return {"message":`Error generating ad JSON: ${error}`};
-        }
-      })
-      //.filter(html => html)
-      //.join('');
-  console.log(adsJSON);
-  console.log("AdsJSON LEN? ",adsJSON.length);
-    //const finalJSON = adsJSON[0];
-  const finalJSON = adsJSON.length ? adsJSON[0] : { message: 'No matching ads found' };
-    //return res.json({link: finalJSON[0].link,cover: finalJSON[0].cover,type:"ad"});
-    return res.json(finalJSON);
   } catch (error) {
-    console.error('Error displaying ad:', error);
-    return res.json({ message: "ERROR CAUGHT" });
+    console.error('Error in searchAd:', error);
+    return res.json({ message: 'ERROR CAUGHT' });
   }
 };
-
-function getNoAdsHtml() {
-  return `
-    <div class="yepper-ad-container">
-      <div class="yepper-ad-empty backdrop-blur-md bg-gradient-to-b from-gray-800/30 to-gray-900/10 rounded-xl overflow-hidden border border-gray-200/20 transition-all duration-300">
-        <div class="yepper-ad-empty-title font-bold tracking-wide">Available Advertising Space</div>
-        <a href="https://yepper.cc/select" class="yepper-ad-empty-link group relative overflow-hidden transition-all duration-300">
-          <div class="absolute inset-0 bg-gray-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-          <span class="relative z-10 uppercase tracking-wider">Advertise Here</span>
-        </a>
-      </div>
-    </div>
-  `;
-}
 
 exports.incrementView = async (req, res) => {
   try {
@@ -231,52 +140,14 @@ exports.incrementView = async (req, res) => {
     if (!adId || adId === 'undefined' || adId === 'null') {
       return res.status(400).json({ success: false, message: 'Invalid adId' });
     }
-    const { cid } = req.query;
-
-    // Use a transaction to ensure both updates succeed or fail together
-    const session = await ImportAd.startSession();
-    console.log(session);
-    await session.withTransaction(async () => {
-      // Increment views on the ad
-      const updatedAd = await ImportAd.findByIdAndUpdate(
-        adId, 
-        { $inc: { views: 1 } },
-        { new: true, select: 'views userId categoryId', session }
-      );
-
-      if (!updatedAd) {
-        throw new Error('Ad not found');
-      }
-
-      // Update the payment tracker's view count
-    /*
-    const updatedTracker = await PaymentTracker.findOneAndUpdate(
-        { adId },
-        { $inc: { currentViews: 1 } },
-        { new: true, session }
-      );
-    */
-    const updatedTracker = await PaymentTracker.findOneAndUpdate(
-      { adId },
-      {
-      $inc: { currentViews: 1 },
-      $setOnInsert: {
-        userId: updatedAd.userId,
-        categoryId: updatedAd.categoryId,
-        paymentDate: new Date(),
-        amount: 0,
-        viewsRequired: 0,
-      }
-      },
-      { new: true, upsert: true }
+    await ImportAd.incrementViews(adId);
+    // Upsert payment tracker via raw query
+    await query(
+      `INSERT INTO payment_trackers (ad_id, current_views)
+       VALUES ($1, 1)
+       ON CONFLICT (ad_id) DO UPDATE SET current_views = payment_trackers.current_views + 1`,
+      [adId]
     );
-
-      if (!updatedTracker) {
-        throw new Error('Payment tracker not found');
-      }
-    });
-
-    await session.endSession();
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Error incrementing view:', error);
@@ -290,18 +161,7 @@ exports.incrementClick = async (req, res) => {
     if (!adId || adId === 'undefined' || adId === 'null') {
       return res.status(400).json({ success: false, message: 'Invalid adId' });
     }
-    const { cid } = req.query;
-
-    const updatedAd = await ImportAd.findByIdAndUpdate(
-      adId, 
-      { $inc: { clicks: 1 } },
-      { new: true, select: 'clicks' }
-    );
-
-    if (!updatedAd) {
-      throw new Error('Ad not found');
-    }
-
+    await ImportAd.incrementClicks(adId);
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Error incrementing click:', error);
