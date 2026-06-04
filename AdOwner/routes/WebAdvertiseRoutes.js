@@ -17,16 +17,13 @@ router.post('/', authMiddleware, WebAdvertiseController.createImportAd);
 router.put('/ads/:adId/update-selections', authMiddleware, WebAdvertiseController.updateAdSelections);
 router.get('/my-ads', authMiddleware, WebAdvertiseController.getMyAds);
 router.get('/ad-details/:adId', WebAdvertiseController.getAd);
-router.get('/:adId', authMiddleware, WebAdvertiseController.getAdDetails);
 router.get('/budget', authMiddleware, WebAdvertiseController.getAdBudget);
-router.post('/:adId/add-selections', authMiddleware, WebAdvertiseController.addWebsiteSelectionsToAd);
-router.put('/:adId/update', authMiddleware, WebAdvertiseController.updateAdDetails);
 router.get('/available/:websiteId', authMiddleware, WebAdvertiseController.getAvailableAdsForWebsite);
 router.post('/select-for-website', authMiddleware, WebAdvertiseController.selectAdForWebsite);
 router.get('/mixed/:userId', WebAdvertiseController.getUserMixedAds);
-router.get('/:adId/refund-info', authMiddleware, WebAdvertiseController.getAdRefundInfo);
 router.get('/reassignable', authMiddleware, WebAdvertiseController.getReassignableAds);
-router.post('/:adId/reassign', authMiddleware, WebAdvertiseController.reassignAdWithRefund);
+// NOTE: payment routes registered below, then wildcard /:adId routes last
+
 
 
 router.use('/payment/*', (req, res, next) => {
@@ -721,6 +718,13 @@ router.post('/payment/webhook', PaymentController.handleWebhook);
 
 router.get('/available', authMiddleware, availableAdsController.getAvailableAds);
 router.post('/assign', authMiddleware, availableAdsController.assignAdToCategoryWithPayment);
+
+// Wildcard :adId routes must come AFTER all specific named routes
+router.get('/:adId', authMiddleware, WebAdvertiseController.getAdDetails);
+router.post('/:adId/add-selections', authMiddleware, WebAdvertiseController.addWebsiteSelectionsToAd);
+router.put('/:adId/update', authMiddleware, WebAdvertiseController.updateAdDetails);
+router.get('/:adId/refund-info', authMiddleware, WebAdvertiseController.getAdRefundInfo);
+router.post('/:adId/reassign', authMiddleware, WebAdvertiseController.reassignAdWithRefund);
 
 router.all('/payment/*', (req, res) => {
   console.log('=== UNMATCHED PAYMENT ROUTE ===');

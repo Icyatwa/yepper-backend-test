@@ -1666,6 +1666,8 @@ exports.createImportAd = [upload.single('file'), async (req, res) => {
     if (websiteSelections.length > 0) {
       const adWithPaymentInfo = {
         ...populatedAd,
+        adId: (savedAd.id || savedAd._id).toString(),
+        _id: (savedAd.id || savedAd._id).toString(),
         paymentRequired: true,
         paymentSelections: websiteSelections.map(selection => {
           const category = categories.find(cat =>
