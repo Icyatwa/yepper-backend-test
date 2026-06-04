@@ -122,7 +122,7 @@ exports.initiateVerification = [authenticateToken, async (req, res) => {
     // Reuse existing token if the same owner already started for this domain
     let existing = await Website.findOne({
       websiteLink,
-      ownerId: req.user._id.toString(),
+      ownerId: req.user.id.toString(),
       verificationStatus: 'pending',
     }).lean();
 
@@ -198,7 +198,7 @@ exports.verifyDomain = [authenticateToken, async (req, res) => {
 exports.prepareWebsite = [upload.single('file'), authenticateToken, async (req, res) => {
   try {
     const { websiteName, websiteLink } = req.body;
-    const ownerId = req.user._id.toString();
+    const ownerId = req.user.id.toString();
 
     if (!websiteName || !websiteLink) {
       return res.status(400).json({ message: 'Website name and link are required' });
@@ -270,7 +270,7 @@ exports.uploadWebsiteImage = [
         return res.status(404).json({ message: 'Website not found' });
       }
       
-      if (website.ownerId !== req.user._id.toString()) {
+      if (website.ownerId !== req.user.id.toString()) {
         return res.status(403).json({ message: 'Unauthorized' });
       }
 
@@ -299,7 +299,7 @@ exports.uploadWebsiteImage = [
 exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
   try {
     const { websiteName, websiteLink, imageUrl, businessCategories, monthlyTraffic, verificationToken } = req.body;
-    const ownerId = req.user._id.toString();
+    const ownerId = req.user.id.toString();
 
     if (!websiteName || !websiteLink || !businessCategories || !Array.isArray(businessCategories)) {
       return res.status(400).json({ 
@@ -396,7 +396,7 @@ exports.createWebsiteWithCategories = [authenticateToken, async (req, res) => {
 exports.createWebsite = [upload.single('file'), authenticateToken, async (req, res) => {
   try {
     const { websiteName, websiteLink } = req.body;
-    const ownerId = req.user._id.toString();
+    const ownerId = req.user.id.toString();
 
     if (!websiteName || !websiteLink) {
       return res.status(400).json({ message: 'Website name and link are required' });
