@@ -167,15 +167,6 @@ exports.initiatePayment = async (req, res) => {
     const baseReference = `bulk_${adId}_${Date.now()}`;
     const tx_ref = `${baseReference}_flw`;
 
-    const paymentUrl = await createFlutterwaveLink({
-      tx_ref,
-      amount: totalAmount,
-      currency: 'RWF',
-      redirect_url: `${process.env.FRONTEND_URL}/payment/callback`,
-      customer: { email: ad.ad_owner_email, name: ad.business_name },
-      description: `Payment for ${validatedSelections.length} ad placement(s)`,
-    });
-
     for (let index = 0; index < validatedSelections.length; index++) {
       const selection = validatedSelections[index];
       await Payment.create({
@@ -190,7 +181,6 @@ exports.initiatePayment = async (req, res) => {
         amount: selection.price,
         currency: 'RWF',
         status: 'pending',
-        flutterwaveData: index === 0 ? { paymentUrl } : {},
         metadata: {
           bulkPaymentIndex: index,
           totalInGroup: validatedSelections.length,
@@ -203,7 +193,6 @@ exports.initiatePayment = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      paymentUrl,
       baseReference,
       tx_ref,
       totalAmount,
