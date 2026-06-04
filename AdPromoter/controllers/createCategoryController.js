@@ -9,6 +9,25 @@ const Website = require('../models/CreateWebsiteModel');
 const WebOwnerBalance = require('../models/WebOwnerBalanceModel');
 const Payment = require('../../AdOwner/models/PaymentModel');
 
+function catToClient(c) {
+  if (!c) return null;
+  return {
+    ...c,
+    _id: c.id,
+    categoryName: c.category_name,
+    spaceType: c.space_type,
+    websiteId: c.website_id,
+    ownerId: c.owner_id,
+    apiCodes: typeof c.api_codes === 'string' ? JSON.parse(c.api_codes) : (c.api_codes || {}),
+    customAttributes: typeof c.custom_attributes === 'string' ? JSON.parse(c.custom_attributes) : (c.custom_attributes || {}),
+    placementMode: c.placement_mode,
+    placeholderDiv: c.placeholder_div,
+    webOwnerEmail: c.web_owner_email,
+    defaultLanguage: c.default_language,
+    customization: typeof c.customization === 'string' ? JSON.parse(c.customization) : (c.customization || null),
+  };
+}
+
 const generateScriptTag = (categoryId) => {
   const BACKEND = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
   const src = `${BACKEND}/api/ads/script/${categoryId}`;
@@ -526,7 +545,7 @@ exports.getCategoriesByWebsite = async (req, res) => {
   try {
     const all = await AdCategory.findByWebsite(websiteId);
     const total = all.length;
-    const categories = all.slice((page - 1) * limit, page * limit);
+    const categories = all.slice((page - 1) * limit, page * limit).map(catToClient);  // ← map
     res.status(200).json({ categories, totalPages: Math.ceil(total / limit), currentPage: page });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch categories', error: error.message });

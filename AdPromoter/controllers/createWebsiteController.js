@@ -9,6 +9,23 @@ const dns = require('dns').promises;
 const crypto = require('crypto');
 require('dotenv').config();
 
+function toClient(w) {
+  if (!w) return null;
+  return {
+    ...w,
+    _id: w.id,
+    websiteName: w.website_name,
+    websiteLink: w.website_link,
+    monthlyTraffic: w.monthly_traffic,
+    trafficTier: w.traffic_tier,
+    siteScript: w.site_script,
+    imageUrl: w.image_url,
+    ownerId: w.owner_id,
+    isBusinessCategoriesSelected: w.is_business_categories_selected,
+    verificationStatus: w.verification_status,
+  };
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -335,7 +352,7 @@ exports.getWebsitesByOwner = async (req, res) => {
   const { ownerId } = req.params;
   try {
     const websites = await Website.findByOwner(ownerId);
-    res.status(200).json(websites);
+    res.status(200).json(websites.map(toClient));  // ← map
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch websites', error });
   }
@@ -346,7 +363,7 @@ exports.getWebsiteById = async (req, res) => {
   try {
     const website = await Website.findById(websiteId);
     if (!website) return res.status(404).json({ message: 'Website not found' });
-    res.status(200).json(website);
+    res.status(200).json(toClient(website));  // ← wrap
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch website', error });
   }
