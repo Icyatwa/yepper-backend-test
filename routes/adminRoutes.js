@@ -37,6 +37,12 @@ router.post('/grants/:grantId/resend-email',   adminAuth, ctrl.resendGrantEmail)
 router.get('/grant-check',  ctrl.checkGrantToken);
 router.post('/grant-apply', ctrl.applyGrant);
 
+// ── User content (websites, ad spaces, ads) ───────────────────────────────────
+router.get('/users/:userId/content',                      adminAuth, ctrl.getUserContent);
+router.delete('/users/:userId/websites/:websiteId',       adminAuth, ctrl.deleteWebsite);
+router.delete('/users/:userId/ad-spaces/:spaceId',        adminAuth, ctrl.deleteAdSpace);
+router.delete('/users/:userId/ads/:adId',                 adminAuth, ctrl.deleteAd);
+
 // ── User-facing endpoint (requires user JWT) ──────────────────────────────────
 router.get('/user-grant-status', authMiddleware, ctrl.getUserGrantStatus);
 

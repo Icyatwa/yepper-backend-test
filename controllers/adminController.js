@@ -527,3 +527,79 @@ exports.getUserGrantStatus = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/users/:userId/content  — all content created by a user
+// Returns their websites + ad spaces + ads
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getUserContent = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const Website   = require('../AdPromoter/models/CreateWebsiteModel');
+    const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
+    const ImportAd  = require('../AdOwner/models/WebAdvertiseModel');
+
+    const [websites, adSpaces, ads] = await Promise.all([
+      Website.findByOwner(userId),
+      AdCategory.findByOwner(userId),
+      ImportAd.findByUser(userId),
+    ]);
+
+    res.json({ success: true, websites, adSpaces, ads });
+  } catch (err) {
+    console.error('getUserContent error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/admin/users/:userId/websites/:websiteId
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteWebsite = async (req, res) => {
+  try {
+    const { websiteId } = req.params;
+    const Website    = require('../AdPromoter/models/CreateWebsiteModel');
+    const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
+
+    // Delete all ad spaces for this website first
+    const { query } = require('../config/db');
+    await query(`DELETE FROM ad_categories WHERE website_id = $1`, [websiteId]);
+    await Website.delete(websiteId);
+
+    res.json({ success: true, message: 'Website and its ad spaces deleted.' });
+  } catch (err) {
+    console.error('deleteWebsite error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/admin/users/:userId/ad-spaces/:spaceId
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteAdSpace = async (req, res) => {
+  try {
+    const { spaceId } = req.params;
+    const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
+    await AdCategory.delete(spaceId);
+    res.json({ success: true, message: 'Ad space deleted.' });
+  } catch (err) {
+    console.error('deleteAdSpace error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/admin/users/:userId/ads/:adId
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteAd = async (req, res) => {
+  try {
+    const { adId } = req.params;
+    const ImportAd = require('../AdOwner/models/WebAdvertiseModel');
+    await ImportAd.delete(adId);
+    res.json({ success: true, message: 'Ad deleted.' });
+  } catch (err) {
+    console.error('deleteAd error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
