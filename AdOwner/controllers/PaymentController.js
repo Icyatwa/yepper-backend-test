@@ -444,7 +444,7 @@ exports.verifyPaymentNonTransactional = async (req, res) => {
 exports.generateFlutterwavePaymentUrl = async (paymentData) => {
   try {
     if (!FLW_TEST_SECRET_KEY) throw new Error('Flutterwave API key not configured.');
-    const frontendUrl = process.env.FRONTEND_URL || 'https://yepper.cc';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://yeffddfdper.vercel.app';
     return await createFlutterwaveLink({
       tx_ref: paymentData.tx_ref,
       amount: paymentData.amount,

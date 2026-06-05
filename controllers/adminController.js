@@ -9,7 +9,7 @@ const ImportAd    = require('../AdOwner/models/WebAdvertiseModel');
 const { Resend }  = require('resend');
 
 const resend       = new Resend(process.env.RESEND_API_KEY);
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://yepper.cc';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://yeffddfdper.vercel.app';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

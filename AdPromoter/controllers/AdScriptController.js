@@ -201,7 +201,7 @@ exports.serveAdScript = async (req, res) => {
     }
 
     const BACKEND  = process.env.BACKEND_URL || 'https://yepper-backend.onrender.com';
-    const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
+    const FRONTEND = process.env.FRONTEND_URL || 'https://yeffddfdper.vercel.app';
 
     // Use stealth API paths (/api/p, /api/c) so generated URLs don't match
     // common ad-blocker filter patterns like "/api/ads/" or "/ad-categories/"

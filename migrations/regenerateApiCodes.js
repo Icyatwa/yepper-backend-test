@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 const AdCategory = require('../AdPromoter/models/CreateCategoryModel');
 
 const BACKEND  = process.env.BACKEND_URL  || 'https://yepper-backend.onrender.com';
-const FRONTEND = process.env.FRONTEND_URL || 'https://yepper.cc';
+const FRONTEND = process.env.FRONTEND_URL || 'https://yeffddfdper.vercel.app';
 
 async function run() {
   await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-auth', {
