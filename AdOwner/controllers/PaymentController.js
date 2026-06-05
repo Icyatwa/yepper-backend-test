@@ -220,6 +220,15 @@ exports.verifyPayment = async (req, res) => {
     const identifier = transaction_id || tx_ref;
     if (!identifier) return res.status(400).json({ error: 'Transaction ID or reference required' });
 
+    // Check DB first — if webhook already processed this, return success immediately
+    // without re-querying Flutterwave (avoids 400 race condition in sandbox/live)
+    let earlyCheck = null;
+    if (transaction_id) earlyCheck = await Payment.findByPaymentId(String(transaction_id));
+    if (!earlyCheck && tx_ref) earlyCheck = await Payment.findByTxRef(tx_ref);
+    if (earlyCheck?.status === 'successful') {
+      return res.status(200).json({ success: true, message: 'Payment already processed successfully', payment: earlyCheck });
+    }
+
     const flwResponse = await verifyFlutterwaveTransaction(identifier);
     const flwData = flwResponse.data;
 
@@ -594,8 +603,8 @@ exports.handleProcessWallet = async (req, res) => {
         }
 
         await client.query(
-          `UPDATE ad_categories SET selected_ads = array_append(COALESCE(selected_ads, ARRAY[]::text[]), $1)
-           WHERE id = $2 AND NOT ($1 = ANY(COALESCE(selected_ads, ARRAY[]::text[])))`,
+          `UPDATE ad_categories SET selected_ads = array_append(COALESCE(selected_ads, ARRAY[]::uuid[]), $1)
+           WHERE id = $2 AND NOT ($1 = ANY(COALESCE(selected_ads, ARRAY[]::uuid[])))`,
           [sel.adId, sel.categoryId]
         );
 
@@ -851,7 +860,7 @@ exports.completeAdPlacement = async (adId, websiteId, categoryId, paymentId, cli
   }
 
   await client.query(`UPDATE import_ads SET website_selections = $1, available_for_reassignment = false WHERE id = $2`, [JSON.stringify(websiteSelections), adId]);
-  await client.query(`UPDATE ad_categories SET selected_ads = array_append(COALESCE(selected_ads, ARRAY[]::text[]), $1) WHERE id = $2 AND NOT ($1 = ANY(COALESCE(selected_ads, ARRAY[]::text[])))`, [adId, categoryId]);
+  await client.query(`UPDATE ad_categories SET selected_ads = array_append(COALESCE(selected_ads, ARRAY[]::uuid[]), $1) WHERE id = $2 AND NOT ($1 = ANY(COALESCE(selected_ads, ARRAY[]::uuid[])))`, [adId, categoryId]);
 
   await client.query(
     `INSERT INTO wallets (owner_id, owner_type, owner_email, balance, total_earned, total_spent, last_updated)
