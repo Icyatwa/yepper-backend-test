@@ -85,7 +85,7 @@ const ImportAd = {
        )`,
       [ids]
     );
-    return rows;
+    return rows.map(rowToAd);
   },
 
   // Find ads where any websiteSelection is within the rejection window for the given categories
@@ -106,7 +106,7 @@ const ImportAd = {
        )`,
       [ids, now]
     );
-    return rows;
+    return rows.map(rowToAd);
   },
 
   async countByUser(userId) {
@@ -116,4 +116,32 @@ const ImportAd = {
 };
 
 function toSnake(s){ return s.replace(/[A-Z]/g,c=>`_${c.toLowerCase()}`); }
+
+// Maps a raw PostgreSQL snake_case row to the camelCase shape the frontend expects
+function rowToAd(row) {
+  if (!row) return null;
+  const sel = row.website_selections;
+  return {
+    id:                       row.id,
+    _id:                      row.id,
+    userId:                   row.user_id,
+    adOwnerEmail:             row.ad_owner_email,
+    imageUrl:                 row.image_url,
+    pdfUrl:                   row.pdf_url,
+    videoUrl:                 row.video_url,
+    businessName:             row.business_name,
+    businessLink:             row.business_link,
+    businessLocation:         row.business_location,
+    adDescription:            row.ad_description,
+    websiteSelections:        Array.isArray(sel) ? sel
+                                : (typeof sel === 'string' ? JSON.parse(sel) : []),
+    confirmed:                row.confirmed,
+    clicks:                   row.clicks,
+    views:                    row.views,
+    availableForReassignment: row.available_for_reassignment,
+    createdAt:                row.created_at,
+    updatedAt:                row.updated_at,
+  };
+}
+
 module.exports = ImportAd;

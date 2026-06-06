@@ -1468,7 +1468,30 @@ function parseWebsiteSelections(raw) {
 async function populateAd(ad) {
   if (!ad) return null;
   const Website = require('../../AdPromoter/models/CreateWebsiteModel');
-  const selections = parseWebsiteSelections(ad.website_selections);
+  // Normalize: accept either a raw PG row (snake_case) or an already-mapped camelCase object
+  const isRawRow = ad.business_name !== undefined;
+  const base = isRawRow ? {
+    id:                       ad.id,
+    _id:                      ad.id,
+    userId:                   ad.user_id,
+    adOwnerEmail:             ad.ad_owner_email,
+    imageUrl:                 ad.image_url,
+    pdfUrl:                   ad.pdf_url,
+    videoUrl:                 ad.video_url,
+    businessName:             ad.business_name,
+    businessLink:             ad.business_link,
+    businessLocation:         ad.business_location,
+    adDescription:            ad.ad_description,
+    confirmed:                ad.confirmed,
+    clicks:                   ad.clicks,
+    views:                    ad.views,
+    availableForReassignment: ad.available_for_reassignment,
+    createdAt:                ad.created_at,
+    updatedAt:                ad.updated_at,
+  } : { ...ad };
+
+  const rawSel = ad.website_selections !== undefined ? ad.website_selections : ad.websiteSelections;
+  const selections = parseWebsiteSelections(rawSel);
   const populated = await Promise.all(selections.map(async sel => {
     const website = sel.websiteId
       ? await Website.findById(sel.websiteId).catch(() => null)
@@ -1478,7 +1501,7 @@ async function populateAd(ad) {
     ));
     return { ...sel, websiteId: website || sel.websiteId, categories: cats.filter(Boolean) };
   }));
-  return { ...ad, websiteSelections: populated };
+  return { ...base, websiteSelections: populated };
 }
 
 async function populateAds(ads) {
