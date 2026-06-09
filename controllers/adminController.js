@@ -671,6 +671,14 @@ exports.checkAdSpaceAdvertisers = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.deleteWebsite = async (req, res) => {
   try {
+    // Nullify payments referencing ad_categories belonging to this website
+    await query(
+      `UPDATE payments SET category_id = NULL
+       WHERE category_id IN (
+         SELECT id FROM ad_categories WHERE website_id = $1::uuid
+       )`,
+      [req.params.websiteId]
+    );
     await query(`DELETE FROM ad_categories WHERE website_id = $1::uuid`, [req.params.websiteId]);
     await query(`DELETE FROM websites       WHERE id         = $1::uuid`, [req.params.websiteId]);
     res.json({ success: true, message: 'Website and its ad spaces deleted.' });
@@ -685,6 +693,11 @@ exports.deleteWebsite = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.deleteAdSpace = async (req, res) => {
   try {
+    // Nullify payments referencing this ad_category before deleting
+    await query(
+      `UPDATE payments SET category_id = NULL WHERE category_id = $1::uuid`,
+      [req.params.spaceId]
+    );
     await query(`DELETE FROM ad_categories WHERE id = $1::uuid`, [req.params.spaceId]);
     res.json({ success: true, message: 'Ad space deleted.' });
   } catch (err) {
