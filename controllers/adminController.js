@@ -671,6 +671,11 @@ exports.checkAdSpaceAdvertisers = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.deleteWebsite = async (req, res) => {
   try {
+    // Nullify payments that directly reference this website
+    await query(
+      `UPDATE payments SET website_id = NULL WHERE website_id = $1::uuid`,
+      [req.params.websiteId]
+    );
     // Nullify payments referencing ad_categories belonging to this website
     await query(
       `UPDATE payments SET category_id = NULL
