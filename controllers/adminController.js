@@ -566,6 +566,106 @@ exports.getUserContent = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/users/:userId/websites/:websiteId/advertiser-check
+// Returns advertisers whose ads are currently placed on any space of this website
+// ─────────────────────────────────────────────────────────────────────────────
+exports.checkWebsiteAdvertisers = async (req, res) => {
+  try {
+    const { websiteId } = req.params;
+
+    // Find all ad spaces for this website that have active ads (selected_ads is non-empty)
+    const { rows: spaces } = await query(
+      `SELECT id, category_name, space_type, selected_ads
+       FROM ad_categories
+       WHERE website_id = $1::uuid
+         AND selected_ads IS NOT NULL
+         AND array_length(selected_ads, 1) > 0`,
+      [websiteId]
+    );
+
+    if (spaces.length === 0) {
+      return res.json({ success: true, hasAdvertisers: false, advertisers: [] });
+    }
+
+    // Collect all unique ad IDs across all spaces
+    const allAdIds = [...new Set(spaces.flatMap(s => s.selected_ads || []))];
+
+    if (allAdIds.length === 0) {
+      return res.json({ success: true, hasAdvertisers: false, advertisers: [] });
+    }
+
+    const { rows: ads } = await query(
+      `SELECT id, business_name, ad_owner_email, user_id
+       FROM import_ads
+       WHERE id = ANY($1::uuid[])`,
+      [allAdIds]
+    );
+
+    // Map each ad back to which space(s) it occupies
+    const spaceMap = {};
+    for (const s of spaces) spaceMap[s.id] = { name: s.category_name, type: s.space_type };
+
+    const advertisers = ads.map(a => {
+      const occupiedSpaces = spaces
+        .filter(s => (s.selected_ads || []).some(sid => String(sid) === String(a.id)))
+        .map(s => `${s.category_name} (${s.space_type})`);
+      return {
+        adId: a.id,
+        businessName: a.business_name,
+        email: a.ad_owner_email,
+        spaces: occupiedSpaces,
+      };
+    });
+
+    res.json({ success: true, hasAdvertisers: true, advertisers });
+  } catch (err) {
+    console.error('checkWebsiteAdvertisers error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/admin/users/:userId/ad-spaces/:spaceId/advertiser-check
+// Returns advertisers whose ads are placed on this specific ad space
+// ─────────────────────────────────────────────────────────────────────────────
+exports.checkAdSpaceAdvertisers = async (req, res) => {
+  try {
+    const { spaceId } = req.params;
+
+    const { rows: spaces } = await query(
+      `SELECT id, category_name, space_type, selected_ads
+       FROM ad_categories
+       WHERE id = $1::uuid`,
+      [spaceId]
+    );
+
+    const space = spaces[0];
+    if (!space || !space.selected_ads || space.selected_ads.length === 0) {
+      return res.json({ success: true, hasAdvertisers: false, advertisers: [] });
+    }
+
+    const { rows: ads } = await query(
+      `SELECT id, business_name, ad_owner_email, user_id
+       FROM import_ads
+       WHERE id = ANY($1::uuid[])`,
+      [space.selected_ads]
+    );
+
+    const advertisers = ads.map(a => ({
+      adId: a.id,
+      businessName: a.business_name,
+      email: a.ad_owner_email,
+      spaces: [`${space.category_name} (${space.space_type})`],
+    }));
+
+    res.json({ success: true, hasAdvertisers: true, advertisers });
+  } catch (err) {
+    console.error('checkAdSpaceAdvertisers error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/admin/users/:userId/websites/:websiteId
 // Deletes ad_categories (CASCADE would handle it but let's be explicit) + website
 // ─────────────────────────────────────────────────────────────────────────────
